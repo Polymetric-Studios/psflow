@@ -88,7 +88,7 @@ LLMs participate in the graph in two distinct roles:
 
 **LLM as oracle** — the LLM makes routing decisions that affect execution topology. Branch guards, race scoring, and loop termination conditions can delegate to the LLM instead of using deterministic expressions. The annotation convention uses `guard_llm`, `criterion_llm`, or `while_llm` keys to signal that the decision point calls the adapter. This keeps the graph structure declarative while allowing intelligent control flow.
 
-**LLM context accumulation** — as data flows through the graph, LLM nodes may need context from earlier nodes. When using the Claude Code CLI adapter, this happens naturally via the persistent conversation. For stateless adapters, the blackboard supports a `ConversationHistory` type that accumulates formatted context windows, passed to subsequent LLM calls automatically. The accumulator node (3.2.4) supports this pattern directly.
+**LLM context accumulation** — as data flows through the graph, LLM nodes may need context from earlier nodes. When using the Claude Code CLI adapter, this happens naturally via the persistent conversation. For stateless adapters, the blackboard supports a `ConversationHistory` type that accumulates formatted context windows, passed to subsequent LLM calls automatically. The accumulator node (3.3.4) supports this pattern directly.
 
 ### Node Lifecycle
 
@@ -135,7 +135,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
 | 1.2.1 | [ ] | Mermaid flowchart parser | Parse standard Mermaid flowchart syntax into internal graph representation (nodes, edges, subgraphs, labels, edge labels); extract `%% @NodeID` annotations into structured config via dot-path expansion. Use `nom` or `pest` for parsing | P0 |
-| 1.2.2 | [ ] | Define annotation schema | Formal spec for the `%% @<NodeID> <key.path>: <value>` convention: supported value types, reserved keys (handler, inputs, outputs, config, exec), dot-path nesting rules | P0 |
+| 1.2.2 | [ ] | Define annotation schema | Formal spec for the `%% @<NodeID> <key.path>: <value>` convention: supported value types, reserved keys (handler, inputs, outputs, config, exec), dot-path nesting rules. Include `exec.*` namespace for node-level directives: `exec.strategy` (fan_out, race), `exec.fan_key`, `exec.retry`, `exec.max_attempts`, `exec.backoff`, `exec.loop`, `exec.loop_over`. Include `*_llm` sub-schema for oracle keys: `guard_llm`, `criterion_llm`, `while_llm` with nested `adapter`, `prompt`, `output`, `fallback`/`fallback_field` properties. Define `score`/`quality_score` output port convention for deterministic race resolution | P0 |
 | 1.2.3 | [ ] | Annotated Mermaid loader | Parse `.mmd` file, combine topology and extracted annotations into a fully typed, executable Graph | P0 |
 | 1.2.4 | [ ] | Convention layer for control flow | Subgraph labels or node name prefixes that the parser recognizes as parallel, loop, retry, race directives | P1 |
 | 1.2.5 | [ ] | Graph → annotated Mermaid export | Serialize internal graph back to valid `.mmd` with `%%` annotations for visualization and round-tripping | P1 |
@@ -163,13 +163,14 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.3.5 | [ ] | Event-driven entry points | External events can push data into designated entry nodes, triggering downstream execution via channels | P1 |
 | 1.3.6 | [ ] | Executor strategy as swappable trait | Common `Executor` trait; graph doesn't know which strategy runs it; selected at runtime via trait objects or compile-time via generics | P0 |
 
-### 1.T.8 Execution engine tests
+### 1.T (continued) — Execution Engine Tests
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 1.T.8a | [ ] | Node lifecycle state machine tests | Verify all valid transitions succeed, invalid transitions return errors, events emitted on each transition | P0 |
-| 1.T.8b | [ ] | Topological executor tests | Linear chain, diamond dependency, fan-out/fan-in; verify correct execution order and parallel wave grouping | P0 |
-| 1.T.8c | [ ] | Executor trait conformance tests | Generic test harness that any `Executor` impl must pass: single node, linear chain, error propagation | P0 |
+| 1.T.8 | [ ] | Node lifecycle state machine tests | Verify all valid transitions succeed, invalid transitions return errors, events emitted on each transition | P0 |
+| 1.T.9 | [ ] | Topological executor tests | Linear chain, diamond dependency, fan-out/fan-in; verify correct execution order and parallel wave grouping | P0 |
+| 1.T.10 | [ ] | Executor trait conformance tests | Generic test harness that any `Executor` impl must pass: single node, linear chain, error propagation | P0 |
+| 1.T.11 | [ ] | Reactive executor tests | Node fires when all inputs satisfied; changes propagate downstream; verify no re-execution of unchanged branches | P1 |
 
 ---
 
@@ -186,7 +187,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.1.5 | [ ] | Loop nodes | Repeat (fixed count), while (guard condition), map-over-collection (fan-out/fan-in) | P0 |
 | 2.1.6 | [ ] | Retry with backoff | Configurable max attempts, backoff strategy (fixed, exponential), timeout per attempt | P1 |
 | 2.1.7 | [ ] | Subgraph invocation node | Call a named graph as a function; input/output port mapping; supports recursion guard | P1 |
-| 2.1.8 | [ ] | LLM guard for branch nodes | `guard_llm` annotation key: branch delegates decision to AI adapter instead of deterministic expression. Prompt template with context interpolation, expects bool or enum response. Falls back to deterministic guard if adapter unavailable | P1 |
+| 2.1.8 | [ ] | LLM guard for branch nodes | `guard_llm` annotation key with sub-schema: `adapter` (name or "default"), `prompt` (template with `{ctx.*}` interpolation), `output` (bool or enum), `fallback` (deterministic expression) or `fallback_field` (sibling config key used as deterministic alternative). Branch delegates decision to AI adapter; falls back to deterministic guard if adapter unavailable or on error | P1 |
 | 2.1.9 | [ ] | LLM criterion for race nodes | `criterion_llm` annotation key: race delegates candidate selection to AI adapter. Adapter receives all candidate outputs, returns index of winner. Supports scoring rubric in prompt | P1 |
 | 2.1.10 | [ ] | LLM condition for loop termination | `while_llm` annotation key: loop continues/stops based on AI adapter judgment. Adapter receives accumulated state, returns bool. Supports "is this good enough?" pattern | P1 |
 
@@ -204,11 +205,11 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 2.T.1 | [ ] | Control flow primitive tests | Each primitive (sequence, parallel, race, branch, loop, retry) tested in isolation with mock nodes; verify ordering, cancellation, and error semantics | P0 |
+| 2.T.1 | [ ] | Control flow primitive tests | Each primitive (sequence, parallel, race, branch, loop, retry, fan-out/fan-in) tested in isolation with mock nodes; verify ordering, cancellation, fan-out collection distribution, and error semantics | P0 |
 | 2.T.2 | [ ] | Property-based tests for control flow | `proptest` — randomly compose control flow trees, verify invariants: no double-execution, all nodes reach terminal state, cancellation propagates | P1 |
 | 2.T.3 | [ ] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
 | 2.T.4 | [ ] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
-| 2.T.5 | [ ] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results | P1 |
+| 2.T.5 | [ ] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results. Include case: snapshot with in-flight LLM call (pending adapter response) resumes correctly | P1 |
 | 2.T.6 | [ ] | LLM guard tests | Branch node with `guard_llm`: mock adapter returns true/false, verify correct path taken. Test fallback to deterministic guard when adapter unavailable | P1 |
 | 2.T.7 | [ ] | LLM race criterion tests | Race node with `criterion_llm`: mock adapter selects candidate by index, verify correct winner propagated and siblings cancelled | P1 |
 | 2.T.8 | [ ] | LLM loop termination tests | Loop with `while_llm`: mock adapter returns true N times then false, verify correct iteration count and accumulated state | P1 |
@@ -223,7 +224,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 |----|---|------|-------------------------------|-----|
 | 3.1.1 | [ ] | Node type registry | Register handler implementations by type name; lookup at graph load time. Use `inventory` crate or explicit registration | P0 |
 | 3.1.2 | [ ] | Handler trait | Standard async handler trait: `async fn execute(&self, inputs, ctx, config) -> Result<Outputs>`; with lifecycle hooks (init, cleanup) | P0 |
-| 3.1.3 | [ ] | Built-in utility nodes | Passthrough, transform/map, delay, log, merge, split, gate (conditional pass) | P1 |
+| 3.1.3 | [ ] | Built-in utility nodes | Passthrough, transform/map, delay, log, merge, split, gate (conditional pass), race_select (collect race candidates and pick winner via score or LLM criterion), reactive_entry (designated re-entry point for reactive executor), event_entry (entry point for event-driven triggers), snapshot (checkpoint execution state for resume) | P1 |
 | 3.1.4 | [ ] | Error handling nodes | Catch node (wraps children, routes errors), fallback (try A else B), error transform | P1 |
 | 3.1.5 | [ ] | Plugin/extension loading | Load node handlers from shared libraries (`.so`/`.dylib`) at runtime via `libloading`, or compile-time via feature flags | P2 |
 
@@ -237,7 +238,8 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 3.2.4 | [ ] | Claude Code CLI adapter | Subprocess lifecycle management: spawn session, send prompts via stdin, parse responses from stdout, maintain conversation context across calls, clean shutdown. Primary development adapter | P0 |
 | 3.2.5 | [ ] | Anthropic API adapter | Direct HTTP via `reqwest` to Messages API. Stateless; context assembled from blackboard per-call. Supports tool_use and structured output via API features | P1 |
 | 3.2.6 | [ ] | OpenAI-compatible adapter | HTTP to any OpenAI-shaped endpoint (ollama, vllm, litellm). Capability detection via model metadata. For local models and cost optimization | P1 |
-| 3.2.7 | [ ] | Mock adapter | Deterministic responses from a response map (prompt pattern → canned response). For testing and CI. Supports recording mode: run with real adapter, save responses, replay in tests | P0 |
+| 3.2.7 | [ ] | Mock adapter | Deterministic responses from a response map (prompt pattern → canned response). For testing and CI | P0 |
+| 3.2.11 | [ ] | Mock adapter recording mode | Run graph with real adapter, save all request/response pairs keyed by prompt hash. Replay in tests via mock adapter for deterministic CI without live LLM calls | P1 |
 | 3.2.8 | [ ] | Adapter registry & selection | Register adapters by name; select per-graph or per-node via annotation (`%% @NODE config.adapter: "claude_cli"`). Default adapter configurable at engine level | P0 |
 | 3.2.9 | [ ] | Conversation context accumulation | `ConversationHistory` blackboard type: formatted message list (role, content, tool_results). Automatically passed to stateless adapters. Claude CLI adapter uses native conversation instead | P1 |
 | 3.2.10 | [ ] | Prompt template engine | Variable interpolation from context/inputs (`{ctx.key}`, `{inputs.data}`), conditional sections, iteration over collections. Compiled at graph load time for validation | P0 |
@@ -246,7 +248,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 3.3.1 | [ ] | LLM call node | Delegates to AI adapter (3.2). Configurable model, prompt template with variable interpolation from context, structured output parsing via adapter's capabilities. Supports both transform (data in → data out) and oracle (judge/decide) modes | P0 |
+| 3.3.1 | [ ] | LLM call node | Delegates to AI adapter trait (3.2.1) via prompt template engine (3.2.10). Configurable model, prompt template with variable interpolation from context, structured output parsing via adapter's capabilities. Supports both transform (data in → data out) and oracle (judge/decide) modes | P0 |
 | 3.3.2 | [ ] | HTTP / API call node | Method, URL template, headers, body template, response extraction via `reqwest` | P1 |
 | 3.3.3 | [ ] | File I/O nodes | Read file, write file, glob/list, with path templating from context | P1 |
 | 3.3.4 | [ ] | Accumulator / memory node | Append results to a running collection in context; supports `ConversationHistory` type for LLM context windows. Configurable scope (global, subgraph, node) | P1 |
@@ -265,7 +267,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 3.T.7 | [ ] | Mock adapter recording tests | Run graph with real adapter in recording mode, save responses, replay with mock adapter, verify identical graph outputs | P1 |
 | 3.T.8 | [ ] | Claude Code CLI adapter tests | Subprocess lifecycle: spawn, send prompt, receive response, maintain conversation, clean shutdown. Test timeout handling and crash recovery | P1 |
 | 3.T.9 | [ ] | Capability validation tests | Graph with nodes requiring structured_output; adapter without it → validation error at load time, not runtime | P0 |
-| 3.T.10 | [ ] | Conversation context accumulation tests | Multiple LLM nodes in sequence; verify ConversationHistory builds correctly on blackboard; stateless adapter receives full context on each call | P1 |
+| 3.T.10 | [ ] | Conversation context accumulation tests | Multiple LLM nodes in sequence; verify ConversationHistory builds correctly on blackboard; stateless adapter receives full context on each call. Include case: ConversationHistory exceeds token budget — verify truncation/windowing strategy applies | P1 |
 | 3.T.11 | [ ] | Prompt template tests | Variable interpolation, missing variable errors, conditional sections, collection iteration, compile-time validation | P0 |
 
 ---
@@ -310,17 +312,19 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 5.1.2 | [ ] | WASM compilation target | Compile core to WASM via `wasm-bindgen`; JS/TS bindings for browser-based tooling and web execution | P1 |
 | 5.1.3 | [ ] | C FFI for Unity integration | Expose core engine as C-compatible shared library for Hot City and other native consumers via `cbindgen` | P1 |
 | 5.1.4 | [ ] | PyO3 Python bindings | Python module wrapping core engine for data science and scripting integration | P2 |
-| 5.1.5 | [ ] | Portable integration test suite | Graph + expected output pairs in JSON; runner harness that executes against native, WASM, and PyO3 targets; used as acceptance gate for all bindings | P1 |
-| 5.1.6 | [ ] | Cross-binding conformance tests | Same test graphs executed through C FFI, WASM JS, and Python; results compared to native Rust baseline | P1 |
+| 5.1.5 | [ ] | Portable integration test suite | Graph + expected output pairs in JSON; runner harness that loads test definitions and executes against native Rust. Defines the canonical expected-output baseline all bindings must match | P1 |
+| 5.1.6 | [ ] | Cross-binding conformance CI | CI pipeline that runs the test suite (5.1.5) through each binding target (C FFI, WASM JS, Python) and diffs results against the native Rust baseline. Failures block release | P1 |
 | 5.1.7 | [ ] | Cross-compilation CI | Build and test matrix for native targets (macOS, Linux, Windows), WASM, and Python wheels | P2 |
 
 ---
 
 ## Dependency Map
 
-**Critical path:** 1.1 → 1.2 → 1.3 → 2.1 → 2.2 → 3.1 → 3.2 → 3.3 → 4.1 → 4.2
+**Critical path:** 1.1 → 1.2 → 1.3 → 2.1 → 2.2 → 3.1 → 3.3 → 4.1 → 4.2
 
-Phase 5 runs in parallel once Phases 1–2 are stable. AI adapters (3.2) can begin as soon as the handler trait (3.1.2) is defined — the adapter trait is independent of graph topology. Claude Code CLI adapter (3.2.4) and mock adapter (3.2.7) should land first to unblock Ergon integration (3.3) and testing respectively. LLM oracle tasks (2.1.8–2.1.10) depend on both the adapter trait (3.2.1) and the control flow primitives (2.1.4–2.1.6).
+**Parallel track:** 3.1.2 (handler trait) → 3.2.1 (adapter trait) → 3.2.4 (CLI adapter) + 3.2.7 (mock adapter) → 3.3.1 (LLM call node)
+
+Phase 5 runs in parallel once Phases 1–2 are stable. AI adapters (3.2) can begin as soon as the handler trait (3.1.2) is defined — the adapter trait is independent of graph topology. The adapter parallel track runs alongside the rest of 3.1; it does not block on 3.1 completing. Claude Code CLI adapter (3.2.4) and mock adapter (3.2.7) should land first to unblock Ergon integration (3.3) and testing respectively. LLM oracle tasks (2.1.8–2.1.10) depend on both the adapter trait (3.2.1) and the control flow primitives (2.1.4–2.1.6).
 
 ## Priority Key
 
