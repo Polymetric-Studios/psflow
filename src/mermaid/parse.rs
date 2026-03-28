@@ -511,3 +511,70 @@ mod tests {
         assert_eq!(parsed.annotations.len(), 0);
     }
 }
+
+#[cfg(test)]
+mod fuzz_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Parser must never panic on arbitrary input
+    proptest! {
+        #[test]
+        fn parse_never_panics(input in "\\PC{0,500}") {
+            let _ = parse(&input);
+        }
+
+        #[test]
+        fn parse_never_panics_with_mermaid_chars(
+            input in prop::collection::vec(
+                prop::sample::select(vec![
+                    "graph TD\n", "flowchart LR\n",
+                    "A", "B", "C", "D", "node1",
+                    "[", "]", "(", ")", "{", "}", "((", "))", "[[", "]]",
+                    " --> ", " --- ", " -.-> ", " ==> ",
+                    "|label|", "|yes|", "|no|",
+                    "\n    subgraph S\n", "\n    end\n",
+                    "\n    %% @A handler: test\n",
+                    "\n    %% comment\n",
+                    " ", "\n", "\t",
+                ]),
+                0..30
+            )
+        ) {
+            let text: String = input.into_iter().collect();
+            let _ = parse(&text);
+        }
+
+        #[test]
+        fn parse_node_ref_never_panics(input in "\\PC{0,200}") {
+            let _ = parse_node_ref(&input);
+        }
+
+        #[test]
+        fn parse_shape_and_label_never_panics(input in "\\PC{0,200}") {
+            let _ = parse_shape_and_label(&input);
+        }
+
+        #[test]
+        fn parse_annotation_never_panics(input in "\\PC{0,200}") {
+            let _ = parse_annotation(&input);
+        }
+
+        #[test]
+        fn valid_graph_always_parses(
+            direction in prop::sample::select(vec!["TD", "LR", "BT", "RL"]),
+            node_count in 2..10usize,
+        ) {
+            let mut lines = vec![format!("graph {direction}")];
+            let ids: Vec<String> = (0..node_count).map(|i| format!("N{i}")).collect();
+            // Chain all nodes
+            for i in 0..node_count - 1 {
+                lines.push(format!("    {}[Node {}] --> {}[Node {}]", ids[i], i, ids[i+1], i+1));
+            }
+            let input = lines.join("\n");
+            let result = parse(&input).unwrap();
+            prop_assert_eq!(result.edges.len(), node_count - 1);
+            prop_assert!(result.nodes.len() >= node_count);
+        }
+    }
+}
