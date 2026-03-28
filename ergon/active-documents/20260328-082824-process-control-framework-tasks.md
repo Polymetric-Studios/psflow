@@ -122,6 +122,18 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.2.4 | [ ] | Convention layer for control flow | Subgraph labels or node name prefixes that the parser recognizes as parallel, loop, retry, race directives | P1 |
 | 1.2.5 | [ ] | Graph → annotated Mermaid export | Serialize internal graph back to valid `.mmd` with `%%` annotations for visualization and round-tripping | P1 |
 
+### 1.T Testing — Core Graph Engine
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 1.T.1 | [ ] | Unit tests for graph construction | Add/remove nodes and edges, port type validation rejects mismatches, duplicate edge detection | P0 |
+| 1.T.2 | [ ] | Unit tests for graph validation | Cycle detection, orphan node detection, missing required inputs, type mismatch reporting | P0 |
+| 1.T.3 | [ ] | Serde round-trip tests | Serialize graph to JSON and back; assert structural equality including subgraphs and port types | P0 |
+| 1.T.4 | [ ] | Mermaid parser tests | Parse representative `.mmd` files covering all node shapes, edge styles, subgraphs, and edge labels; verify extracted topology matches expected graph | P0 |
+| 1.T.5 | [ ] | Annotation extraction tests | Verify dot-path expansion, value type coercion, reserved key handling, malformed annotation error reporting | P0 |
+| 1.T.6 | [ ] | Mermaid round-trip tests | Load `.mmd` → export back to `.mmd` → reload; assert graph equivalence | P1 |
+| 1.T.7 | [ ] | Fuzz the Mermaid parser | `cargo-fuzz` or `proptest` on parser input; no panics, graceful error on malformed input | P1 |
+
 ### 1.3 Execution Engine
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
@@ -132,6 +144,14 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.3.4 | [ ] | Stepped/tick executor | Advance entire graph one evaluation cycle. Maps to BT-style tick, game-loop patterns | P2 |
 | 1.3.5 | [ ] | Event-driven entry points | External events can push data into designated entry nodes, triggering downstream execution via channels | P1 |
 | 1.3.6 | [ ] | Executor strategy as swappable trait | Common `Executor` trait; graph doesn't know which strategy runs it; selected at runtime via trait objects or compile-time via generics | P0 |
+
+### 1.T.8 Execution engine tests
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 1.T.8a | [ ] | Node lifecycle state machine tests | Verify all valid transitions succeed, invalid transitions return errors, events emitted on each transition | P0 |
+| 1.T.8b | [ ] | Topological executor tests | Linear chain, diamond dependency, fan-out/fan-in; verify correct execution order and parallel wave grouping | P0 |
+| 1.T.8c | [ ] | Executor trait conformance tests | Generic test harness that any `Executor` impl must pass: single node, linear chain, error propagation | P0 |
 
 ---
 
@@ -159,6 +179,16 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.2.4 | [ ] | Execution snapshots | Serialize full execution state (node states, blackboard, pending tokens) via `serde` for checkpoint/resume | P1 |
 | 2.2.5 | [ ] | Snapshot resume | Deserialize snapshot and continue execution from checkpoint; critical for long-running LLM workflows | P1 |
 
+### 2.T Testing — Control Flow & State
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 2.T.1 | [ ] | Control flow primitive tests | Each primitive (sequence, parallel, race, branch, loop, retry) tested in isolation with mock nodes; verify ordering, cancellation, and error semantics | P0 |
+| 2.T.2 | [ ] | Property-based tests for control flow | `proptest` — randomly compose control flow trees, verify invariants: no double-execution, all nodes reach terminal state, cancellation propagates | P1 |
+| 2.T.3 | [ ] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
+| 2.T.4 | [ ] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
+| 2.T.5 | [ ] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results | P1 |
+
 ---
 
 ## Phase 3 — Node System & Extensibility
@@ -183,6 +213,16 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 3.2.4 | [ ] | Accumulator / memory node | Append results to a running collection in context; supports conversation history pattern | P1 |
 | 3.2.5 | [ ] | Human-in-the-loop node | Pause execution, present data, wait for external input via channel, resume with response | P2 |
 
+### 3.T Testing — Node System
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 3.T.1 | [ ] | Registry lookup tests | Register, lookup, override, missing handler error; verify `inventory`-based or explicit registration works end-to-end | P0 |
+| 3.T.2 | [ ] | Handler contract tests | Generic test harness any handler must pass: receives correct inputs, context mutations visible, config applied, cleanup called on failure | P0 |
+| 3.T.3 | [ ] | Built-in node tests | Each utility node (passthrough, transform, delay, merge, split, gate) tested with representative inputs | P1 |
+| 3.T.4 | [ ] | Error handling node tests | Catch routes errors correctly, fallback triggers on failure, error transform reshapes error types | P1 |
+| 3.T.5 | [ ] | Integration node tests | LLM call node with mock HTTP, file I/O nodes against temp directories, accumulator state persistence | P1 |
+
 ---
 
 ## Phase 4 — Observability & Tooling
@@ -205,6 +245,14 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 4.2.3 | [ ] | Mermaid live preview | Watch mode: edit Mermaid file, auto-render updated diagram. Integrates with existing Mermaid tooling | P2 |
 | 4.2.4 | [ ] | Visual debugger | Step through execution node-by-node; inspect context/blackboard at each step. Web-based UI via WASM | P2 |
 
+### 4.T Testing — Observability & Tooling
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 4.T.1 | [ ] | Event bus tests | Subscribe, receive expected events for node state changes, unsubscribe stops delivery, no event loss under concurrent execution | P0 |
+| 4.T.2 | [ ] | CLI integration tests | Load `.mmd` file via CLI, execute, verify stdout/exit code; test validation mode, error reporting | P1 |
+| 4.T.3 | [ ] | Execution trace tests | Run known graph, verify trace records correct node order, timing, and data snapshots | P1 |
+
 ---
 
 ## Phase 5 — Bindings & Distribution
@@ -217,8 +265,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 5.1.2 | [ ] | WASM compilation target | Compile core to WASM via `wasm-bindgen`; JS/TS bindings for browser-based tooling and web execution | P1 |
 | 5.1.3 | [ ] | C FFI for Unity integration | Expose core engine as C-compatible shared library for Hot City and other native consumers via `cbindgen` | P1 |
 | 5.1.4 | [ ] | PyO3 Python bindings | Python module wrapping core engine for data science and scripting integration | P2 |
-| 5.1.5 | [ ] | Integration test suite | Comprehensive tests defined as graph + expected output pairs; portable across all binding targets | P1 |
-| 5.1.6 | [ ] | Cross-compilation CI | Build and test matrix for native targets (macOS, Linux, Windows), WASM, and Python wheels | P2 |
+| 5.1.5 | [ ] | Portable integration test suite | Graph + expected output pairs in JSON; runner harness that executes against native, WASM, and PyO3 targets; used as acceptance gate for all bindings | P1 |
+| 5.1.6 | [ ] | Cross-binding conformance tests | Same test graphs executed through C FFI, WASM JS, and Python; results compared to native Rust baseline | P1 |
+| 5.1.7 | [ ] | Cross-compilation CI | Build and test matrix for native targets (macOS, Linux, Windows), WASM, and Python wheels | P2 |
 
 ---
 
