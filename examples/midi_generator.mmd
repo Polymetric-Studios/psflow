@@ -1,0 +1,680 @@
+graph TD
+    subgraph Entry ["event: triggers"]
+        CLI_TRIGGER[CLI Invoke] --> SEED
+        MIDI_IN[MIDI File Input] --> SEED
+        PARAM_CHANGE[Parameter Change] --> REACTIVE_GATE
+    end
+
+    subgraph Init
+        SEED[Seed RNG] --> SONG[Song Config]
+        SONG --> SCALE[Build Scale]
+        SONG --> TEMPO[Tempo Map]
+        SCALE --> SNAPSHOT_INIT[Checkpoint: Init]
+        TEMPO --> SNAPSHOT_INIT
+    end
+
+    subgraph Structure
+        SNAPSHOT_INIT --> CHORDS[Generate Chord Progression]
+        CHORDS --> FORM[Arrange Form]
+        FORM --> HUMAN_FORM{Approve Form?}
+        HUMAN_FORM -->|approved| SNAPSHOT_STRUCT[Checkpoint: Structure]
+        HUMAN_FORM -->|rejected| FORM_TWEAK[Apply Feedback]
+        FORM_TWEAK --> CHORDS
+    end
+
+    subgraph RaceArrangement ["race: arrangements"]
+        SNAPSHOT_STRUCT --> ARR_DENSE[Dense Arrangement]
+        SNAPSHOT_STRUCT --> ARR_SPARSE[Sparse Arrangement]
+        SNAPSHOT_STRUCT --> ARR_BUILDING[Building Arrangement]
+        ARR_DENSE --> ARR_PICK{First Balanced?}
+        ARR_SPARSE --> ARR_PICK
+        ARR_BUILDING --> ARR_PICK
+    end
+
+    subgraph Tracks ["parallel: voices"]
+        ARR_PICK --> MELODY[Melody Track]
+        ARR_PICK --> BASS[Bass Track]
+        ARR_PICK --> DRUMS[Drum Track]
+        ARR_PICK --> PAD[Pad Track]
+    end
+
+    subgraph Melody_Detail ["subgraph: melody_voice"]
+        MELODY --> M_MOTIF[Generate Motifs]
+        M_MOTIF --> M_ACCUM[Accumulate Phrases]
+        M_ACCUM --> M_DEVELOP[Develop Over Sections]
+        M_DEVELOP --> M_VARY[Apply Variation]
+        M_VARY --> M_ORNAMENT[Ornamentation]
+        M_ORNAMENT --> M_EXPR[Add Expression]
+    end
+
+    subgraph Bass_Detail ["subgraph: bass_voice"]
+        BASS --> B_ROOTS[Root Notes]
+        B_ROOTS --> B_ACCUM[Accumulate Bass Line]
+        B_ACCUM --> B_WALK[Walking Lines]
+        B_WALK --> B_APPROACH[Approach Notes]
+        B_APPROACH --> B_EXPR[Add Expression]
+    end
+
+    subgraph Drums_Detail ["subgraph: drum_voice"]
+        DRUMS --> D_GROOVE[Base Groove]
+        D_GROOVE --> D_VARIATION[Section Variations]
+        D_VARIATION --> D_FILL[Place Fills]
+        D_FILL --> D_GHOST[Ghost Notes]
+        D_GHOST --> D_DYNAMICS[Dynamic Shaping]
+    end
+
+    subgraph Pad_Detail ["subgraph: pad_voice"]
+        PAD --> P_VOICE[Voice Chords]
+        P_VOICE --> P_RHYTHM[Rhythmic Pattern]
+        P_RHYTHM --> P_SUSTAIN[Sustain Shaping]
+    end
+
+    subgraph Refine
+        M_EXPR --> MERGE[Merge Tracks]
+        B_EXPR --> MERGE
+        D_DYNAMICS --> MERGE
+        P_SUSTAIN --> MERGE
+        MERGE --> SNAPSHOT_MERGED[Checkpoint: Merged]
+        SNAPSHOT_MERGED --> QUANT[Quantize]
+        QUANT --> HUMANIZE[Humanize]
+        HUMANIZE --> REACTIVE_GATE[Reactive Update Point]
+    end
+
+    subgraph Validate
+        REACTIVE_GATE --> VALIDATE{Harmonically Valid?}
+        VALIDATE -->|yes| DENSITY{Density Balanced?}
+        VALIDATE -->|no| FIX[Fix Clashes]
+        FIX --> MERGE
+        DENSITY -->|yes| HUMAN_MIX{Approve Mix?}
+        DENSITY -->|no| THIN[Thin Overlaps]
+        THIN --> QUANT
+    end
+
+    subgraph Approve
+        HUMAN_MIX -->|approved| MASTER[Master]
+        HUMAN_MIX -->|rejected| MIX_TWEAK[Apply Mix Feedback]
+        MIX_TWEAK --> MERGE
+    end
+
+    subgraph Master
+        MASTER --> VELOCITY_CURVE[Global Velocity Curve]
+        VELOCITY_CURVE --> DYNAMICS[Dynamic Range]
+        DYNAMICS --> FINAL_CHECK{Final Validation}
+        FINAL_CHECK -->|pass| EXPORT_GATE[Ready for Export]
+        FINAL_CHECK -->|fail| DYNAMICS
+    end
+
+    subgraph Export ["parallel: outputs"]
+        EXPORT_GATE --> MIDI_FILE[MIDI File]
+        EXPORT_GATE --> SCORE[Text Score]
+        EXPORT_GATE --> LEAD_SHEET[Lead Sheet]
+        EXPORT_GATE --> MMD[Mermaid Structure]
+        EXPORT_GATE --> HISTORY[Generation History]
+    end
+
+    %% =============================================
+    %% Entry Points — Event-Driven (Phase 1.3.5)
+    %% =============================================
+
+    %% @CLI_TRIGGER handler: event_entry
+    %% @CLI_TRIGGER config.source: "cli"
+    %% @CLI_TRIGGER config.accepts: "SongRequest"
+    %% @CLI_TRIGGER outputs.request: "SongRequest"
+
+    %% @MIDI_IN handler: event_entry
+    %% @MIDI_IN config.source: "file"
+    %% @MIDI_IN config.accepts: "MidiFile"
+    %% @MIDI_IN config.parse: true
+    %% @MIDI_IN outputs.request: "SongRequest"
+
+    %% @PARAM_CHANGE handler: event_entry
+    %% @PARAM_CHANGE config.source: "reactive"
+    %% @PARAM_CHANGE config.accepts: "ParameterDelta"
+    %% @PARAM_CHANGE config.description: "External parameter change triggers re-evaluation from reactive gate"
+    %% @PARAM_CHANGE outputs.delta: "ParameterDelta"
+
+    %% =============================================
+    %% Init
+    %% =============================================
+
+    %% @SEED handler: seed_rng
+    %% @SEED config.seed: "auto"
+    %% @SEED inputs.request: "SongRequest"
+    %% @SEED outputs.rng: "Rng"
+
+    %% @SONG handler: load_config
+    %% @SONG config.defaults.key: "C"
+    %% @SONG config.defaults.mode: "minor"
+    %% @SONG config.defaults.bpm: 120
+    %% @SONG config.defaults.time_sig.num: 4
+    %% @SONG config.defaults.time_sig.den: 4
+    %% @SONG config.defaults.bars: 32
+    %% @SONG config.defaults.swing: 0.0
+    %% @SONG config.defaults.style: "jazz"
+    %% @SONG inputs.rng: "Rng"
+    %% @SONG inputs.request: "SongRequest"
+    %% @SONG outputs.song_config: "SongConfig"
+
+    %% @SCALE handler: build_scale
+    %% @SCALE config.extensions: ["b7", "#11"]
+    %% @SCALE config.avoid_notes: []
+    %% @SCALE inputs.song_config: "SongConfig"
+    %% @SCALE outputs.scale: "Scale"
+
+    %% @TEMPO handler: build_tempo_map
+    %% @TEMPO config.variation: "subtle"
+    %% @TEMPO config.ritardando_final_bars: 2
+    %% @TEMPO inputs.song_config: "SongConfig"
+    %% @TEMPO outputs.tempo_map: "TempoMap"
+
+    %% @SNAPSHOT_INIT handler: snapshot
+    %% @SNAPSHOT_INIT config.label: "init"
+    %% @SNAPSHOT_INIT config.resumable: true
+    %% @SNAPSHOT_INIT inputs.scale: "Scale"
+    %% @SNAPSHOT_INIT inputs.tempo_map: "TempoMap"
+    %% @SNAPSHOT_INIT inputs.song_config: "SongConfig"
+    %% @SNAPSHOT_INIT inputs.rng: "Rng"
+    %% @SNAPSHOT_INIT outputs.scale: "Scale"
+    %% @SNAPSHOT_INIT outputs.tempo_map: "TempoMap"
+    %% @SNAPSHOT_INIT outputs.song_config: "SongConfig"
+    %% @SNAPSHOT_INIT outputs.rng: "Rng"
+
+    %% =============================================
+    %% Structure
+    %% =============================================
+
+    %% @CHORDS handler: generate_chords
+    %% @CHORDS config.grammar: "jazz_ii_V_I"
+    %% @CHORDS config.substitution_chance: 0.2
+    %% @CHORDS config.tritone_sub: true
+    %% @CHORDS config.secondary_dominants: true
+    %% @CHORDS inputs.scale: "Scale"
+    %% @CHORDS inputs.tempo_map: "TempoMap"
+    %% @CHORDS inputs.rng: "Rng"
+    %% @CHORDS outputs.progression: "ChordProgression"
+
+    %% @FORM handler: arrange_form
+    %% @FORM config.structure: ["intro", "A", "A", "B", "A", "B", "outro"]
+    %% @FORM config.intro_bars: 4
+    %% @FORM config.outro_bars: 4
+    %% @FORM config.section_variation: "develop"
+    %% @FORM inputs.progression: "ChordProgression"
+    %% @FORM inputs.song_config: "SongConfig"
+    %% @FORM outputs.form: "SongForm"
+
+    %% @HUMAN_FORM handler: human_in_the_loop
+    %% @HUMAN_FORM config.prompt: "Review chord progression and song form. Approve or request changes."
+    %% @HUMAN_FORM config.timeout_s: 300
+    %% @HUMAN_FORM config.options: ["approved", "rejected"]
+    %% @HUMAN_FORM config.show: "form"
+    %% @HUMAN_FORM inputs.form: "SongForm"
+    %% @HUMAN_FORM inputs.progression: "ChordProgression"
+    %% @HUMAN_FORM outputs.decision: "string"
+    %% @HUMAN_FORM outputs.feedback: "string"
+
+    %% @FORM_TWEAK handler: apply_feedback
+    %% @FORM_TWEAK config.strategy: "reinterpret_as_constraints"
+    %% @FORM_TWEAK inputs.feedback: "string"
+    %% @FORM_TWEAK inputs.song_config: "SongConfig"
+    %% @FORM_TWEAK outputs.song_config: "SongConfig"
+
+    %% @SNAPSHOT_STRUCT handler: snapshot
+    %% @SNAPSHOT_STRUCT config.label: "structure"
+    %% @SNAPSHOT_STRUCT config.resumable: true
+    %% @SNAPSHOT_STRUCT inputs.form: "SongForm"
+    %% @SNAPSHOT_STRUCT inputs.scale: "Scale"
+    %% @SNAPSHOT_STRUCT inputs.tempo_map: "TempoMap"
+    %% @SNAPSHOT_STRUCT inputs.rng: "Rng"
+    %% @SNAPSHOT_STRUCT outputs.form: "SongForm"
+    %% @SNAPSHOT_STRUCT outputs.scale: "Scale"
+    %% @SNAPSHOT_STRUCT outputs.tempo_map: "TempoMap"
+    %% @SNAPSHOT_STRUCT outputs.rng: "Rng"
+
+    %% =============================================
+    %% Race: Arrangements (Phase 2.1.3)
+    %% =============================================
+
+    %% @ARR_DENSE handler: arrange_density
+    %% @ARR_DENSE exec.strategy: "race"
+    %% @ARR_DENSE config.style: "dense"
+    %% @ARR_DENSE config.all_tracks_from: "bar_1"
+    %% @ARR_DENSE inputs.form: "SongForm"
+    %% @ARR_DENSE inputs.rng: "Rng"
+    %% @ARR_DENSE outputs.arrangement: "Arrangement"
+
+    %% @ARR_SPARSE handler: arrange_density
+    %% @ARR_SPARSE exec.strategy: "race"
+    %% @ARR_SPARSE config.style: "sparse"
+    %% @ARR_SPARSE config.solo_intro: true
+    %% @ARR_SPARSE config.max_simultaneous: 2
+    %% @ARR_SPARSE inputs.form: "SongForm"
+    %% @ARR_SPARSE inputs.rng: "Rng"
+    %% @ARR_SPARSE outputs.arrangement: "Arrangement"
+
+    %% @ARR_BUILDING handler: arrange_density
+    %% @ARR_BUILDING exec.strategy: "race"
+    %% @ARR_BUILDING config.style: "building"
+    %% @ARR_BUILDING config.add_track_every_n_bars: 8
+    %% @ARR_BUILDING config.climax_at: 0.75
+    %% @ARR_BUILDING inputs.form: "SongForm"
+    %% @ARR_BUILDING inputs.rng: "Rng"
+    %% @ARR_BUILDING outputs.arrangement: "Arrangement"
+
+    %% @ARR_PICK handler: race_select
+    %% @ARR_PICK config.criterion: "first_balanced"
+    %% @ARR_PICK config.cancel_siblings: true
+    %% @ARR_PICK inputs.arrangement: "Arrangement"
+    %% @ARR_PICK outputs.form: "SongForm"
+
+    %% =============================================
+    %% Tracks — Parallel Voice Generation
+    %% =============================================
+
+    %% @MELODY handler: passthrough
+    %% @MELODY inputs.form: "SongForm"
+    %% @MELODY inputs.scale: "Scale"
+    %% @MELODY inputs.rng: "Rng"
+    %% @MELODY outputs.form: "SongForm"
+    %% @MELODY outputs.scale: "Scale"
+    %% @MELODY outputs.rng: "Rng"
+
+    %% @BASS handler: passthrough
+    %% @BASS inputs.form: "SongForm"
+    %% @BASS inputs.scale: "Scale"
+    %% @BASS inputs.rng: "Rng"
+    %% @BASS outputs.form: "SongForm"
+    %% @BASS outputs.scale: "Scale"
+    %% @BASS outputs.rng: "Rng"
+
+    %% @DRUMS handler: passthrough
+    %% @DRUMS inputs.form: "SongForm"
+    %% @DRUMS inputs.rng: "Rng"
+    %% @DRUMS outputs.form: "SongForm"
+    %% @DRUMS outputs.rng: "Rng"
+
+    %% @PAD handler: passthrough
+    %% @PAD inputs.form: "SongForm"
+    %% @PAD inputs.scale: "Scale"
+    %% @PAD inputs.rng: "Rng"
+    %% @PAD outputs.form: "SongForm"
+    %% @PAD outputs.scale: "Scale"
+    %% @PAD outputs.rng: "Rng"
+
+    %% =============================================
+    %% Melody Subgraph (Phase 2.1.7)
+    %% =============================================
+
+    %% @M_MOTIF handler: generate_motifs
+    %% @M_MOTIF config.count: 3
+    %% @M_MOTIF config.length_beats: [4, 8]
+    %% @M_MOTIF config.range.low: "C4"
+    %% @M_MOTIF config.range.high: "C6"
+    %% @M_MOTIF config.interval_weights.step: 0.5
+    %% @M_MOTIF config.interval_weights.skip: 0.3
+    %% @M_MOTIF config.interval_weights.leap: 0.2
+    %% @M_MOTIF inputs.form: "SongForm"
+    %% @M_MOTIF inputs.scale: "Scale"
+    %% @M_MOTIF inputs.rng: "Rng"
+    %% @M_MOTIF outputs.motifs: "Motif[]"
+
+    %% @M_ACCUM handler: accumulator
+    %% @M_ACCUM config.mode: "append_per_section"
+    %% @M_ACCUM config.key: "melody_phrases"
+    %% @M_ACCUM config.scope: "subgraph"
+    %% @M_ACCUM exec.loop: true
+    %% @M_ACCUM exec.loop_over: "form.sections"
+    %% @M_ACCUM inputs.motifs: "Motif[]"
+    %% @M_ACCUM inputs.form: "SongForm"
+    %% @M_ACCUM outputs.phrases: "Phrase[]"
+
+    %% @M_DEVELOP handler: develop_melody
+    %% @M_DEVELOP config.techniques: ["sequence", "fragmentation", "extension", "call_response"]
+    %% @M_DEVELOP config.development_intensity.A: 0.1
+    %% @M_DEVELOP config.development_intensity.B: 0.4
+    %% @M_DEVELOP config.development_intensity.outro: 0.6
+    %% @M_DEVELOP inputs.phrases: "Phrase[]"
+    %% @M_DEVELOP inputs.form: "SongForm"
+    %% @M_DEVELOP inputs.rng: "Rng"
+    %% @M_DEVELOP outputs.phrases: "Phrase[]"
+
+    %% @M_VARY handler: apply_variation
+    %% @M_VARY config.techniques: ["inversion", "retrograde", "augmentation", "diminution"]
+    %% @M_VARY config.variation_amount: 0.3
+    %% @M_VARY config.per_repeat: true
+    %% @M_VARY inputs.phrases: "Phrase[]"
+    %% @M_VARY inputs.form: "SongForm"
+    %% @M_VARY inputs.rng: "Rng"
+    %% @M_VARY outputs.phrases: "Phrase[]"
+
+    %% @M_ORNAMENT handler: add_ornaments
+    %% @M_ORNAMENT config.trill_chance: 0.05
+    %% @M_ORNAMENT config.grace_note_chance: 0.1
+    %% @M_ORNAMENT config.mordent_chance: 0.08
+    %% @M_ORNAMENT config.bend_chance: 0.03
+    %% @M_ORNAMENT inputs.phrases: "Phrase[]"
+    %% @M_ORNAMENT inputs.scale: "Scale"
+    %% @M_ORNAMENT inputs.rng: "Rng"
+    %% @M_ORNAMENT outputs.phrases: "Phrase[]"
+
+    %% @M_EXPR handler: add_expression
+    %% @M_EXPR config.velocity_curve: "phrase_arc"
+    %% @M_EXPR config.velocity_range.min: 60
+    %% @M_EXPR config.velocity_range.max: 110
+    %% @M_EXPR config.articulation: "legato"
+    %% @M_EXPR config.cc.1: "vibrato_swell"
+    %% @M_EXPR config.cc.11: "expression_arc"
+    %% @M_EXPR config.channel: 1
+    %% @M_EXPR inputs.phrases: "Phrase[]"
+    %% @M_EXPR outputs.track: "MidiTrack"
+
+    %% =============================================
+    %% Bass Subgraph
+    %% =============================================
+
+    %% @B_ROOTS handler: bass_root_patterns
+    %% @B_ROOTS config.range.low: "E1"
+    %% @B_ROOTS config.range.high: "G3"
+    %% @B_ROOTS config.style: "walking"
+    %% @B_ROOTS config.root_weight: 0.6
+    %% @B_ROOTS config.fifth_weight: 0.25
+    %% @B_ROOTS inputs.form: "SongForm"
+    %% @B_ROOTS inputs.scale: "Scale"
+    %% @B_ROOTS inputs.rng: "Rng"
+    %% @B_ROOTS outputs.patterns: "Phrase[]"
+
+    %% @B_ACCUM handler: accumulator
+    %% @B_ACCUM config.mode: "append_per_bar"
+    %% @B_ACCUM config.key: "bass_line"
+    %% @B_ACCUM config.scope: "subgraph"
+    %% @B_ACCUM exec.loop: true
+    %% @B_ACCUM exec.loop_over: "form.bars"
+    %% @B_ACCUM inputs.patterns: "Phrase[]"
+    %% @B_ACCUM inputs.form: "SongForm"
+    %% @B_ACCUM outputs.phrases: "Phrase[]"
+
+    %% @B_WALK handler: walking_bass
+    %% @B_WALK config.approach_notes: true
+    %% @B_WALK config.chromatic_passing: 0.15
+    %% @B_WALK config.enclosure: 0.1
+    %% @B_WALK inputs.phrases: "Phrase[]"
+    %% @B_WALK inputs.scale: "Scale"
+    %% @B_WALK inputs.rng: "Rng"
+    %% @B_WALK outputs.phrases: "Phrase[]"
+
+    %% @B_APPROACH handler: approach_notes
+    %% @B_APPROACH config.chromatic_below: 0.4
+    %% @B_APPROACH config.chromatic_above: 0.2
+    %% @B_APPROACH config.diatonic: 0.4
+    %% @B_APPROACH inputs.phrases: "Phrase[]"
+    %% @B_APPROACH inputs.scale: "Scale"
+    %% @B_APPROACH inputs.rng: "Rng"
+    %% @B_APPROACH outputs.phrases: "Phrase[]"
+
+    %% @B_EXPR handler: add_expression
+    %% @B_EXPR config.velocity_curve: "steady"
+    %% @B_EXPR config.velocity_range.min: 70
+    %% @B_EXPR config.velocity_range.max: 100
+    %% @B_EXPR config.articulation: "detached"
+    %% @B_EXPR config.channel: 2
+    %% @B_EXPR inputs.phrases: "Phrase[]"
+    %% @B_EXPR outputs.track: "MidiTrack"
+
+    %% =============================================
+    %% Drums Subgraph
+    %% =============================================
+
+    %% @D_GROOVE handler: drum_groove
+    %% @D_GROOVE config.kit: "jazz"
+    %% @D_GROOVE config.pattern.kick: "1...3..."
+    %% @D_GROOVE config.pattern.snare: "..2...4."
+    %% @D_GROOVE config.pattern.hihat: "xxxxxxxx"
+    %% @D_GROOVE config.pattern.ride: "x.x.x.x."
+    %% @D_GROOVE inputs.form: "SongForm"
+    %% @D_GROOVE inputs.rng: "Rng"
+    %% @D_GROOVE outputs.groove: "DrumPattern"
+
+    %% @D_VARIATION handler: section_drum_variation
+    %% @D_VARIATION config.intro: "sparse"
+    %% @D_VARIATION config.A: "standard"
+    %% @D_VARIATION config.B: "open_hihat"
+    %% @D_VARIATION config.outro: "decaying"
+    %% @D_VARIATION inputs.groove: "DrumPattern"
+    %% @D_VARIATION inputs.form: "SongForm"
+    %% @D_VARIATION outputs.groove: "DrumPattern"
+
+    %% @D_FILL handler: drum_fills
+    %% @D_FILL config.fill_bars: [4, 8, 16]
+    %% @D_FILL config.fill_density: 0.7
+    %% @D_FILL config.crash_after_fill: true
+    %% @D_FILL inputs.groove: "DrumPattern"
+    %% @D_FILL inputs.form: "SongForm"
+    %% @D_FILL inputs.rng: "Rng"
+    %% @D_FILL outputs.groove: "DrumPattern"
+
+    %% @D_GHOST handler: ghost_notes
+    %% @D_GHOST config.ghost_velocity: 30
+    %% @D_GHOST config.ghost_density: 0.3
+    %% @D_GHOST config.instruments: ["snare", "hihat"]
+    %% @D_GHOST inputs.groove: "DrumPattern"
+    %% @D_GHOST inputs.rng: "Rng"
+    %% @D_GHOST outputs.groove: "DrumPattern"
+
+    %% @D_DYNAMICS handler: dynamic_shaping
+    %% @D_DYNAMICS config.crescendo_into_B: true
+    %% @D_DYNAMICS config.diminuendo_outro: true
+    %% @D_DYNAMICS config.accent_downbeats: true
+    %% @D_DYNAMICS config.channel: 10
+    %% @D_DYNAMICS inputs.groove: "DrumPattern"
+    %% @D_DYNAMICS inputs.form: "SongForm"
+    %% @D_DYNAMICS outputs.track: "MidiTrack"
+
+    %% =============================================
+    %% Pad Subgraph
+    %% =============================================
+
+    %% @P_VOICE handler: voice_chords
+    %% @P_VOICE config.voicing: "drop2"
+    %% @P_VOICE config.range.low: "C3"
+    %% @P_VOICE config.range.high: "C5"
+    %% @P_VOICE config.voice_leading: "smooth"
+    %% @P_VOICE config.max_interval: 7
+    %% @P_VOICE inputs.form: "SongForm"
+    %% @P_VOICE inputs.scale: "Scale"
+    %% @P_VOICE outputs.voicings: "Voicing[]"
+
+    %% @P_RHYTHM handler: pad_rhythm
+    %% @P_RHYTHM config.style: "comping"
+    %% @P_RHYTHM config.density: 0.4
+    %% @P_RHYTHM config.anticipation_chance: 0.2
+    %% @P_RHYTHM inputs.voicings: "Voicing[]"
+    %% @P_RHYTHM inputs.form: "SongForm"
+    %% @P_RHYTHM inputs.rng: "Rng"
+    %% @P_RHYTHM outputs.voiced: "Phrase[]"
+
+    %% @P_SUSTAIN handler: sustain_shaping
+    %% @P_SUSTAIN config.style: "swell"
+    %% @P_SUSTAIN config.velocity_range.min: 40
+    %% @P_SUSTAIN config.velocity_range.max: 80
+    %% @P_SUSTAIN config.cc.64: "sustain_pedal"
+    %% @P_SUSTAIN config.cc.11: "expression"
+    %% @P_SUSTAIN config.channel: 3
+    %% @P_SUSTAIN inputs.voiced: "Phrase[]"
+    %% @P_SUSTAIN inputs.form: "SongForm"
+    %% @P_SUSTAIN outputs.track: "MidiTrack"
+
+    %% =============================================
+    %% Refine
+    %% =============================================
+
+    %% @MERGE handler: merge_tracks
+    %% @MERGE inputs.track: "MidiTrack[]"
+    %% @MERGE outputs.sequence: "MidiSequence"
+
+    %% @SNAPSHOT_MERGED handler: snapshot
+    %% @SNAPSHOT_MERGED config.label: "merged"
+    %% @SNAPSHOT_MERGED config.resumable: true
+    %% @SNAPSHOT_MERGED inputs.sequence: "MidiSequence"
+    %% @SNAPSHOT_MERGED outputs.sequence: "MidiSequence"
+
+    %% @QUANT handler: quantize
+    %% @QUANT config.grid: "16th"
+    %% @QUANT config.strength: 0.8
+    %% @QUANT config.swing: 0.15
+    %% @QUANT config.exclude_channels: [10]
+    %% @QUANT inputs.sequence: "MidiSequence"
+    %% @QUANT inputs.tempo_map: "TempoMap"
+    %% @QUANT outputs.sequence: "MidiSequence"
+
+    %% @HUMANIZE handler: humanize
+    %% @HUMANIZE config.timing_jitter_ms: 8
+    %% @HUMANIZE config.velocity_jitter: 10
+    %% @HUMANIZE config.drift_per_bar_ms: 0.5
+    %% @HUMANIZE inputs.sequence: "MidiSequence"
+    %% @HUMANIZE inputs.rng: "Rng"
+    %% @HUMANIZE outputs.sequence: "MidiSequence"
+
+    %% @REACTIVE_GATE handler: reactive_entry
+    %% @REACTIVE_GATE config.description: "Re-entry point for reactive executor. Parameter changes propagate from here."
+    %% @REACTIVE_GATE inputs.sequence: "MidiSequence"
+    %% @REACTIVE_GATE inputs.delta: "ParameterDelta"
+    %% @REACTIVE_GATE outputs.sequence: "MidiSequence"
+
+    %% =============================================
+    %% Validate
+    %% =============================================
+
+    %% @VALIDATE handler: validate_harmony
+    %% @VALIDATE config.max_dissonance: 0.3
+    %% @VALIDATE config.check_parallel_fifths: true
+    %% @VALIDATE config.check_voice_crossing: true
+    %% @VALIDATE config.tolerance.passing_tone_ms: 50
+    %% @VALIDATE inputs.sequence: "MidiSequence"
+    %% @VALIDATE inputs.scale: "Scale"
+    %% @VALIDATE outputs.valid: "bool"
+    %% @VALIDATE outputs.clashes: "Clash[]"
+
+    %% @FIX handler: fix_clashes
+    %% @FIX exec.retry: true
+    %% @FIX exec.max_attempts: 3
+    %% @FIX config.strategy: "repitch_to_nearest_scale_tone"
+    %% @FIX config.prefer: "melody"
+    %% @FIX inputs.sequence: "MidiSequence"
+    %% @FIX inputs.clashes: "Clash[]"
+    %% @FIX inputs.scale: "Scale"
+    %% @FIX outputs.track: "MidiTrack[]"
+
+    %% @DENSITY handler: validate_density
+    %% @DENSITY config.max_simultaneous_notes: 8
+    %% @DENSITY config.max_notes_per_beat: 6
+    %% @DENSITY config.check_per_channel: true
+    %% @DENSITY inputs.sequence: "MidiSequence"
+    %% @DENSITY outputs.balanced: "bool"
+    %% @DENSITY outputs.crowded_regions: "TimeRange[]"
+
+    %% @THIN handler: thin_overlaps
+    %% @THIN config.strategy: "remove_inner_voices"
+    %% @THIN config.preserve: ["melody", "bass"]
+    %% @THIN inputs.sequence: "MidiSequence"
+    %% @THIN inputs.crowded_regions: "TimeRange[]"
+    %% @THIN outputs.sequence: "MidiSequence"
+
+    %% =============================================
+    %% Human-in-the-Loop Approval (Phase 3.2.5)
+    %% =============================================
+
+    %% @HUMAN_MIX handler: human_in_the_loop
+    %% @HUMAN_MIX config.prompt: "Listen to the MIDI preview. Approve the mix or request changes."
+    %% @HUMAN_MIX config.timeout_s: 600
+    %% @HUMAN_MIX config.options: ["approved", "rejected"]
+    %% @HUMAN_MIX config.show: "sequence_summary"
+    %% @HUMAN_MIX inputs.sequence: "MidiSequence"
+    %% @HUMAN_MIX outputs.decision: "string"
+    %% @HUMAN_MIX outputs.feedback: "string"
+
+    %% @MIX_TWEAK handler: apply_feedback
+    %% @MIX_TWEAK config.strategy: "reinterpret_as_constraints"
+    %% @MIX_TWEAK inputs.feedback: "string"
+    %% @MIX_TWEAK inputs.song_config: "SongConfig"
+    %% @MIX_TWEAK outputs.song_config: "SongConfig"
+
+    %% =============================================
+    %% Master
+    %% =============================================
+
+    %% @MASTER handler: passthrough
+    %% @MASTER inputs.sequence: "MidiSequence"
+    %% @MASTER outputs.sequence: "MidiSequence"
+
+    %% @VELOCITY_CURVE handler: global_velocity_curve
+    %% @VELOCITY_CURVE config.curve: "arc"
+    %% @VELOCITY_CURVE config.peak_position: 0.7
+    %% @VELOCITY_CURVE config.range.min: 0.8
+    %% @VELOCITY_CURVE config.range.max: 1.0
+    %% @VELOCITY_CURVE inputs.sequence: "MidiSequence"
+    %% @VELOCITY_CURVE outputs.sequence: "MidiSequence"
+
+    %% @DYNAMICS handler: dynamic_range
+    %% @DYNAMICS config.target_range_db: 12
+    %% @DYNAMICS config.compressor_ratio: 2.0
+    %% @DYNAMICS inputs.sequence: "MidiSequence"
+    %% @DYNAMICS outputs.sequence: "MidiSequence"
+
+    %% @FINAL_CHECK handler: final_validation
+    %% @FINAL_CHECK config.check_velocity_range: true
+    %% @FINAL_CHECK config.check_note_overlap: true
+    %% @FINAL_CHECK config.check_channel_assignment: true
+    %% @FINAL_CHECK inputs.sequence: "MidiSequence"
+    %% @FINAL_CHECK outputs.pass: "bool"
+    %% @FINAL_CHECK outputs.issues: "ValidationIssue[]"
+
+    %% @EXPORT_GATE handler: passthrough
+    %% @EXPORT_GATE inputs.sequence: "MidiSequence"
+    %% @EXPORT_GATE outputs.sequence: "MidiSequence"
+
+    %% =============================================
+    %% Export — Parallel Outputs
+    %% =============================================
+
+    %% @MIDI_FILE handler: export_midi
+    %% @MIDI_FILE config.format: 1
+    %% @MIDI_FILE config.ticks_per_beat: 480
+    %% @MIDI_FILE config.path: "./output/{seed}_{key}_{mode}.mid"
+    %% @MIDI_FILE inputs.sequence: "MidiSequence"
+    %% @MIDI_FILE inputs.tempo_map: "TempoMap"
+    %% @MIDI_FILE outputs.path: "string"
+
+    %% @SCORE handler: render_text_score
+    %% @SCORE config.format: "lead_sheet"
+    %% @SCORE config.show_chords: true
+    %% @SCORE config.show_melody: true
+    %% @SCORE config.show_form_markers: true
+    %% @SCORE inputs.sequence: "MidiSequence"
+    %% @SCORE inputs.form: "SongForm"
+    %% @SCORE outputs.text: "string"
+
+    %% @LEAD_SHEET handler: render_lead_sheet
+    %% @LEAD_SHEET config.format: "ascii_staff"
+    %% @LEAD_SHEET config.bars_per_line: 4
+    %% @LEAD_SHEET config.show_chord_symbols: true
+    %% @LEAD_SHEET config.show_lyrics_placeholder: true
+    %% @LEAD_SHEET inputs.sequence: "MidiSequence"
+    %% @LEAD_SHEET inputs.form: "SongForm"
+    %% @LEAD_SHEET inputs.scale: "Scale"
+    %% @LEAD_SHEET outputs.text: "string"
+
+    %% @MMD handler: render_mermaid
+    %% @MMD config.show_sections: true
+    %% @MMD config.show_chord_labels: true
+    %% @MMD config.show_track_assignments: true
+    %% @MMD inputs.sequence: "MidiSequence"
+    %% @MMD inputs.form: "SongForm"
+    %% @MMD outputs.mermaid: "string"
+
+    %% @HISTORY handler: export_generation_history
+    %% @HISTORY config.include_snapshots: true
+    %% @HISTORY config.include_race_results: true
+    %% @HISTORY config.include_human_decisions: true
+    %% @HISTORY config.include_retry_attempts: true
+    %% @HISTORY inputs.sequence: "MidiSequence"
+    %% @HISTORY outputs.history: "GenerationHistory"
+    %% @HISTORY outputs.text: "string"

@@ -1,0 +1,490 @@
+graph TD
+    subgraph Entry ["event: triggers"]
+        CLI_TRIGGER[CLI Invoke] --> SEED
+        WATCH[File Watch Trigger] --> REACTIVE_GATE
+        PARAM_CHANGE[Parameter Change] --> REACTIVE_GATE
+    end
+
+    subgraph Init
+        SEED[Seed RNG] --> CONFIG[Material Config]
+        CONFIG --> SNAPSHOT_INIT[Checkpoint: Init]
+    end
+
+    subgraph RaceNoise ["race: noise strategies"]
+        SNAPSHOT_INIT --> SIMPLEX[Simplex FBM]
+        SNAPSHOT_INIT --> WORLEY[Worley Cellular]
+        SNAPSHOT_INIT --> VORONOI[Voronoi Cracks]
+        SIMPLEX --> NOISE_PICK{First Interesting?}
+        WORLEY --> NOISE_PICK
+        VORONOI --> NOISE_PICK
+    end
+
+    subgraph Base ["parallel: base layers"]
+        NOISE_PICK --> NOISE[Selected Noise]
+        SNAPSHOT_INIT --> GRADIENT[Gradient Map]
+        SNAPSHOT_INIT --> PATTERN[Tile Pattern]
+    end
+
+    subgraph LayerStack ["sequence: layer accumulation"]
+        NOISE --> LAYER_ACCUM[Accumulate Layers]
+        GRADIENT --> LAYER_ACCUM
+        PATTERN --> LAYER_ACCUM
+        LAYER_ACCUM --> BLEND[Blend Layers]
+        BLEND --> WARP[Domain Warp]
+        WARP --> REACTIVE_GATE[Reactive Update Point]
+        REACTIVE_GATE --> SNAPSHOT_BASE[Checkpoint: Base]
+    end
+
+    subgraph Approve
+        SNAPSHOT_BASE --> PREVIEW_BASE[Render Base Preview]
+        PREVIEW_BASE --> HUMAN_BASE{Approve Base?}
+        HUMAN_BASE -->|approved| DERIVE_GATE[Begin PBR Derivation]
+        HUMAN_BASE -->|rejected| TWEAK[Apply Feedback]
+        TWEAK --> BLEND
+    end
+
+    subgraph DerivePBR ["subgraph: pbr_derive"]
+        subgraph PBR_Maps ["parallel: PBR maps"]
+            DERIVE_GATE --> ALBEDO[Albedo / Color]
+            DERIVE_GATE --> NORMAL[Normal Map]
+            DERIVE_GATE --> ROUGH[Roughness Map]
+            DERIVE_GATE --> METAL[Metallic Map]
+            DERIVE_GATE --> HEIGHT[Height Map]
+            DERIVE_GATE --> AO[Ambient Occlusion]
+            DERIVE_GATE --> EMISSIVE[Emissive Map]
+        end
+
+        subgraph PBR_Refine ["sequence: PBR refinement"]
+            ALBEDO --> PBR_ACCUM[Accumulate Maps]
+            NORMAL --> PBR_ACCUM
+            ROUGH --> PBR_ACCUM
+            METAL --> PBR_ACCUM
+            HEIGHT --> PBR_ACCUM
+            AO --> PBR_ACCUM
+            EMISSIVE --> PBR_ACCUM
+            PBR_ACCUM --> CROSS_CORRECT[Cross-Map Correction]
+        end
+    end
+
+    subgraph Validate
+        CROSS_CORRECT --> SNAPSHOT_DERIVED[Checkpoint: Derived]
+        SNAPSHOT_DERIVED --> TILE_CHECK{Seamless?}
+        TILE_CHECK -->|yes| ENERGY_CHECK{Energy Conserving?}
+        TILE_CHECK -->|no| FIX_SEAM[Fix Seams]
+        FIX_SEAM --> TILE_CHECK
+        ENERGY_CHECK -->|yes| PACK[Pack Channels]
+        ENERGY_CHECK -->|no| FIX_ENERGY[Correct PBR Values]
+        FIX_ENERGY --> CROSS_CORRECT
+    end
+
+    subgraph RacePack ["race: compression"]
+        PACK --> BC7[BC7 Compress]
+        PACK --> ASTC[ASTC Compress]
+        PACK --> ETC2[ETC2 Compress]
+        BC7 --> PACK_PICK{Best Quality/Size?}
+        ASTC --> PACK_PICK
+        ETC2 --> PACK_PICK
+    end
+
+    subgraph Export ["parallel: outputs"]
+        PACK_PICK --> PNG[PNG Maps]
+        PACK_PICK --> KTX[KTX2 Compressed]
+        PACK_PICK --> PREVIEW[Preview Render]
+        PACK_PICK --> MANIFEST[Material Manifest]
+        PACK_PICK --> HISTORY[Generation History]
+    end
+
+    %% =============================================
+    %% Entry Points — Event-Driven (Phase 1.3.5)
+    %% =============================================
+
+    %% @CLI_TRIGGER handler: event_entry
+    %% @CLI_TRIGGER config.source: "cli"
+    %% @CLI_TRIGGER config.accepts: "MaterialRequest"
+    %% @CLI_TRIGGER outputs.request: "MaterialRequest"
+
+    %% @WATCH handler: event_entry
+    %% @WATCH config.source: "fs_watch"
+    %% @WATCH config.path: "./materials/*.toml"
+    %% @WATCH config.debounce_ms: 500
+    %% @WATCH outputs.delta: "ParameterDelta"
+
+    %% @PARAM_CHANGE handler: event_entry
+    %% @PARAM_CHANGE config.source: "reactive"
+    %% @PARAM_CHANGE config.accepts: "ParameterDelta"
+    %% @PARAM_CHANGE outputs.delta: "ParameterDelta"
+
+    %% =============================================
+    %% Init
+    %% =============================================
+
+    %% @SEED handler: seed_rng
+    %% @SEED config.seed: "auto"
+    %% @SEED inputs.request: "MaterialRequest"
+    %% @SEED outputs.rng: "Rng"
+
+    %% @CONFIG handler: load_config
+    %% @CONFIG config.defaults.resolution: 1024
+    %% @CONFIG config.defaults.material: "stone_wall"
+    %% @CONFIG config.defaults.color_palette: ["#5a5a5a", "#7a7a6e", "#4a4a3e"]
+    %% @CONFIG config.defaults.tile_size: 1.0
+    %% @CONFIG config.defaults.weathering: 0.4
+    %% @CONFIG inputs.rng: "Rng"
+    %% @CONFIG inputs.request: "MaterialRequest"
+    %% @CONFIG outputs.mat_config: "MaterialConfig"
+
+    %% @SNAPSHOT_INIT handler: snapshot
+    %% @SNAPSHOT_INIT config.label: "init"
+    %% @SNAPSHOT_INIT config.resumable: true
+    %% @SNAPSHOT_INIT inputs.mat_config: "MaterialConfig"
+    %% @SNAPSHOT_INIT inputs.rng: "Rng"
+    %% @SNAPSHOT_INIT outputs.mat_config: "MaterialConfig"
+    %% @SNAPSHOT_INIT outputs.rng: "Rng"
+
+    %% =============================================
+    %% Race: Noise Strategies (Phase 2.1.3)
+    %% =============================================
+
+    %% @SIMPLEX handler: generate_noise
+    %% @SIMPLEX exec.strategy: "race"
+    %% @SIMPLEX config.algorithm: "simplex_fbm"
+    %% @SIMPLEX config.octaves: 6
+    %% @SIMPLEX config.frequency: 4.0
+    %% @SIMPLEX config.lacunarity: 2.0
+    %% @SIMPLEX config.persistence: 0.5
+    %% @SIMPLEX inputs.mat_config: "MaterialConfig"
+    %% @SIMPLEX inputs.rng: "Rng"
+    %% @SIMPLEX outputs.buffer: "Buffer2D"
+    %% @SIMPLEX outputs.score: "f32"
+
+    %% @WORLEY handler: generate_noise
+    %% @WORLEY exec.strategy: "race"
+    %% @WORLEY config.algorithm: "worley"
+    %% @WORLEY config.distance_func: "euclidean"
+    %% @WORLEY config.cell_count: 32
+    %% @WORLEY config.jitter: 0.8
+    %% @WORLEY inputs.mat_config: "MaterialConfig"
+    %% @WORLEY inputs.rng: "Rng"
+    %% @WORLEY outputs.buffer: "Buffer2D"
+    %% @WORLEY outputs.score: "f32"
+
+    %% @VORONOI handler: generate_noise
+    %% @VORONOI exec.strategy: "race"
+    %% @VORONOI config.algorithm: "voronoi_cracks"
+    %% @VORONOI config.cell_count: 16
+    %% @VORONOI config.crack_width: 0.02
+    %% @VORONOI config.irregularity: 0.4
+    %% @VORONOI inputs.mat_config: "MaterialConfig"
+    %% @VORONOI inputs.rng: "Rng"
+    %% @VORONOI outputs.buffer: "Buffer2D"
+    %% @VORONOI outputs.score: "f32"
+
+    %% @NOISE_PICK handler: race_select
+    %% @NOISE_PICK config.criterion: "highest_score"
+    %% @NOISE_PICK config.cancel_siblings: true
+    %% @NOISE_PICK inputs.buffer: "Buffer2D"
+    %% @NOISE_PICK inputs.score: "f32"
+    %% @NOISE_PICK outputs.buffer: "Buffer2D"
+
+    %% =============================================
+    %% Base Layers — Parallel (Phase 2.1.2)
+    %% =============================================
+
+    %% @NOISE handler: passthrough
+    %% @NOISE inputs.buffer: "Buffer2D"
+    %% @NOISE outputs.buffer: "Buffer2D"
+
+    %% @GRADIENT handler: gradient_map
+    %% @GRADIENT config.type: "radial"
+    %% @GRADIENT config.stops: [0.0, 0.5, 1.0]
+    %% @GRADIENT config.values: [0.2, 0.6, 0.9]
+    %% @GRADIENT inputs.mat_config: "MaterialConfig"
+    %% @GRADIENT outputs.buffer: "Buffer2D"
+
+    %% @PATTERN handler: tile_pattern
+    %% @PATTERN config.type: "brick"
+    %% @PATTERN config.rows: 8
+    %% @PATTERN config.cols: 4
+    %% @PATTERN config.offset: 0.5
+    %% @PATTERN config.mortar_width: 0.02
+    %% @PATTERN config.irregularity: 0.15
+    %% @PATTERN inputs.mat_config: "MaterialConfig"
+    %% @PATTERN inputs.rng: "Rng"
+    %% @PATTERN outputs.buffer: "Buffer2D"
+    %% @PATTERN outputs.mask: "Buffer2D"
+
+    %% =============================================
+    %% Layer Stack — Accumulator (Phase 3.2.4)
+    %% =============================================
+
+    %% @LAYER_ACCUM handler: accumulator
+    %% @LAYER_ACCUM config.mode: "stack"
+    %% @LAYER_ACCUM config.key: "layer_stack"
+    %% @LAYER_ACCUM config.scope: "global"
+    %% @LAYER_ACCUM inputs.buffer: "Buffer2D[]"
+    %% @LAYER_ACCUM inputs.mask: "Buffer2D"
+    %% @LAYER_ACCUM outputs.layers: "LayerStack"
+    %% @LAYER_ACCUM outputs.count: "u32"
+
+    %% @BLEND handler: blend_layers
+    %% @BLEND config.mode: "overlay"
+    %% @BLEND config.weights: [0.5, 0.2, 0.3]
+    %% @BLEND config.mask_source: "pattern"
+    %% @BLEND inputs.layers: "LayerStack"
+    %% @BLEND inputs.mask: "Buffer2D"
+    %% @BLEND outputs.buffer: "Buffer2D"
+
+    %% @WARP handler: domain_warp
+    %% @WARP config.strength: 0.15
+    %% @WARP config.iterations: 2
+    %% @WARP config.noise: "simplex"
+    %% @WARP inputs.buffer: "Buffer2D"
+    %% @WARP inputs.rng: "Rng"
+    %% @WARP outputs.buffer: "Buffer2D"
+
+    %% @REACTIVE_GATE handler: reactive_entry
+    %% @REACTIVE_GATE config.description: "Re-entry point for reactive executor. Parameter changes re-derive from here."
+    %% @REACTIVE_GATE inputs.buffer: "Buffer2D"
+    %% @REACTIVE_GATE inputs.delta: "ParameterDelta"
+    %% @REACTIVE_GATE outputs.buffer: "Buffer2D"
+
+    %% @SNAPSHOT_BASE handler: snapshot
+    %% @SNAPSHOT_BASE config.label: "base_complete"
+    %% @SNAPSHOT_BASE config.resumable: true
+    %% @SNAPSHOT_BASE inputs.buffer: "Buffer2D"
+    %% @SNAPSHOT_BASE inputs.mat_config: "MaterialConfig"
+    %% @SNAPSHOT_BASE outputs.buffer: "Buffer2D"
+    %% @SNAPSHOT_BASE outputs.mat_config: "MaterialConfig"
+
+    %% =============================================
+    %% Human-in-the-Loop Approval (Phase 3.2.5)
+    %% =============================================
+
+    %% @PREVIEW_BASE handler: render_preview
+    %% @PREVIEW_BASE config.geometry: "plane"
+    %% @PREVIEW_BASE config.tiled: true
+    %% @PREVIEW_BASE config.resolution: 256
+    %% @PREVIEW_BASE inputs.buffer: "Buffer2D"
+    %% @PREVIEW_BASE outputs.preview: "string"
+
+    %% @HUMAN_BASE handler: human_in_the_loop
+    %% @HUMAN_BASE config.prompt: "Review the base texture. Approve or request changes."
+    %% @HUMAN_BASE config.timeout_s: 300
+    %% @HUMAN_BASE config.options: ["approved", "rejected"]
+    %% @HUMAN_BASE config.show: "preview"
+    %% @HUMAN_BASE inputs.preview: "string"
+    %% @HUMAN_BASE inputs.buffer: "Buffer2D"
+    %% @HUMAN_BASE outputs.decision: "string"
+    %% @HUMAN_BASE outputs.feedback: "string"
+
+    %% @TWEAK handler: apply_feedback
+    %% @TWEAK config.strategy: "reinterpret_as_constraints"
+    %% @TWEAK inputs.feedback: "string"
+    %% @TWEAK inputs.mat_config: "MaterialConfig"
+    %% @TWEAK outputs.mat_config: "MaterialConfig"
+
+    %% @DERIVE_GATE handler: passthrough
+    %% @DERIVE_GATE inputs.buffer: "Buffer2D"
+    %% @DERIVE_GATE outputs.buffer: "Buffer2D"
+
+    %% =============================================
+    %% PBR Derive — Subgraph Invocation (Phase 2.1.7)
+    %% =============================================
+
+    %% @ALBEDO handler: derive_albedo
+    %% @ALBEDO config.palette_mapping: "height_to_color"
+    %% @ALBEDO config.color_variation: 0.1
+    %% @ALBEDO config.dirt_amount: 0.2
+    %% @ALBEDO config.dirt_color: "#3a3520"
+    %% @ALBEDO inputs.buffer: "Buffer2D"
+    %% @ALBEDO inputs.mat_config: "MaterialConfig"
+    %% @ALBEDO inputs.rng: "Rng"
+    %% @ALBEDO outputs.map: "TextureMap"
+
+    %% @NORMAL handler: derive_normal
+    %% @NORMAL config.strength: 1.5
+    %% @NORMAL config.algorithm: "sobel"
+    %% @NORMAL config.format: "opengl"
+    %% @NORMAL inputs.buffer: "Buffer2D"
+    %% @NORMAL outputs.map: "TextureMap"
+
+    %% @ROUGH handler: derive_roughness
+    %% @ROUGH config.base_roughness: 0.7
+    %% @ROUGH config.height_influence: 0.3
+    %% @ROUGH config.polish_high_points: true
+    %% @ROUGH inputs.buffer: "Buffer2D"
+    %% @ROUGH inputs.mat_config: "MaterialConfig"
+    %% @ROUGH outputs.map: "TextureMap"
+
+    %% @METAL handler: derive_metallic
+    %% @METAL config.base_metallic: 0.0
+    %% @METAL config.ore_chance: 0.05
+    %% @METAL config.ore_metallic: 0.8
+    %% @METAL inputs.buffer: "Buffer2D"
+    %% @METAL inputs.mat_config: "MaterialConfig"
+    %% @METAL inputs.rng: "Rng"
+    %% @METAL outputs.map: "TextureMap"
+
+    %% @HEIGHT handler: derive_height
+    %% @HEIGHT config.depth: 0.05
+    %% @HEIGHT config.invert_mortar: true
+    %% @HEIGHT inputs.buffer: "Buffer2D"
+    %% @HEIGHT outputs.map: "TextureMap"
+
+    %% @AO handler: derive_ao
+    %% @AO config.radius: 8
+    %% @AO config.intensity: 1.2
+    %% @AO config.algorithm: "ssao_approx"
+    %% @AO inputs.buffer: "Buffer2D"
+    %% @AO inputs.height: "TextureMap"
+    %% @AO outputs.map: "TextureMap"
+
+    %% @EMISSIVE handler: derive_emissive
+    %% @EMISSIVE config.threshold: 0.9
+    %% @EMISSIVE config.glow_color: "#ff6600"
+    %% @EMISSIVE config.intensity: 2.0
+    %% @EMISSIVE config.enabled: false
+    %% @EMISSIVE inputs.buffer: "Buffer2D"
+    %% @EMISSIVE inputs.mat_config: "MaterialConfig"
+    %% @EMISSIVE outputs.map: "TextureMap"
+
+    %% @PBR_ACCUM handler: accumulator
+    %% @PBR_ACCUM config.mode: "collect_named"
+    %% @PBR_ACCUM config.key: "pbr_maps"
+    %% @PBR_ACCUM config.scope: "subgraph"
+    %% @PBR_ACCUM inputs.map: "TextureMap[]"
+    %% @PBR_ACCUM outputs.maps: "TextureMapSet"
+
+    %% @CROSS_CORRECT handler: cross_map_correction
+    %% @CROSS_CORRECT config.normal_from_height: true
+    %% @CROSS_CORRECT config.ao_from_height: true
+    %% @CROSS_CORRECT config.roughness_from_normal: true
+    %% @CROSS_CORRECT inputs.maps: "TextureMapSet"
+    %% @CROSS_CORRECT outputs.maps: "TextureMapSet"
+
+    %% =============================================
+    %% Validate
+    %% =============================================
+
+    %% @SNAPSHOT_DERIVED handler: snapshot
+    %% @SNAPSHOT_DERIVED config.label: "derived"
+    %% @SNAPSHOT_DERIVED config.resumable: true
+    %% @SNAPSHOT_DERIVED inputs.maps: "TextureMapSet"
+    %% @SNAPSHOT_DERIVED outputs.maps: "TextureMapSet"
+
+    %% @TILE_CHECK handler: validate_tiling
+    %% @TILE_CHECK config.border_width: 32
+    %% @TILE_CHECK config.max_discontinuity: 0.02
+    %% @TILE_CHECK inputs.maps: "TextureMapSet"
+    %% @TILE_CHECK outputs.seamless: "bool"
+    %% @TILE_CHECK outputs.seam_info: "SeamInfo"
+
+    %% @FIX_SEAM handler: fix_seams
+    %% @FIX_SEAM exec.retry: true
+    %% @FIX_SEAM exec.max_attempts: 3
+    %% @FIX_SEAM config.method: "gradient_blend"
+    %% @FIX_SEAM config.blend_width: 64
+    %% @FIX_SEAM inputs.maps: "TextureMapSet"
+    %% @FIX_SEAM inputs.seam_info: "SeamInfo"
+    %% @FIX_SEAM outputs.maps: "TextureMapSet"
+
+    %% @ENERGY_CHECK handler: validate_energy_conservation
+    %% @ENERGY_CHECK config.max_albedo_luminance: 0.9
+    %% @ENERGY_CHECK config.metallic_albedo_check: true
+    %% @ENERGY_CHECK config.roughness_range_check: true
+    %% @ENERGY_CHECK inputs.maps: "TextureMapSet"
+    %% @ENERGY_CHECK outputs.valid: "bool"
+    %% @ENERGY_CHECK outputs.violations: "PbrViolation[]"
+
+    %% @FIX_ENERGY handler: correct_pbr_values
+    %% @FIX_ENERGY exec.retry: true
+    %% @FIX_ENERGY exec.max_attempts: 2
+    %% @FIX_ENERGY config.clamp_albedo: true
+    %% @FIX_ENERGY config.fix_metallic_albedo: true
+    %% @FIX_ENERGY inputs.maps: "TextureMapSet"
+    %% @FIX_ENERGY inputs.violations: "PbrViolation[]"
+    %% @FIX_ENERGY outputs.maps: "TextureMapSet"
+
+    %% =============================================
+    %% Race: Compression (Phase 2.1.3)
+    %% =============================================
+
+    %% @PACK handler: pack_channels
+    %% @PACK config.orm_pack: true
+    %% @PACK config.orm_channels: ["ao.r", "roughness.r", "metallic.r"]
+    %% @PACK inputs.maps: "TextureMapSet"
+    %% @PACK outputs.material: "MaterialPack"
+
+    %% @BC7 handler: compress_texture
+    %% @BC7 exec.strategy: "race"
+    %% @BC7 config.format: "bc7"
+    %% @BC7 config.quality: "high"
+    %% @BC7 inputs.material: "MaterialPack"
+    %% @BC7 outputs.compressed: "CompressedPack"
+    %% @BC7 outputs.quality_score: "f32"
+
+    %% @ASTC handler: compress_texture
+    %% @ASTC exec.strategy: "race"
+    %% @ASTC config.format: "astc_4x4"
+    %% @ASTC config.quality: "high"
+    %% @ASTC inputs.material: "MaterialPack"
+    %% @ASTC outputs.compressed: "CompressedPack"
+    %% @ASTC outputs.quality_score: "f32"
+
+    %% @ETC2 handler: compress_texture
+    %% @ETC2 exec.strategy: "race"
+    %% @ETC2 config.format: "etc2"
+    %% @ETC2 config.quality: "high"
+    %% @ETC2 inputs.material: "MaterialPack"
+    %% @ETC2 outputs.compressed: "CompressedPack"
+    %% @ETC2 outputs.quality_score: "f32"
+
+    %% @PACK_PICK handler: race_select
+    %% @PACK_PICK config.criterion: "highest_quality_score"
+    %% @PACK_PICK config.cancel_siblings: false
+    %% @PACK_PICK inputs.compressed: "CompressedPack"
+    %% @PACK_PICK inputs.quality_score: "f32"
+    %% @PACK_PICK outputs.material: "MaterialPack"
+
+    %% =============================================
+    %% Export — Parallel Outputs
+    %% =============================================
+
+    %% @PNG handler: export_png
+    %% @PNG config.bit_depth: 8
+    %% @PNG config.srgb_maps: ["albedo"]
+    %% @PNG config.linear_maps: ["normal", "orm", "height", "emissive"]
+    %% @PNG config.path: "./output/{material}/"
+    %% @PNG inputs.material: "MaterialPack"
+    %% @PNG outputs.paths: "string[]"
+
+    %% @KTX handler: export_ktx2
+    %% @KTX config.generate_mips: true
+    %% @KTX config.path: "./output/{material}/"
+    %% @KTX inputs.material: "MaterialPack"
+    %% @KTX outputs.paths: "string[]"
+
+    %% @PREVIEW handler: render_preview
+    %% @PREVIEW config.geometry: "sphere"
+    %% @PREVIEW config.lighting: "studio_3point"
+    %% @PREVIEW config.resolution: 512
+    %% @PREVIEW config.format: "png"
+    %% @PREVIEW config.additional_views: ["plane_tiled", "cylinder"]
+    %% @PREVIEW inputs.material: "MaterialPack"
+    %% @PREVIEW outputs.paths: "string[]"
+
+    %% @MANIFEST handler: export_manifest
+    %% @MANIFEST config.format: "json"
+    %% @MANIFEST config.include_metadata: true
+    %% @MANIFEST config.include_checksums: true
+    %% @MANIFEST inputs.material: "MaterialPack"
+    %% @MANIFEST inputs.mat_config: "MaterialConfig"
+    %% @MANIFEST outputs.path: "string"
+
+    %% @HISTORY handler: export_generation_history
+    %% @HISTORY config.include_snapshots: true
+    %% @HISTORY config.include_race_results: true
+    %% @HISTORY config.include_human_decisions: true
+    %% @HISTORY inputs.material: "MaterialPack"
+    %% @HISTORY outputs.history: "GenerationHistory"
+    %% @HISTORY outputs.text: "string"

@@ -1,0 +1,588 @@
+graph TD
+    subgraph Entry ["event: triggers"]
+        CLI_TRIGGER[CLI Invoke] --> SEED
+        PARAM_CHANGE[Parameter Change] --> REACTIVE_GATE
+        BATCH[Batch Request] --> SEED
+    end
+
+    subgraph Init
+        SEED[Seed RNG] --> CONFIG[Mesh Config]
+        CONFIG --> SNAPSHOT_INIT[Checkpoint: Init]
+    end
+
+    subgraph Primitive
+        SNAPSHOT_INIT --> BASE{Base Shape}
+        BASE -->|box| BOX[Box Mesh]
+        BASE -->|sphere| SPHERE[UV Sphere]
+        BASE -->|cylinder| CYLINDER[Cylinder]
+        BASE -->|plane| PLANE[Subdivided Plane]
+        BASE -->|custom| IMPORT[Import Base Mesh]
+    end
+
+    subgraph Sculpt ["sequence: deformation stack"]
+        BOX --> DEFORM_ACCUM[Accumulate Deformations]
+        SPHERE --> DEFORM_ACCUM
+        CYLINDER --> DEFORM_ACCUM
+        PLANE --> DEFORM_ACCUM
+        IMPORT --> DEFORM_ACCUM
+        DEFORM_ACCUM --> NOISE_D[Noise Displacement]
+        NOISE_D --> TWIST[Twist / Bend]
+        TWIST --> TAPER[Taper / Scale Gradient]
+        TAPER --> LATTICE[Lattice Deform]
+        LATTICE --> BOOL{Boolean Ops?}
+        BOOL -->|yes| BOOLEAN[Boolean Combine]
+        BOOL -->|no| SUBDIV[Subdivide]
+        BOOLEAN --> SUBDIV
+        SUBDIV --> REACTIVE_GATE[Reactive Update Point]
+    end
+
+    subgraph Approve_Sculpt
+        REACTIVE_GATE --> SNAPSHOT_SCULPT[Checkpoint: Sculpt]
+        SNAPSHOT_SCULPT --> PREVIEW_SCULPT[Render Wireframe Preview]
+        PREVIEW_SCULPT --> HUMAN_SCULPT{Approve Sculpt?}
+        HUMAN_SCULPT -->|approved| DETAIL_GATE[Begin Detail]
+        HUMAN_SCULPT -->|rejected| SCULPT_TWEAK[Apply Feedback]
+        SCULPT_TWEAK --> DEFORM_ACCUM
+    end
+
+    subgraph Detail ["parallel: surface detail"]
+        DETAIL_GATE --> BEVEL[Edge Bevels]
+        DETAIL_GATE --> CREASE[Crease Edges]
+        DETAIL_GATE --> DAMAGE[Surface Damage]
+        DETAIL_GATE --> PANEL_LINES[Panel Lines]
+    end
+
+    subgraph RaceDecimate ["race: decimation strategies"]
+        BEVEL --> MERGE_MESH[Merge Detail]
+        CREASE --> MERGE_MESH
+        DAMAGE --> MERGE_MESH
+        PANEL_LINES --> MERGE_MESH
+        MERGE_MESH --> VALIDATE{Valid Mesh?}
+        VALIDATE -->|yes| QUADRIC[Quadric Error Decimate]
+        VALIDATE -->|yes| VERTEX_CLUSTER[Vertex Clustering]
+        VALIDATE -->|yes| EDGE_COLLAPSE[Edge Collapse]
+        VALIDATE -->|no| REPAIR[Repair Mesh]
+        REPAIR --> VALIDATE
+        QUADRIC --> DEC_PICK{Best Quality/Count?}
+        VERTEX_CLUSTER --> DEC_PICK
+        EDGE_COLLAPSE --> DEC_PICK
+    end
+
+    subgraph LOD_Gen ["subgraph: lod_pipeline"]
+        DEC_PICK --> LOD_ACCUM[Accumulate LODs]
+        LOD_ACCUM --> LOD0[LOD 0 - Full Detail]
+        LOD0 --> LOD1[LOD 1 - 50%]
+        LOD1 --> LOD2[LOD 2 - 25%]
+        LOD2 --> LOD3[LOD 3 - 10%]
+        LOD3 --> LOD_CHAIN[Chain LODs]
+    end
+
+    subgraph UV ["sequence: UV pipeline"]
+        LOD_CHAIN --> UNWRAP[UV Unwrap]
+        UNWRAP --> UV_PACK[Pack UV Islands]
+        UV_PACK --> UV_CHECK{UV Overlap?}
+        UV_CHECK -->|no| LIGHTMAP[Lightmap UV]
+        UV_CHECK -->|yes| UV_REPACK[Repack with Margin]
+        UV_REPACK --> UV_CHECK
+    end
+
+    subgraph Materials
+        LIGHTMAP --> SNAPSHOT_UV[Checkpoint: UV Complete]
+        SNAPSHOT_UV --> ASSIGN_MAT[Assign Materials]
+        ASSIGN_MAT --> VERTEX_COLOR[Bake Vertex Colors]
+        VERTEX_COLOR --> HUMAN_FINAL{Approve Final?}
+        HUMAN_FINAL -->|approved| EXPORT_GATE[Ready for Export]
+        HUMAN_FINAL -->|rejected| MAT_TWEAK[Apply Feedback]
+        MAT_TWEAK --> ASSIGN_MAT
+    end
+
+    subgraph Export ["parallel: outputs"]
+        EXPORT_GATE --> GLTF[glTF Binary]
+        EXPORT_GATE --> OBJ[OBJ + MTL]
+        EXPORT_GATE --> FBX[FBX]
+        EXPORT_GATE --> UNITY[Unity Prefab Data]
+        EXPORT_GATE --> STATS[Mesh Stats]
+        EXPORT_GATE --> HISTORY[Generation History]
+    end
+
+    %% =============================================
+    %% Entry Points — Event-Driven (Phase 1.3.5)
+    %% =============================================
+
+    %% @CLI_TRIGGER handler: event_entry
+    %% @CLI_TRIGGER config.source: "cli"
+    %% @CLI_TRIGGER config.accepts: "MeshRequest"
+    %% @CLI_TRIGGER outputs.request: "MeshRequest"
+
+    %% @PARAM_CHANGE handler: event_entry
+    %% @PARAM_CHANGE config.source: "reactive"
+    %% @PARAM_CHANGE config.accepts: "ParameterDelta"
+    %% @PARAM_CHANGE config.description: "Parameter change triggers re-sculpt from reactive gate"
+    %% @PARAM_CHANGE outputs.delta: "ParameterDelta"
+
+    %% @BATCH handler: event_entry
+    %% @BATCH config.source: "batch"
+    %% @BATCH config.accepts: "MeshRequest[]"
+    %% @BATCH config.description: "Batch of mesh requests, each runs the full pipeline"
+    %% @BATCH exec.strategy: "fan_out"
+    %% @BATCH exec.fan_key: "requests"
+    %% @BATCH outputs.request: "MeshRequest"
+
+    %% =============================================
+    %% Init
+    %% =============================================
+
+    %% @SEED handler: seed_rng
+    %% @SEED config.seed: "auto"
+    %% @SEED inputs.request: "MeshRequest"
+    %% @SEED outputs.rng: "Rng"
+
+    %% @CONFIG handler: load_config
+    %% @CONFIG config.defaults.target_polycount: 5000
+    %% @CONFIG config.defaults.style: "low_poly_stylized"
+    %% @CONFIG config.defaults.symmetry: "none"
+    %% @CONFIG config.defaults.up_axis: "Y"
+    %% @CONFIG config.defaults.scale: 1.0
+    %% @CONFIG inputs.rng: "Rng"
+    %% @CONFIG inputs.request: "MeshRequest"
+    %% @CONFIG outputs.mesh_config: "MeshConfig"
+
+    %% @SNAPSHOT_INIT handler: snapshot
+    %% @SNAPSHOT_INIT config.label: "init"
+    %% @SNAPSHOT_INIT config.resumable: true
+    %% @SNAPSHOT_INIT inputs.mesh_config: "MeshConfig"
+    %% @SNAPSHOT_INIT inputs.rng: "Rng"
+    %% @SNAPSHOT_INIT outputs.mesh_config: "MeshConfig"
+    %% @SNAPSHOT_INIT outputs.rng: "Rng"
+
+    %% =============================================
+    %% Primitive — Branch (Phase 2.1.4)
+    %% =============================================
+
+    %% @BASE handler: branch
+    %% @BASE config.field: "mesh_config.base_shape"
+    %% @BASE inputs.mesh_config: "MeshConfig"
+
+    %% @BOX handler: primitive_box
+    %% @BOX config.subdivisions: [2, 2, 2]
+    %% @BOX config.size: [1.0, 1.0, 1.0]
+    %% @BOX inputs.mesh_config: "MeshConfig"
+    %% @BOX outputs.mesh: "HalfEdgeMesh"
+
+    %% @SPHERE handler: primitive_sphere
+    %% @SPHERE config.segments: 16
+    %% @SPHERE config.rings: 12
+    %% @SPHERE config.radius: 0.5
+    %% @SPHERE inputs.mesh_config: "MeshConfig"
+    %% @SPHERE outputs.mesh: "HalfEdgeMesh"
+
+    %% @CYLINDER handler: primitive_cylinder
+    %% @CYLINDER config.segments: 12
+    %% @CYLINDER config.height: 1.0
+    %% @CYLINDER config.radius_top: 0.5
+    %% @CYLINDER config.radius_bottom: 0.5
+    %% @CYLINDER config.cap: true
+    %% @CYLINDER inputs.mesh_config: "MeshConfig"
+    %% @CYLINDER outputs.mesh: "HalfEdgeMesh"
+
+    %% @PLANE handler: primitive_plane
+    %% @PLANE config.subdivisions: [10, 10]
+    %% @PLANE config.size: [2.0, 2.0]
+    %% @PLANE inputs.mesh_config: "MeshConfig"
+    %% @PLANE outputs.mesh: "HalfEdgeMesh"
+
+    %% @IMPORT handler: import_mesh
+    %% @IMPORT config.formats: ["obj", "gltf", "stl"]
+    %% @IMPORT config.normalize: true
+    %% @IMPORT inputs.mesh_config: "MeshConfig"
+    %% @IMPORT outputs.mesh: "HalfEdgeMesh"
+
+    %% =============================================
+    %% Sculpt — Deformation Stack with Accumulator
+    %% =============================================
+
+    %% @DEFORM_ACCUM handler: accumulator
+    %% @DEFORM_ACCUM config.mode: "stack"
+    %% @DEFORM_ACCUM config.key: "deformation_history"
+    %% @DEFORM_ACCUM config.scope: "subgraph"
+    %% @DEFORM_ACCUM config.record_each_step: true
+    %% @DEFORM_ACCUM inputs.mesh: "HalfEdgeMesh"
+    %% @DEFORM_ACCUM outputs.mesh: "HalfEdgeMesh"
+    %% @DEFORM_ACCUM outputs.history: "DeformationStep[]"
+
+    %% @NOISE_D handler: noise_displace
+    %% @NOISE_D config.noise: "simplex_fbm"
+    %% @NOISE_D config.strength: 0.2
+    %% @NOISE_D config.octaves: 4
+    %% @NOISE_D config.frequency: 3.0
+    %% @NOISE_D config.direction: "normal"
+    %% @NOISE_D inputs.mesh: "HalfEdgeMesh"
+    %% @NOISE_D inputs.rng: "Rng"
+    %% @NOISE_D outputs.mesh: "HalfEdgeMesh"
+
+    %% @TWIST handler: twist_bend
+    %% @TWIST config.twist_degrees: 0
+    %% @TWIST config.bend_degrees: 0
+    %% @TWIST config.axis: "Y"
+    %% @TWIST config.falloff: "linear"
+    %% @TWIST inputs.mesh: "HalfEdgeMesh"
+    %% @TWIST outputs.mesh: "HalfEdgeMesh"
+
+    %% @TAPER handler: taper
+    %% @TAPER config.axis: "Y"
+    %% @TAPER config.scale_top: 0.5
+    %% @TAPER config.scale_bottom: 1.0
+    %% @TAPER config.curve: "linear"
+    %% @TAPER inputs.mesh: "HalfEdgeMesh"
+    %% @TAPER outputs.mesh: "HalfEdgeMesh"
+
+    %% @LATTICE handler: lattice_deform
+    %% @LATTICE config.resolution: [3, 3, 3]
+    %% @LATTICE config.randomize: 0.1
+    %% @LATTICE inputs.mesh: "HalfEdgeMesh"
+    %% @LATTICE inputs.rng: "Rng"
+    %% @LATTICE outputs.mesh: "HalfEdgeMesh"
+
+    %% @BOOL handler: branch
+    %% @BOOL config.field: "mesh_config.boolean_enabled"
+    %% @BOOL inputs.mesh: "HalfEdgeMesh"
+    %% @BOOL inputs.mesh_config: "MeshConfig"
+
+    %% @BOOLEAN handler: boolean_op
+    %% @BOOLEAN config.operation: "difference"
+    %% @BOOLEAN config.operand: "random_cutouts"
+    %% @BOOLEAN config.count: 3
+    %% @BOOLEAN inputs.mesh: "HalfEdgeMesh"
+    %% @BOOLEAN inputs.mesh_config: "MeshConfig"
+    %% @BOOLEAN inputs.rng: "Rng"
+    %% @BOOLEAN outputs.mesh: "HalfEdgeMesh"
+
+    %% @SUBDIV handler: subdivide
+    %% @SUBDIV config.algorithm: "catmull_clark"
+    %% @SUBDIV config.iterations: 2
+    %% @SUBDIV config.limit_surface: false
+    %% @SUBDIV inputs.mesh: "HalfEdgeMesh"
+    %% @SUBDIV outputs.mesh: "HalfEdgeMesh"
+
+    %% @REACTIVE_GATE handler: reactive_entry
+    %% @REACTIVE_GATE config.description: "Re-entry point for reactive executor. Parameter changes re-sculpt from here."
+    %% @REACTIVE_GATE inputs.mesh: "HalfEdgeMesh"
+    %% @REACTIVE_GATE inputs.delta: "ParameterDelta"
+    %% @REACTIVE_GATE outputs.mesh: "HalfEdgeMesh"
+
+    %% =============================================
+    %% Human-in-the-Loop: Sculpt Approval (Phase 3.2.5)
+    %% =============================================
+
+    %% @SNAPSHOT_SCULPT handler: snapshot
+    %% @SNAPSHOT_SCULPT config.label: "sculpt_complete"
+    %% @SNAPSHOT_SCULPT config.resumable: true
+    %% @SNAPSHOT_SCULPT inputs.mesh: "HalfEdgeMesh"
+    %% @SNAPSHOT_SCULPT outputs.mesh: "HalfEdgeMesh"
+
+    %% @PREVIEW_SCULPT handler: render_wireframe
+    %% @PREVIEW_SCULPT config.views: ["front", "side", "perspective"]
+    %% @PREVIEW_SCULPT config.resolution: 256
+    %% @PREVIEW_SCULPT inputs.mesh: "HalfEdgeMesh"
+    %% @PREVIEW_SCULPT outputs.preview: "string"
+
+    %% @HUMAN_SCULPT handler: human_in_the_loop
+    %% @HUMAN_SCULPT config.prompt: "Review the sculpted mesh. Approve or request changes."
+    %% @HUMAN_SCULPT config.timeout_s: 300
+    %% @HUMAN_SCULPT config.options: ["approved", "rejected"]
+    %% @HUMAN_SCULPT config.show: "preview"
+    %% @HUMAN_SCULPT inputs.preview: "string"
+    %% @HUMAN_SCULPT inputs.mesh: "HalfEdgeMesh"
+    %% @HUMAN_SCULPT outputs.decision: "string"
+    %% @HUMAN_SCULPT outputs.feedback: "string"
+
+    %% @SCULPT_TWEAK handler: apply_feedback
+    %% @SCULPT_TWEAK config.strategy: "reinterpret_as_deform_params"
+    %% @SCULPT_TWEAK inputs.feedback: "string"
+    %% @SCULPT_TWEAK inputs.mesh_config: "MeshConfig"
+    %% @SCULPT_TWEAK outputs.mesh_config: "MeshConfig"
+
+    %% @DETAIL_GATE handler: passthrough
+    %% @DETAIL_GATE inputs.mesh: "HalfEdgeMesh"
+    %% @DETAIL_GATE outputs.mesh: "HalfEdgeMesh"
+
+    %% =============================================
+    %% Detail — Parallel Surface Detail (Phase 2.1.2)
+    %% =============================================
+
+    %% @BEVEL handler: edge_bevel
+    %% @BEVEL config.width: 0.02
+    %% @BEVEL config.segments: 2
+    %% @BEVEL config.angle_threshold: 30.0
+    %% @BEVEL inputs.mesh: "HalfEdgeMesh"
+    %% @BEVEL outputs.mesh: "HalfEdgeMesh"
+
+    %% @CREASE handler: crease_edges
+    %% @CREASE config.angle_threshold: 60.0
+    %% @CREASE config.crease_weight: 1.0
+    %% @CREASE inputs.mesh: "HalfEdgeMesh"
+    %% @CREASE outputs.edges: "CreaseData"
+
+    %% @DAMAGE handler: surface_damage
+    %% @DAMAGE config.chip_count: 5
+    %% @DAMAGE config.chip_depth: 0.01
+    %% @DAMAGE config.scratch_count: 3
+    %% @DAMAGE config.scratch_depth: 0.005
+    %% @DAMAGE config.weathering: 0.3
+    %% @DAMAGE inputs.mesh: "HalfEdgeMesh"
+    %% @DAMAGE inputs.rng: "Rng"
+    %% @DAMAGE outputs.mesh: "HalfEdgeMesh"
+
+    %% @PANEL_LINES handler: panel_lines
+    %% @PANEL_LINES config.pattern: "grid"
+    %% @PANEL_LINES config.depth: 0.003
+    %% @PANEL_LINES config.spacing: 0.2
+    %% @PANEL_LINES config.irregularity: 0.1
+    %% @PANEL_LINES inputs.mesh: "HalfEdgeMesh"
+    %% @PANEL_LINES inputs.rng: "Rng"
+    %% @PANEL_LINES outputs.mesh: "HalfEdgeMesh"
+
+    %% =============================================
+    %% Race: Decimation Strategies (Phase 2.1.3)
+    %% =============================================
+
+    %% @MERGE_MESH handler: merge_mesh_data
+    %% @MERGE_MESH inputs.mesh: "HalfEdgeMesh[]"
+    %% @MERGE_MESH inputs.edges: "CreaseData"
+    %% @MERGE_MESH outputs.mesh: "HalfEdgeMesh"
+
+    %% @VALIDATE handler: validate_mesh
+    %% @VALIDATE config.check_manifold: true
+    %% @VALIDATE config.check_normals: true
+    %% @VALIDATE config.check_degenerate: true
+    %% @VALIDATE config.max_degenerate_area: 0.0001
+    %% @VALIDATE inputs.mesh: "HalfEdgeMesh"
+    %% @VALIDATE outputs.valid: "bool"
+    %% @VALIDATE outputs.issues: "MeshIssue[]"
+
+    %% @REPAIR handler: repair_mesh
+    %% @REPAIR exec.retry: true
+    %% @REPAIR exec.max_attempts: 3
+    %% @REPAIR config.fix_normals: true
+    %% @REPAIR config.remove_degenerate: true
+    %% @REPAIR config.fill_holes: true
+    %% @REPAIR inputs.mesh: "HalfEdgeMesh"
+    %% @REPAIR inputs.issues: "MeshIssue[]"
+    %% @REPAIR outputs.mesh: "HalfEdgeMesh"
+
+    %% @QUADRIC handler: decimate
+    %% @QUADRIC exec.strategy: "race"
+    %% @QUADRIC config.algorithm: "quadric_error"
+    %% @QUADRIC config.target_ratio: 0.5
+    %% @QUADRIC config.preserve_boundaries: true
+    %% @QUADRIC config.preserve_creases: true
+    %% @QUADRIC inputs.mesh: "HalfEdgeMesh"
+    %% @QUADRIC inputs.mesh_config: "MeshConfig"
+    %% @QUADRIC outputs.mesh: "HalfEdgeMesh"
+    %% @QUADRIC outputs.quality_score: "f32"
+
+    %% @VERTEX_CLUSTER handler: decimate
+    %% @VERTEX_CLUSTER exec.strategy: "race"
+    %% @VERTEX_CLUSTER config.algorithm: "vertex_clustering"
+    %% @VERTEX_CLUSTER config.cell_size: 0.05
+    %% @VERTEX_CLUSTER config.preserve_sharp: true
+    %% @VERTEX_CLUSTER inputs.mesh: "HalfEdgeMesh"
+    %% @VERTEX_CLUSTER inputs.mesh_config: "MeshConfig"
+    %% @VERTEX_CLUSTER outputs.mesh: "HalfEdgeMesh"
+    %% @VERTEX_CLUSTER outputs.quality_score: "f32"
+
+    %% @EDGE_COLLAPSE handler: decimate
+    %% @EDGE_COLLAPSE exec.strategy: "race"
+    %% @EDGE_COLLAPSE config.algorithm: "edge_collapse"
+    %% @EDGE_COLLAPSE config.target_ratio: 0.5
+    %% @EDGE_COLLAPSE config.weight_normals: 0.5
+    %% @EDGE_COLLAPSE config.weight_boundary: 1.0
+    %% @EDGE_COLLAPSE inputs.mesh: "HalfEdgeMesh"
+    %% @EDGE_COLLAPSE inputs.mesh_config: "MeshConfig"
+    %% @EDGE_COLLAPSE outputs.mesh: "HalfEdgeMesh"
+    %% @EDGE_COLLAPSE outputs.quality_score: "f32"
+
+    %% @DEC_PICK handler: race_select
+    %% @DEC_PICK config.criterion: "highest_quality_score"
+    %% @DEC_PICK config.cancel_siblings: true
+    %% @DEC_PICK inputs.mesh: "HalfEdgeMesh"
+    %% @DEC_PICK inputs.quality_score: "f32"
+    %% @DEC_PICK outputs.mesh: "HalfEdgeMesh"
+
+    %% =============================================
+    %% LOD — Subgraph Invocation (Phase 2.1.7)
+    %% =============================================
+
+    %% @LOD_ACCUM handler: accumulator
+    %% @LOD_ACCUM config.mode: "append"
+    %% @LOD_ACCUM config.key: "lod_levels"
+    %% @LOD_ACCUM config.scope: "subgraph"
+    %% @LOD_ACCUM inputs.mesh: "HalfEdgeMesh"
+    %% @LOD_ACCUM outputs.mesh: "HalfEdgeMesh"
+
+    %% @LOD0 handler: passthrough
+    %% @LOD0 config.label: "LOD0"
+    %% @LOD0 inputs.mesh: "HalfEdgeMesh"
+    %% @LOD0 outputs.mesh: "HalfEdgeMesh"
+
+    %% @LOD1 handler: decimate
+    %% @LOD1 config.algorithm: "quadric_error"
+    %% @LOD1 config.target_ratio: 0.5
+    %% @LOD1 config.screen_size: 0.3
+    %% @LOD1 inputs.mesh: "HalfEdgeMesh"
+    %% @LOD1 outputs.mesh: "HalfEdgeMesh"
+
+    %% @LOD2 handler: decimate
+    %% @LOD2 config.algorithm: "quadric_error"
+    %% @LOD2 config.target_ratio: 0.25
+    %% @LOD2 config.screen_size: 0.6
+    %% @LOD2 inputs.mesh: "HalfEdgeMesh"
+    %% @LOD2 outputs.mesh: "HalfEdgeMesh"
+
+    %% @LOD3 handler: decimate
+    %% @LOD3 config.algorithm: "quadric_error"
+    %% @LOD3 config.target_ratio: 0.1
+    %% @LOD3 config.screen_size: 0.85
+    %% @LOD3 inputs.mesh: "HalfEdgeMesh"
+    %% @LOD3 outputs.mesh: "HalfEdgeMesh"
+
+    %% @LOD_CHAIN handler: chain_lods
+    %% @LOD_CHAIN config.validate_monotonic_decrease: true
+    %% @LOD_CHAIN inputs.mesh: "HalfEdgeMesh[]"
+    %% @LOD_CHAIN outputs.lod_chain: "LodChain"
+
+    %% =============================================
+    %% UV Pipeline
+    %% =============================================
+
+    %% @UNWRAP handler: uv_unwrap
+    %% @UNWRAP config.algorithm: "angle_based"
+    %% @UNWRAP config.angle_threshold: 66.0
+    %% @UNWRAP config.straighten: true
+    %% @UNWRAP inputs.lod_chain: "LodChain"
+    %% @UNWRAP outputs.lod_chain: "LodChain"
+
+    %% @UV_PACK handler: uv_pack
+    %% @UV_PACK config.margin: 4
+    %% @UV_PACK config.resolution: 1024
+    %% @UV_PACK config.rotate: true
+    %% @UV_PACK config.scale_to_area: true
+    %% @UV_PACK inputs.lod_chain: "LodChain"
+    %% @UV_PACK outputs.lod_chain: "LodChain"
+
+    %% @UV_CHECK handler: validate_uv
+    %% @UV_CHECK config.overlap_threshold: 0.001
+    %% @UV_CHECK inputs.lod_chain: "LodChain"
+    %% @UV_CHECK outputs.clean: "bool"
+    %% @UV_CHECK outputs.overlaps: "UvOverlap[]"
+
+    %% @UV_REPACK handler: uv_pack
+    %% @UV_REPACK exec.retry: true
+    %% @UV_REPACK exec.max_attempts: 3
+    %% @UV_REPACK config.margin: 8
+    %% @UV_REPACK config.resolution: 1024
+    %% @UV_REPACK config.rotate: true
+    %% @UV_REPACK config.aggressive_split: true
+    %% @UV_REPACK inputs.lod_chain: "LodChain"
+    %% @UV_REPACK inputs.overlaps: "UvOverlap[]"
+    %% @UV_REPACK outputs.lod_chain: "LodChain"
+
+    %% @LIGHTMAP handler: lightmap_uv
+    %% @LIGHTMAP config.channel: 1
+    %% @LIGHTMAP config.margin: 8
+    %% @LIGHTMAP config.pack_method: "tetris"
+    %% @LIGHTMAP inputs.lod_chain: "LodChain"
+    %% @LIGHTMAP outputs.lod_chain: "LodChain"
+
+    %% =============================================
+    %% Materials & Final Approval
+    %% =============================================
+
+    %% @SNAPSHOT_UV handler: snapshot
+    %% @SNAPSHOT_UV config.label: "uv_complete"
+    %% @SNAPSHOT_UV config.resumable: true
+    %% @SNAPSHOT_UV inputs.lod_chain: "LodChain"
+    %% @SNAPSHOT_UV outputs.lod_chain: "LodChain"
+
+    %% @ASSIGN_MAT handler: assign_materials
+    %% @ASSIGN_MAT config.slots: ["base", "detail", "emissive"]
+    %% @ASSIGN_MAT config.auto_id: true
+    %% @ASSIGN_MAT inputs.lod_chain: "LodChain"
+    %% @ASSIGN_MAT inputs.mesh_config: "MeshConfig"
+    %% @ASSIGN_MAT outputs.model: "Model3D"
+
+    %% @VERTEX_COLOR handler: bake_vertex_colors
+    %% @VERTEX_COLOR config.source: "ao_and_curvature"
+    %% @VERTEX_COLOR config.ao_strength: 0.5
+    %% @VERTEX_COLOR config.curvature_strength: 0.3
+    %% @VERTEX_COLOR inputs.model: "Model3D"
+    %% @VERTEX_COLOR outputs.model: "Model3D"
+
+    %% @HUMAN_FINAL handler: human_in_the_loop
+    %% @HUMAN_FINAL config.prompt: "Review the final model with materials and UVs. Approve or request changes."
+    %% @HUMAN_FINAL config.timeout_s: 600
+    %% @HUMAN_FINAL config.options: ["approved", "rejected"]
+    %% @HUMAN_FINAL config.show: "model_summary"
+    %% @HUMAN_FINAL inputs.model: "Model3D"
+    %% @HUMAN_FINAL outputs.decision: "string"
+    %% @HUMAN_FINAL outputs.feedback: "string"
+
+    %% @MAT_TWEAK handler: apply_feedback
+    %% @MAT_TWEAK config.strategy: "reinterpret_as_material_params"
+    %% @MAT_TWEAK inputs.feedback: "string"
+    %% @MAT_TWEAK inputs.mesh_config: "MeshConfig"
+    %% @MAT_TWEAK outputs.mesh_config: "MeshConfig"
+
+    %% @EXPORT_GATE handler: passthrough
+    %% @EXPORT_GATE inputs.model: "Model3D"
+    %% @EXPORT_GATE outputs.model: "Model3D"
+
+    %% =============================================
+    %% Export — Parallel Outputs
+    %% =============================================
+
+    %% @GLTF handler: export_gltf
+    %% @GLTF config.format: "glb"
+    %% @GLTF config.include_lods: true
+    %% @GLTF config.draco_compression: true
+    %% @GLTF config.path: "./output/{name}.glb"
+    %% @GLTF inputs.model: "Model3D"
+    %% @GLTF outputs.path: "string"
+
+    %% @OBJ handler: export_obj
+    %% @OBJ config.path: "./output/{name}.obj"
+    %% @OBJ config.lod: 0
+    %% @OBJ inputs.model: "Model3D"
+    %% @OBJ outputs.path: "string"
+
+    %% @FBX handler: export_fbx
+    %% @FBX config.version: "7.4"
+    %% @FBX config.include_lods: true
+    %% @FBX config.path: "./output/{name}.fbx"
+    %% @FBX inputs.model: "Model3D"
+    %% @FBX outputs.path: "string"
+
+    %% @UNITY handler: export_unity_prefab
+    %% @UNITY config.include_lod_group: true
+    %% @UNITY config.include_collider: true
+    %% @UNITY config.collider_lod: 3
+    %% @UNITY config.path: "./output/{name}_prefab.json"
+    %% @UNITY inputs.model: "Model3D"
+    %% @UNITY outputs.path: "string"
+
+    %% @STATS handler: mesh_stats
+    %% @STATS config.include_per_lod: true
+    %% @STATS config.include_deformation_history: true
+    %% @STATS config.format: "json"
+    %% @STATS inputs.model: "Model3D"
+    %% @STATS outputs.stats: "MeshStats"
+    %% @STATS outputs.text: "string"
+
+    %% @HISTORY handler: export_generation_history
+    %% @HISTORY config.include_snapshots: true
+    %% @HISTORY config.include_race_results: true
+    %% @HISTORY config.include_human_decisions: true
+    %% @HISTORY config.include_deformation_stack: true
+    %% @HISTORY inputs.model: "Model3D"
+    %% @HISTORY outputs.history: "GenerationHistory"
+    %% @HISTORY outputs.text: "string"
