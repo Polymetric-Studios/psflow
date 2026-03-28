@@ -153,32 +153,32 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.T.4 | [x] | Mermaid parser tests | Parse representative `.mmd` files covering all node shapes, edge styles, subgraphs, and edge labels; verify extracted topology matches expected graph | P0 |
 | 1.T.5 | [x] | Annotation extraction tests | Verify dot-path expansion, value type coercion, reserved key handling, malformed annotation error reporting | P0 |
 | 1.T.6 | [x] | Mermaid round-trip tests | Load `.mmd` → export back to `.mmd` → reload; assert graph equivalence | P1 |
-| 1.T.7 | [ ] | Fuzz the Mermaid parser | `cargo-fuzz` or `proptest` on parser input; no panics, graceful error on malformed input | P1 |
+| 1.T.7 | [x] | Fuzz the Mermaid parser | `cargo-fuzz` or `proptest` on parser input; no panics, graceful error on malformed input | P1 |
 
 ### 1.3 Execution Engine
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 1.3.1 | [ ] | Node lifecycle state machine | States: idle, pending, running, completed, failed, cancelled. Transitions enforced via enum + type state, events emitted | P0 |
-| 1.3.2 | [ ] | Topological/batch executor | Resolve dependency order, run nodes sequentially or in parallel waves via `tokio`. Primary mode for Ergon pipelines | P0 |
+| 1.3.1 | [x] | Node lifecycle state machine | States: idle, pending, running, completed, failed, cancelled. Transitions enforced via enum + type state, events emitted | P0 |
+| 1.3.2 | [x] | Topological/batch executor | Resolve dependency order, run nodes sequentially or in parallel waves via `tokio`. Primary mode for Ergon pipelines | P0 |
 | 1.3.3 | [ ] | Reactive/dataflow executor | Node fires when all inputs satisfied; changes propagate downstream. For music tool / signal-flow use cases | P1 |
 | 1.3.4 | [ ] | Stepped/tick executor | Advance entire graph one evaluation cycle. Maps to BT-style tick, game-loop patterns | P2 |
 | 1.3.5 | [ ] | Event-driven entry points | External events can push data into designated entry nodes, triggering downstream execution via channels | P1 |
-| 1.3.6 | [ ] | Executor strategy as swappable trait | Common `Executor` trait; graph doesn't know which strategy runs it; selected at runtime via trait objects or compile-time via generics | P0 |
-| 1.3.7 | [ ] | Cancellation model | Cooperative cancellation via `tokio_util::CancellationToken` passed to every handler through context. Handlers check `ctx.cancelled()` at natural yield points. Cancellation sources: race node cancels siblings, retry timeout, global execution timeout, explicit user cancel. In-flight LLM adapter calls are cancelled via the adapter's own cancellation (drop the future / abort subprocess). Node transitions to `cancelled` state, emits cancellation event, downstream nodes transition to `cancelled` without executing | P0 |
-| 1.3.8 | [ ] | Per-node and global timeouts | Per-node timeout via annotation `exec.timeout_ms`. Global execution timeout configurable at engine level. Timeout triggers cancellation of the timed-out node (and its subtree for subgraphs). Timeout errors are `NodeError::Timeout` and can be caught by error handling nodes | P1 |
+| 1.3.6 | [x] | Executor strategy as swappable trait | Common `Executor` trait; graph doesn't know which strategy runs it; selected at runtime via trait objects or compile-time via generics | P0 |
+| 1.3.7 | [x] | Cancellation model | Cooperative cancellation via `tokio_util::CancellationToken` passed to every handler through context. Handlers check `ctx.cancelled()` at natural yield points. Cancellation sources: race node cancels siblings, retry timeout, global execution timeout, explicit user cancel. In-flight LLM adapter calls are cancelled via the adapter's own cancellation (drop the future / abort subprocess). Node transitions to `cancelled` state, emits cancellation event, downstream nodes transition to `cancelled` without executing | P0 |
+| 1.3.8 | [x] | Per-node and global timeouts | Per-node timeout via annotation `exec.timeout_ms`. Global execution timeout configurable at engine level. Timeout triggers cancellation of the timed-out node (and its subtree for subgraphs). Timeout errors are `NodeError::Timeout` and can be caught by error handling nodes | P1 |
 
 ### 1.T (continued) — Execution Engine Tests
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 1.T.8 | [ ] | Node lifecycle state machine tests | Verify all valid transitions succeed, invalid transitions return errors, events emitted on each transition | P0 |
-| 1.T.9 | [ ] | Topological executor tests | Linear chain, diamond dependency, fan-out/fan-in; verify correct execution order and parallel wave grouping | P0 |
-| 1.T.10 | [ ] | Executor trait conformance tests | Generic test harness that any `Executor` impl must pass: single node, linear chain, error propagation | P0 |
+| 1.T.8 | [x] | Node lifecycle state machine tests | Verify all valid transitions succeed, invalid transitions return errors, events emitted on each transition | P0 |
+| 1.T.9 | [x] | Topological executor tests | Linear chain, diamond dependency, fan-out/fan-in; verify correct execution order and parallel wave grouping | P0 |
+| 1.T.10 | [x] | Executor trait conformance tests | Generic test harness that any `Executor` impl must pass: single node, linear chain, error propagation | P0 |
 | 1.T.11 | [ ] | Reactive executor tests | Node fires when all inputs satisfied; changes propagate downstream; verify no re-execution of unchanged branches | P1 |
 | 1.T.12 | [x] | Port type system tests | Exact type match connects, mismatch rejected. Coercion (i64→f32) accepted. Vec<T>→T fan-out validated. Domain type registration and JSON Schema validation. Unknown type name rejected at load time | P0 |
-| 1.T.13 | [ ] | Error propagation tests | Node failure cascades cancellation to downstream nodes. Error caught by catch node stops propagation. Timeout error triggers. Cancellation token checked by mock handler. Multiple concurrent failures handled correctly | P0 |
-| 1.T.14 | [ ] | Cancellation tests | Race cancels siblings mid-execution. Global timeout cancels all running nodes. User cancel propagates. In-flight adapter calls cancelled. Cancelled node emits event and transitions correctly | P0 |
+| 1.T.13 | [x] | Error propagation tests | Node failure cascades cancellation to downstream nodes. Error caught by catch node stops propagation. Timeout error triggers. Cancellation token checked by mock handler. Multiple concurrent failures handled correctly | P0 |
+| 1.T.14 | [x] | Cancellation tests | Race cancels siblings mid-execution. Global timeout cancels all running nodes. User cancel propagates. In-flight adapter calls cancelled. Cancelled node emits event and transitions correctly | P0 |
 | 1.T.15 | [ ] | Graph metadata tests | Parse `%% @graph` annotations. Validate required adapter present. Reject graph with missing required capabilities | P1 |
 
 ---

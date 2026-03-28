@@ -1,4 +1,5 @@
 pub mod error;
+pub mod execute;
 pub mod graph;
 pub mod mermaid;
 
