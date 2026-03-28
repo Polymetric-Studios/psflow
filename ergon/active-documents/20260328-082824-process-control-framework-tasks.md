@@ -94,13 +94,13 @@ LLMs participate in the graph in two distinct roles:
 
 Every node follows a strict state machine: `idle → pending → running → completed | failed | cancelled`. Transitions emit events to an execution bus, enabling logging, tracing, and visual debugging without coupling to the engine internals.
 
-Nodes implement a standard async handler trait: `async fn execute(&self, inputs: Inputs, ctx: &mut Context, config: &Config) -> Result<Outputs>`. This is the only contract a domain-specific node needs to satisfy — everything else (scheduling, retries, error routing, state persistence) is handled by the framework.
+Nodes implement a standard async handler trait: `async fn execute(&self, inputs: Inputs, ctx: &mut Context, config: &Config) -> Result<Outputs, NodeError>`. This is the only contract a domain-specific node needs to satisfy — everything else (scheduling, retries, error routing, cancellation, state persistence) is handled by the framework. The context carries a `CancellationToken` that handlers should check at natural yield points; cancellation from race resolution, timeouts, or user abort propagates through this mechanism.
 
 ### Data Flow Model
 
 Data moves through the graph in two complementary ways:
 
-- **Edge tokens** — Immutable typed packets that flow along edges from output port to input port. Type-checked at connection time and at runtime via trait bounds and enum dispatch. This is the primary data pathway.
+- **Edge tokens** — Immutable typed packets that flow along edges from output port to input port. Type-checked at connection time and at runtime via a port type system: built-in scalars (string, bool, i64, f32), collections (Vec, Map), and registered domain types with optional JSON Schema validation. This is the primary data pathway.
 - **Blackboard** — Scoped mutable state for cross-cutting concerns (conversation history, accumulated results, shared config). Access is controlled: global, subgraph-local, or node-local scope with read/write permissions. Uses arena allocation for cache-friendly access patterns.
 
 The separation keeps pure dataflow nodes simple and testable while still supporting the stateful patterns that LLM orchestration demands.
@@ -129,6 +129,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.1.3 | [ ] | Support nested/hierarchical subgraphs | A node can contain a child Graph; exposed ports on the parent map to internal ports | P1 |
 | 1.1.4 | [ ] | Graph validation | Detect cycles (for DAG mode), orphan nodes, type mismatches, missing required inputs | P0 |
 | 1.1.5 | [ ] | Serialization to/from JSON | Full round-trip via `serde`: graph topology, port types, node config, subgraph hierarchy | P0 |
+| 1.1.6 | [ ] | Port type system | Define the type system for port values. Built-in scalar types (string, bool, i64, f32), collection types (Vec, Map), and a dynamic `Value` enum for domain types (e.g., `Room`, `MidiTrack`). Domain types registered by name with optional JSON Schema for validation. Port connections type-checked: exact match, or coercible (e.g., i64→f32). `Vec<T>` on output fans out to `T` inputs when `exec.strategy: "fan_out"` | P0 |
+| 1.1.7 | [ ] | Error type hierarchy | Define `NodeError` enum: `Failed { source, message, recoverable }`, `Timeout { elapsed, limit }`, `Cancelled { reason }`, `TypeMismatch { expected, got }`, `AdapterError { adapter, source }`. Errors propagate along edges to downstream nodes (marking them `cancelled`) unless caught by error handling nodes (3.1.4). Executor receives errors via the event bus. Serde-serializable for snapshots | P0 |
+| 1.1.8 | [ ] | Graph-level metadata | Graph struct includes: name, version, description, required adapter (optional), default executor strategy, required adapter capabilities, author, tags. Parsed from `%% @graph` annotations at file level. Validated by CLI runner and dry-run mode | P1 |
 
 ### 1.2 Mermaid Integration Layer
 
@@ -162,6 +165,8 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.3.4 | [ ] | Stepped/tick executor | Advance entire graph one evaluation cycle. Maps to BT-style tick, game-loop patterns | P2 |
 | 1.3.5 | [ ] | Event-driven entry points | External events can push data into designated entry nodes, triggering downstream execution via channels | P1 |
 | 1.3.6 | [ ] | Executor strategy as swappable trait | Common `Executor` trait; graph doesn't know which strategy runs it; selected at runtime via trait objects or compile-time via generics | P0 |
+| 1.3.7 | [ ] | Cancellation model | Cooperative cancellation via `tokio_util::CancellationToken` passed to every handler through context. Handlers check `ctx.cancelled()` at natural yield points. Cancellation sources: race node cancels siblings, retry timeout, global execution timeout, explicit user cancel. In-flight LLM adapter calls are cancelled via the adapter's own cancellation (drop the future / abort subprocess). Node transitions to `cancelled` state, emits cancellation event, downstream nodes transition to `cancelled` without executing | P0 |
+| 1.3.8 | [ ] | Per-node and global timeouts | Per-node timeout via annotation `exec.timeout_ms`. Global execution timeout configurable at engine level. Timeout triggers cancellation of the timed-out node (and its subtree for subgraphs). Timeout errors are `NodeError::Timeout` and can be caught by error handling nodes | P1 |
 
 ### 1.T (continued) — Execution Engine Tests
 
@@ -171,6 +176,10 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.T.9 | [ ] | Topological executor tests | Linear chain, diamond dependency, fan-out/fan-in; verify correct execution order and parallel wave grouping | P0 |
 | 1.T.10 | [ ] | Executor trait conformance tests | Generic test harness that any `Executor` impl must pass: single node, linear chain, error propagation | P0 |
 | 1.T.11 | [ ] | Reactive executor tests | Node fires when all inputs satisfied; changes propagate downstream; verify no re-execution of unchanged branches | P1 |
+| 1.T.12 | [ ] | Port type system tests | Exact type match connects, mismatch rejected. Coercion (i64→f32) accepted. Vec<T>→T fan-out validated. Domain type registration and JSON Schema validation. Unknown type name rejected at load time | P0 |
+| 1.T.13 | [ ] | Error propagation tests | Node failure cascades cancellation to downstream nodes. Error caught by catch node stops propagation. Timeout error triggers. Cancellation token checked by mock handler. Multiple concurrent failures handled correctly | P0 |
+| 1.T.14 | [ ] | Cancellation tests | Race cancels siblings mid-execution. Global timeout cancels all running nodes. User cancel propagates. In-flight adapter calls cancelled. Cancelled node emits event and transitions correctly | P0 |
+| 1.T.15 | [ ] | Graph metadata tests | Parse `%% @graph` annotations. Validate required adapter present. Reject graph with missing required capabilities | P1 |
 
 ---
 
@@ -187,9 +196,10 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.1.5 | [ ] | Loop nodes | Repeat (fixed count), while (guard condition), map-over-collection (fan-out/fan-in) | P0 |
 | 2.1.6 | [ ] | Retry with backoff | Configurable max attempts, backoff strategy (fixed, exponential), timeout per attempt | P1 |
 | 2.1.7 | [ ] | Subgraph invocation node | Call a named graph as a function; input/output port mapping; supports recursion guard | P1 |
-| 2.1.8 | [ ] | LLM guard for branch nodes | `guard_llm` annotation key with sub-schema: `adapter` (name or "default"), `prompt` (template with `{ctx.*}` interpolation), `output` (bool or enum), `fallback` (deterministic expression) or `fallback_field` (sibling config key used as deterministic alternative). Branch delegates decision to AI adapter; falls back to deterministic guard if adapter unavailable or on error | P1 |
-| 2.1.9 | [ ] | LLM criterion for race nodes | `criterion_llm` annotation key: race delegates candidate selection to AI adapter. Adapter receives all candidate outputs, returns index of winner. Supports scoring rubric in prompt | P1 |
-| 2.1.10 | [ ] | LLM condition for loop termination | `while_llm` annotation key: loop continues/stops based on AI adapter judgment. Adapter receives accumulated state, returns bool. Supports "is this good enough?" pattern | P1 |
+| 2.1.8 | [ ] | Concurrency limits / throttling | Configurable max concurrent nodes per executor (`max_parallelism`), per parallel node (`config.max_concurrent`), and per adapter (`config.rate_limit`). Uses `tokio::sync::Semaphore`. Fan-out over 100 items with `max_concurrent: 5` runs 5 at a time. Adapter rate limiting prevents API quota exhaustion | P1 |
+| 2.1.9 | [ ] | LLM guard for branch nodes | `guard_llm` annotation key with sub-schema: `adapter` (name or "default"), `prompt` (template with `{ctx.*}` interpolation), `output` (bool or enum), `fallback` (deterministic expression) or `fallback_field` (sibling config key used as deterministic alternative). Branch delegates decision to AI adapter; falls back to deterministic guard if adapter unavailable or on error | P1 |
+| 2.1.10 | [ ] | LLM criterion for race nodes | `criterion_llm` annotation key: race delegates candidate selection to AI adapter. Adapter receives all candidate outputs, returns index of winner. Supports scoring rubric in prompt | P1 |
+| 2.1.11 | [ ] | LLM condition for loop termination | `while_llm` annotation key: loop continues/stops based on AI adapter judgment. Adapter receives accumulated state, returns bool. Supports "is this good enough?" pattern | P1 |
 
 ### 2.2 State & Data Management
 
@@ -205,7 +215,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 2.T.1 | [ ] | Control flow primitive tests | Each primitive (sequence, parallel, race, branch, loop, retry, fan-out/fan-in) tested in isolation with mock nodes; verify ordering, cancellation, fan-out collection distribution, and error semantics | P0 |
+| 2.T.1 | [ ] | Control flow primitive tests | Each primitive (sequence, parallel, race, branch, loop, retry, fan-out/fan-in) tested in isolation with mock nodes; verify ordering, cancellation, fan-out collection distribution, and error semantics. Include concurrency limit tests: parallel with `max_concurrent` respects semaphore bound | P0 |
 | 2.T.2 | [ ] | Property-based tests for control flow | `proptest` — randomly compose control flow trees, verify invariants: no double-execution, all nodes reach terminal state, cancellation propagates | P1 |
 | 2.T.3 | [ ] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
 | 2.T.4 | [ ] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
@@ -324,7 +334,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 **Parallel track:** 3.1.2 (handler trait) → 3.2.1 (adapter trait) → 3.2.4 (CLI adapter) + 3.2.7 (mock adapter) → 3.3.1 (LLM call node)
 
-Phase 5 runs in parallel once Phases 1–2 are stable. AI adapters (3.2) can begin as soon as the handler trait (3.1.2) is defined — the adapter trait is independent of graph topology. The adapter parallel track runs alongside the rest of 3.1; it does not block on 3.1 completing. Claude Code CLI adapter (3.2.4) and mock adapter (3.2.7) should land first to unblock Ergon integration (3.3) and testing respectively. LLM oracle tasks (2.1.8–2.1.10) depend on both the adapter trait (3.2.1) and the control flow primitives (2.1.4–2.1.6).
+Phase 5 runs in parallel once Phases 1–2 are stable. AI adapters (3.2) can begin as soon as the handler trait (3.1.2) is defined — the adapter trait is independent of graph topology. The adapter parallel track runs alongside the rest of 3.1; it does not block on 3.1 completing. Claude Code CLI adapter (3.2.4) and mock adapter (3.2.7) should land first to unblock Ergon integration (3.3) and testing respectively. LLM oracle tasks (2.1.9–2.1.11) depend on both the adapter trait (3.2.1) and the control flow primitives (2.1.4–2.1.6). Port type system (1.1.6) and error hierarchy (1.1.7) are foundational — all subsequent phases assume them.
 
 ## Priority Key
 
