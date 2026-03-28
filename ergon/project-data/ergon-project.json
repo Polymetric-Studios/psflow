@@ -1,0 +1,17 @@
+{
+  "dateCreated" : "2026-03-28T12:12:00Z",
+  "description" : "A Rust-based framework for domain-agnostic process flow control and execution.",
+  "linearProjectId" : "none",
+  "localHostPort" : 0,
+  "name" : "psflow",
+  "techStack" : {
+    "platform" : "cli",
+    "tags" : [
+      "rust",
+      "cargo"
+    ]
+  },
+  "version" : "0001",
+  "versionControl" : "git",
+  "versionDate" : "2026-03-28T12:12:00Z"
+}

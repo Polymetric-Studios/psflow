@@ -1,0 +1,9 @@
+# Ergon
+ergon/ephemeral/
+ergon/screenshots/
+ergon/workflow-runs/
+ergon/workflow-output/
+ergon/sandbox-output/
+ergon/releases/
+session.lock
+/*.png
