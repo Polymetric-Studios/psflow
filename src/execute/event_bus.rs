@@ -4,12 +4,12 @@ use tokio::sync::broadcast;
 /// Default channel capacity for the event bus.
 const DEFAULT_CAPACITY: usize = 256;
 
-/// Broadcast-based event bus for execution events.
+/// Broadcast-based event bus for live execution event monitoring.
 ///
 /// Subscribers receive all events emitted after they subscribe.
-/// Events are also buffered for batch retrieval after execution completes.
 /// Uses `tokio::sync::broadcast` — slow subscribers that fall behind
-/// will miss events (lagged).
+/// will miss events (lagged). Batch retrieval of all events after
+/// execution is handled separately by `ExecutionContext`.
 pub struct EventBus {
     sender: broadcast::Sender<ExecutionEvent>,
 }

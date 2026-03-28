@@ -1,6 +1,7 @@
 use crate::adapter::{AiAdapter, AiRequest};
 use crate::error::NodeError;
-use crate::execute::{CancellationToken, NodeHandler, Outputs};
+use crate::execute::blackboard::Blackboard;
+use crate::execute::{CancellationToken, ExecutionContext, NodeHandler, Outputs};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use crate::template::PromptTemplate;
@@ -26,11 +27,25 @@ use std::sync::Arc;
 /// - `mode`: `"transform"` (default) or `"oracle"`.
 pub struct LlmCallHandler {
     adapter: Arc<dyn AiAdapter>,
+    /// Shared execution context for blackboard access.
+    /// Set when running within an executor; None for standalone/test use.
+    exec_ctx: Option<Arc<ExecutionContext>>,
 }
 
 impl LlmCallHandler {
     pub fn new(adapter: Arc<dyn AiAdapter>) -> Self {
-        Self { adapter }
+        Self {
+            adapter,
+            exec_ctx: None,
+        }
+    }
+
+    /// Create a handler with access to the execution context's blackboard.
+    pub fn with_context(adapter: Arc<dyn AiAdapter>, ctx: Arc<ExecutionContext>) -> Self {
+        Self {
+            adapter,
+            exec_ctx: Some(ctx),
+        }
     }
 }
 
@@ -44,6 +59,7 @@ impl NodeHandler for LlmCallHandler {
         let adapter = self.adapter.clone();
         let config = node.config.clone();
         let node_id = node.id.0.clone();
+        let exec_ctx = self.exec_ctx.clone();
 
         Box::pin(async move {
             if cancel.is_cancelled() {
@@ -69,15 +85,18 @@ impl NodeHandler for LlmCallHandler {
                 recoverable: false,
             })?;
 
-            // Use an empty blackboard for rendering — the handler doesn't have
-            // direct blackboard access in the current trait signature.
-            let blackboard = crate::execute::blackboard::Blackboard::new();
-            let rendered = template.render(&inputs, &blackboard).map_err(|e| {
-                NodeError::Failed {
-                    source_message: None,
-                    message: format!("node '{node_id}': template render error: {e}"),
-                    recoverable: false,
-                }
+            // Use the execution context's blackboard if available, otherwise empty
+            let empty_bb = Blackboard::new();
+            let rendered = if let Some(ref ctx) = exec_ctx {
+                let bb = ctx.blackboard();
+                template.render(&inputs, &bb)
+            } else {
+                template.render(&inputs, &empty_bb)
+            }
+            .map_err(|e| NodeError::Failed {
+                source_message: None,
+                message: format!("node '{node_id}': template render error: {e}"),
+                recoverable: false,
             })?;
 
             // Build the AI request

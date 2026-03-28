@@ -116,13 +116,12 @@ fn parse_segments(input: &str, base_offset: usize) -> Result<Vec<Segment>, Templ
             let content = content.trim();
 
             if let Some(var) = content.strip_prefix("#if ") {
-                // Conditional block: find matching {/if}
+                // Conditional block: find depth-aware matching {/if}
                 let var = var.trim().to_string();
                 let after_tag = close + 1;
                 let remaining: String = chars[after_tag..].iter().collect();
 
-                let end_tag = "{/if}";
-                let end_pos = remaining.find(end_tag).ok_or(
+                let end_pos = find_matching_endif(&remaining).ok_or(
                     TemplateError::UnclosedConditional {
                         tag: format!("{{#if {var}}}"),
                     },
@@ -131,7 +130,7 @@ fn parse_segments(input: &str, base_offset: usize) -> Result<Vec<Segment>, Templ
                 let body_str = &remaining[..end_pos];
                 let body = parse_segments(body_str, base_offset + after_tag)?;
                 segments.push(Segment::Conditional { var, body });
-                pos = after_tag + end_pos + end_tag.len();
+                pos = after_tag + end_pos + "{/if}".len();
             } else if content == "/if" {
                 // Stray {/if} — shouldn't happen in well-formed templates at top level
                 // Just emit as literal
@@ -161,6 +160,28 @@ fn parse_segments(input: &str, base_offset: usize) -> Result<Vec<Segment>, Templ
     }
 
     Ok(segments)
+}
+
+/// Find the position of the `{/if}` that closes the current nesting level.
+/// Counts nested `{#if ...}` / `{/if}` pairs to handle depth correctly.
+fn find_matching_endif(s: &str) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut pos = 0;
+    while pos < s.len() {
+        if s[pos..].starts_with("{#if ") {
+            depth += 1;
+            pos += 5; // skip past "{#if "
+        } else if s[pos..].starts_with("{/if}") {
+            depth -= 1;
+            if depth == 0 {
+                return Some(pos);
+            }
+            pos += 5; // skip past "{/if}"
+        } else {
+            pos += 1;
+        }
+    }
+    None
 }
 
 fn find_closing_brace(chars: &[char], start: usize) -> Option<usize> {
@@ -243,7 +264,8 @@ fn value_to_string(v: &Value) -> String {
         Value::I64(n) => n.to_string(),
         Value::F32(n) => n.to_string(),
         Value::Null => String::new(),
-        other => format!("{other:?}"),
+        // Complex types serialize as JSON for predictable, LLM-parseable output
+        other => serde_json::to_string(other).unwrap_or_else(|_| format!("{other:?}")),
     }
 }
 
@@ -372,6 +394,29 @@ mod tests {
         let result = tpl
             .render(&Outputs::new(), &Blackboard::new())
             .unwrap();
+        assert_eq!(result, "Start End");
+    }
+
+    #[test]
+    fn nested_conditionals() {
+        let tpl = PromptTemplate::compile(
+            "Start{#if inputs.a} A{#if inputs.b} AB{/if} after-B{/if} End",
+        )
+        .unwrap();
+
+        // Both truthy
+        let inputs = inputs_with(&[("a", "yes"), ("b", "yes")]);
+        let result = tpl.render(&inputs, &Blackboard::new()).unwrap();
+        assert_eq!(result, "Start A AB after-B End");
+
+        // Outer truthy, inner falsy
+        let inputs = inputs_with(&[("a", "yes"), ("b", "false")]);
+        let result = tpl.render(&inputs, &Blackboard::new()).unwrap();
+        assert_eq!(result, "Start A after-B End");
+
+        // Outer falsy
+        let inputs = inputs_with(&[("a", "false"), ("b", "yes")]);
+        let result = tpl.render(&inputs, &Blackboard::new()).unwrap();
         assert_eq!(result, "Start End");
     }
 

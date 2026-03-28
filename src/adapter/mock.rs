@@ -1,6 +1,5 @@
 use crate::adapter::{AdapterCapabilities, AiAdapter, AiRequest, AiResponse, TokenUsage};
 use crate::error::NodeError;
-use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Instant;
@@ -8,10 +7,11 @@ use std::time::Instant;
 /// A deterministic AI adapter for testing and CI.
 ///
 /// Maps prompt patterns to canned responses. When a prompt contains a
-/// registered pattern (substring match), the corresponding response is
-/// returned. If no pattern matches, a configurable default response is used.
+/// registered pattern (substring match), the first matching response
+/// (in registration order) is returned. If no pattern matches, a
+/// configurable default response is used.
 pub struct MockAdapter {
-    responses: HashMap<String, String>,
+    responses: Vec<(String, String)>,
     default_response: String,
     capabilities: AdapterCapabilities,
 }
@@ -19,7 +19,7 @@ pub struct MockAdapter {
 impl MockAdapter {
     pub fn new() -> Self {
         Self {
-            responses: HashMap::new(),
+            responses: Vec::new(),
             default_response: "mock response".into(),
             capabilities: AdapterCapabilities {
                 tool_use: true,
@@ -33,8 +33,9 @@ impl MockAdapter {
 
     /// Add a pattern → response mapping.
     /// When a prompt contains `pattern` as a substring, `response` is returned.
+    /// Add a pattern → response mapping (first-registered-wins on overlap).
     pub fn with_response(mut self, pattern: impl Into<String>, response: impl Into<String>) -> Self {
-        self.responses.insert(pattern.into(), response.into());
+        self.responses.push((pattern.into(), response.into()));
         self
     }
 
@@ -52,7 +53,7 @@ impl MockAdapter {
 
     fn find_response(&self, prompt: &str) -> String {
         for (pattern, response) in &self.responses {
-            if prompt.contains(pattern) {
+            if prompt.contains(pattern.as_str()) {
                 return response.clone();
             }
         }
