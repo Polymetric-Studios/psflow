@@ -1,0 +1,203 @@
+graph TD
+    subgraph Init
+        SEED[Seed RNG] --> CONFIG[Load Config]
+    end
+
+    subgraph Generate ["parallel: rooms"]
+        CONFIG --> ROOMS[Generate Rooms]
+        ROOMS --> R_DETAIL[Room Details]
+        R_DETAIL --> R_THEME[Apply Theme]
+    end
+
+    subgraph Connect
+        R_THEME --> CORR[Place Corridors]
+        CORR --> DOORS[Place Doors]
+    end
+
+    subgraph Populate ["parallel: content"]
+        DOORS --> KEYS[Distribute Keys]
+        DOORS --> MONSTERS[Place Monsters]
+        DOORS --> LOOT[Place Loot]
+    end
+
+    KEYS --> MERGE[Merge Dungeon]
+    MONSTERS --> MERGE
+    LOOT --> MERGE
+
+    subgraph Validate
+        MERGE --> SOLVE{Solvable?}
+        SOLVE -->|yes| BALANCE{Balanced?}
+        SOLVE -->|no| REGEN[Relax Constraints]
+        REGEN --> ROOMS
+        BALANCE -->|yes| EXPORT[Export]
+        BALANCE -->|no| REBALANCE[Adjust Difficulty]
+        REBALANCE --> MONSTERS
+    end
+
+    subgraph Export ["parallel: outputs"]
+        EXPORT --> ASCII[ASCII Map]
+        EXPORT --> MMD[Mermaid Graph]
+        EXPORT --> JSON[JSON Data]
+    end
+
+    %% --- Seed RNG ---
+    %% @SEED handler: seed_rng
+    %% @SEED config.seed: "auto"
+    %% @SEED config.seed_override: null
+    %% @SEED outputs.rng: "Rng"
+
+    %% --- Load Config ---
+    %% @CONFIG handler: load_config
+    %% @CONFIG config.defaults.width: 5
+    %% @CONFIG config.defaults.height: 5
+    %% @CONFIG config.defaults.room_count: 8
+    %% @CONFIG config.defaults.difficulty: "medium"
+    %% @CONFIG config.defaults.theme: "classic"
+    %% @CONFIG inputs.rng: "Rng"
+    %% @CONFIG outputs.dungeon_config: "DungeonConfig"
+
+    %% --- Generate Rooms ---
+    %% @ROOMS handler: generate_rooms
+    %% @ROOMS exec.strategy: "fan_out"
+    %% @ROOMS exec.fan_key: "dungeon_config.room_count"
+    %% @ROOMS inputs.dungeon_config: "DungeonConfig"
+    %% @ROOMS inputs.rng: "Rng"
+    %% @ROOMS outputs.rooms: "Room[]"
+
+    %% --- Room Details ---
+    %% @R_DETAIL handler: room_details
+    %% @R_DETAIL config.size_range.min: 3
+    %% @R_DETAIL config.size_range.max: 12
+    %% @R_DETAIL config.shapes: ["rect", "cross", "L", "round"]
+    %% @R_DETAIL inputs.rooms: "Room[]"
+    %% @R_DETAIL inputs.rng: "Rng"
+    %% @R_DETAIL outputs.rooms: "Room[]"
+
+    %% --- Apply Theme ---
+    %% @R_THEME handler: apply_theme
+    %% @R_THEME config.themes.classic.wall: "#"
+    %% @R_THEME config.themes.classic.floor: "."
+    %% @R_THEME config.themes.classic.door: "+"
+    %% @R_THEME config.themes.cave.wall: "%"
+    %% @R_THEME config.themes.cave.floor: " "
+    %% @R_THEME config.themes.cave.door: "o"
+    %% @R_THEME inputs.rooms: "Room[]"
+    %% @R_THEME inputs.dungeon_config: "DungeonConfig"
+    %% @R_THEME outputs.rooms: "ThemedRoom[]"
+
+    %% --- Place Corridors ---
+    %% @CORR handler: place_corridors
+    %% @CORR config.algorithm: "mst_plus_loops"
+    %% @CORR config.extra_connections: 0.2
+    %% @CORR config.style: "straight_then_bend"
+    %% @CORR inputs.rooms: "ThemedRoom[]"
+    %% @CORR inputs.rng: "Rng"
+    %% @CORR outputs.layout: "DungeonLayout"
+
+    %% --- Place Doors ---
+    %% @DOORS handler: place_doors
+    %% @DOORS config.door_chance: 0.7
+    %% @DOORS config.locked_chance: 0.3
+    %% @DOORS config.secret_chance: 0.1
+    %% @DOORS inputs.layout: "DungeonLayout"
+    %% @DOORS inputs.rng: "Rng"
+    %% @DOORS outputs.layout: "DungeonLayout"
+
+    %% --- Distribute Keys ---
+    %% @KEYS handler: distribute_keys
+    %% @KEYS config.placement: "before_lock"
+    %% @KEYS config.max_backtrack: 3
+    %% @KEYS inputs.layout: "DungeonLayout"
+    %% @KEYS inputs.rng: "Rng"
+    %% @KEYS outputs.key_placements: "KeyPlacement[]"
+
+    %% --- Place Monsters ---
+    %% @MONSTERS handler: place_monsters
+    %% @MONSTERS config.budget_per_room.easy: 2
+    %% @MONSTERS config.budget_per_room.medium: 5
+    %% @MONSTERS config.budget_per_room.hard: 8
+    %% @MONSTERS config.scaling: "distance_from_start"
+    %% @MONSTERS config.boss_room: true
+    %% @MONSTERS config.monster_table: "monsters.json"
+    %% @MONSTERS inputs.layout: "DungeonLayout"
+    %% @MONSTERS inputs.dungeon_config: "DungeonConfig"
+    %% @MONSTERS inputs.rng: "Rng"
+    %% @MONSTERS outputs.monster_placements: "MonsterPlacement[]"
+
+    %% --- Place Loot ---
+    %% @LOOT handler: place_loot
+    %% @LOOT config.chest_chance: 0.4
+    %% @LOOT config.quality_scaling: "distance_from_start"
+    %% @LOOT config.guaranteed_boss_loot: true
+    %% @LOOT config.loot_table: "loot.json"
+    %% @LOOT inputs.layout: "DungeonLayout"
+    %% @LOOT inputs.dungeon_config: "DungeonConfig"
+    %% @LOOT inputs.rng: "Rng"
+    %% @LOOT outputs.loot_placements: "LootPlacement[]"
+
+    %% --- Merge Dungeon ---
+    %% @MERGE handler: merge
+    %% @MERGE inputs.layout: "DungeonLayout"
+    %% @MERGE inputs.key_placements: "KeyPlacement[]"
+    %% @MERGE inputs.monster_placements: "MonsterPlacement[]"
+    %% @MERGE inputs.loot_placements: "LootPlacement[]"
+    %% @MERGE outputs.dungeon: "Dungeon"
+
+    %% --- Solvable? ---
+    %% @SOLVE handler: validate_solvability
+    %% @SOLVE config.algorithm: "bfs_with_keys"
+    %% @SOLVE config.require_all_rooms_reachable: true
+    %% @SOLVE inputs.dungeon: "Dungeon"
+    %% @SOLVE outputs.solvable: "bool"
+    %% @SOLVE outputs.unreachable: "RoomId[]"
+
+    %% --- Relax Constraints ---
+    %% @REGEN handler: relax_constraints
+    %% @REGEN exec.retry: true
+    %% @REGEN exec.max_attempts: 5
+    %% @REGEN exec.backoff: "linear"
+    %% @REGEN config.relaxation.remove_lock: true
+    %% @REGEN config.relaxation.add_corridor: true
+    %% @REGEN inputs.dungeon: "Dungeon"
+    %% @REGEN inputs.unreachable: "RoomId[]"
+    %% @REGEN outputs.dungeon_config: "DungeonConfig"
+
+    %% --- Balanced? ---
+    %% @BALANCE handler: validate_balance
+    %% @BALANCE config.max_difficulty_variance: 0.3
+    %% @BALANCE config.min_loot_per_difficulty: 1.0
+    %% @BALANCE inputs.dungeon: "Dungeon"
+    %% @BALANCE outputs.balanced: "bool"
+    %% @BALANCE outputs.hot_spots: "RoomId[]"
+
+    %% --- Adjust Difficulty ---
+    %% @REBALANCE handler: adjust_difficulty
+    %% @REBALANCE config.strategy: "redistribute"
+    %% @REBALANCE inputs.dungeon: "Dungeon"
+    %% @REBALANCE inputs.hot_spots: "RoomId[]"
+    %% @REBALANCE outputs.dungeon_config: "DungeonConfig"
+
+    %% --- Export ---
+    %% @EXPORT handler: passthrough
+    %% @EXPORT inputs.dungeon: "Dungeon"
+    %% @EXPORT outputs.dungeon: "Dungeon"
+
+    %% --- ASCII Map ---
+    %% @ASCII handler: render_ascii
+    %% @ASCII config.legend: true
+    %% @ASCII config.color: false
+    %% @ASCII inputs.dungeon: "Dungeon"
+    %% @ASCII outputs.text: "string"
+
+    %% --- Mermaid Graph ---
+    %% @MMD handler: render_mermaid
+    %% @MMD config.include_annotations: true
+    %% @MMD config.include_items: true
+    %% @MMD inputs.dungeon: "Dungeon"
+    %% @MMD outputs.mermaid: "string"
+
+    %% --- JSON Data ---
+    %% @JSON handler: serialize_json
+    %% @JSON config.pretty: true
+    %% @JSON inputs.dungeon: "Dungeon"
+    %% @JSON outputs.json: "string"
