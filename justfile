@@ -1,22 +1,34 @@
 # Project task runner
 # https://github.com/casey/just
 
-# Install dependencies
-install:
-    @echo "TODO: install"
-
 # Build the project
 build:
-    @echo "TODO: build"
+    cargo build
 
 # Run the project
-run:
-    @echo "TODO: run"
+run *ARGS:
+    cargo run -- {{ARGS}}
 
-# Create a release
-release:
-    @echo "TODO: release"
+# Run all tests
+test:
+    cargo test
 
-# Start local dev server
-serve:
-    @echo "TODO: serve"
+# Run tests with output
+test-verbose:
+    cargo test -- --nocapture
+
+# Type-check without building
+check:
+    cargo check
+
+# Format code
+fmt:
+    cargo fmt
+
+# Run clippy lints
+lint:
+    cargo clippy -- -D warnings
+
+# Clean build artifacts
+clean:
+    cargo clean

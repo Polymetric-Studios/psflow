@@ -124,14 +124,14 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 1.1.1 | [ ] | Define core graph types | Node, Edge, Port (input/output), Graph types with generics for payload types; leverage `petgraph` for underlying graph storage | P0 |
-| 1.1.2 | [ ] | Implement directed graph with typed ports | Nodes have named, typed input/output ports; edges connect output→input with type validation at connection time via trait bounds | P0 |
-| 1.1.3 | [ ] | Support nested/hierarchical subgraphs | A node can contain a child Graph; exposed ports on the parent map to internal ports | P1 |
-| 1.1.4 | [ ] | Graph validation | Detect cycles (for DAG mode), orphan nodes, type mismatches, missing required inputs | P0 |
-| 1.1.5 | [ ] | Serialization to/from JSON | Full round-trip via `serde`: graph topology, port types, node config, subgraph hierarchy | P0 |
-| 1.1.6 | [ ] | Port type system | Define the type system for port values. Built-in scalar types (string, bool, i64, f32), collection types (Vec, Map), and a dynamic `Value` enum for domain types (e.g., `Room`, `MidiTrack`). Domain types registered by name with optional JSON Schema for validation. Port connections type-checked: exact match, or coercible (e.g., i64→f32). `Vec<T>` on output fans out to `T` inputs when `exec.strategy: "fan_out"` | P0 |
-| 1.1.7 | [ ] | Error type hierarchy | Define `NodeError` enum: `Failed { source, message, recoverable }`, `Timeout { elapsed, limit }`, `Cancelled { reason }`, `TypeMismatch { expected, got }`, `AdapterError { adapter, source }`. Errors propagate along edges to downstream nodes (marking them `cancelled`) unless caught by error handling nodes (3.1.4). Executor receives errors via the event bus. Serde-serializable for snapshots | P0 |
-| 1.1.8 | [ ] | Graph-level metadata | Graph struct includes: name, version, description, required adapter (optional), default executor strategy, required adapter capabilities, author, tags. Parsed from `%% @graph` annotations at file level. Validated by CLI runner and dry-run mode | P1 |
+| 1.1.1 | [x] | Define core graph types | Node, Edge, Port (input/output), Graph types with generics for payload types; leverage `petgraph` for underlying graph storage | P0 |
+| 1.1.2 | [x] | Implement directed graph with typed ports | Nodes have named, typed input/output ports; edges connect output→input with type validation at connection time via trait bounds | P0 |
+| 1.1.3 | [x] | Support nested/hierarchical subgraphs | A node can contain a child Graph; exposed ports on the parent map to internal ports | P1 |
+| 1.1.4 | [x] | Graph validation | Detect cycles (for DAG mode), orphan nodes, type mismatches, missing required inputs | P0 |
+| 1.1.5 | [x] | Serialization to/from JSON | Full round-trip via `serde`: graph topology, port types, node config, subgraph hierarchy | P0 |
+| 1.1.6 | [x] | Port type system | Define the type system for port values. Built-in scalar types (string, bool, i64, f32), collection types (Vec, Map), and a dynamic `Value` enum for domain types (e.g., `Room`, `MidiTrack`). Domain types registered by name with optional JSON Schema for validation. Port connections type-checked: exact match, or coercible (e.g., i64→f32). `Vec<T>` on output fans out to `T` inputs when `exec.strategy: "fan_out"` | P0 |
+| 1.1.7 | [x] | Error type hierarchy | Define `NodeError` enum: `Failed { source, message, recoverable }`, `Timeout { elapsed, limit }`, `Cancelled { reason }`, `TypeMismatch { expected, got }`, `AdapterError { adapter, source }`. Errors propagate along edges to downstream nodes (marking them `cancelled`) unless caught by error handling nodes (3.1.4). Executor receives errors via the event bus. Serde-serializable for snapshots | P0 |
+| 1.1.8 | [x] | Graph-level metadata | Graph struct includes: name, version, description, required adapter (optional), default executor strategy, required adapter capabilities, author, tags. Parsed from `%% @graph` annotations at file level. Validated by CLI runner and dry-run mode | P1 |
 
 ### 1.2 Mermaid Integration Layer
 
@@ -147,9 +147,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 1.T.1 | [ ] | Unit tests for graph construction | Add/remove nodes and edges, port type validation rejects mismatches, duplicate edge detection | P0 |
-| 1.T.2 | [ ] | Unit tests for graph validation | Cycle detection, orphan node detection, missing required inputs, type mismatch reporting | P0 |
-| 1.T.3 | [ ] | Serde round-trip tests | Serialize graph to JSON and back; assert structural equality including subgraphs and port types | P0 |
+| 1.T.1 | [x] | Unit tests for graph construction | Add/remove nodes and edges, port type validation rejects mismatches, duplicate edge detection | P0 |
+| 1.T.2 | [x] | Unit tests for graph validation | Cycle detection, orphan node detection, missing required inputs, type mismatch reporting | P0 |
+| 1.T.3 | [x] | Serde round-trip tests | Serialize graph to JSON and back; assert structural equality including subgraphs and port types | P0 |
 | 1.T.4 | [ ] | Mermaid parser tests | Parse representative `.mmd` files covering all node shapes, edge styles, subgraphs, and edge labels; verify extracted topology matches expected graph | P0 |
 | 1.T.5 | [ ] | Annotation extraction tests | Verify dot-path expansion, value type coercion, reserved key handling, malformed annotation error reporting | P0 |
 | 1.T.6 | [ ] | Mermaid round-trip tests | Load `.mmd` → export back to `.mmd` → reload; assert graph equivalence | P1 |
@@ -176,7 +176,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.T.9 | [ ] | Topological executor tests | Linear chain, diamond dependency, fan-out/fan-in; verify correct execution order and parallel wave grouping | P0 |
 | 1.T.10 | [ ] | Executor trait conformance tests | Generic test harness that any `Executor` impl must pass: single node, linear chain, error propagation | P0 |
 | 1.T.11 | [ ] | Reactive executor tests | Node fires when all inputs satisfied; changes propagate downstream; verify no re-execution of unchanged branches | P1 |
-| 1.T.12 | [ ] | Port type system tests | Exact type match connects, mismatch rejected. Coercion (i64→f32) accepted. Vec<T>→T fan-out validated. Domain type registration and JSON Schema validation. Unknown type name rejected at load time | P0 |
+| 1.T.12 | [x] | Port type system tests | Exact type match connects, mismatch rejected. Coercion (i64→f32) accepted. Vec<T>→T fan-out validated. Domain type registration and JSON Schema validation. Unknown type name rejected at load time | P0 |
 | 1.T.13 | [ ] | Error propagation tests | Node failure cascades cancellation to downstream nodes. Error caught by catch node stops propagation. Timeout error triggers. Cancellation token checked by mock handler. Multiple concurrent failures handled correctly | P0 |
 | 1.T.14 | [ ] | Cancellation tests | Race cancels siblings mid-execution. Global timeout cancels all running nodes. User cancel propagates. In-flight adapter calls cancelled. Cancelled node emits event and transitions correctly | P0 |
 | 1.T.15 | [ ] | Graph metadata tests | Parse `%% @graph` annotations. Validate required adapter present. Reject graph with missing required capabilities | P1 |

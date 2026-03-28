@@ -1,7 +1,32 @@
 # Project Structure
 
 <!-- Maintain this file to document the folder structure of the project. -->
+<!-- Last updated: 2026-03-28 -->
 
 ```
-/
+psflow/
+├── Cargo.toml                  — Package manifest (petgraph, serde, thiserror)
+├── justfile                    — Task runner (build, test, lint, fmt, etc.)
+├── README.md
+├── .gitignore
+├── examples/
+│   ├── dungeon_generator.mmd   — Procedural dungeon generation workflow
+│   ├── texture_generator.mmd   — Procedural texture generation workflow
+│   ├── mesh_generator.mmd      — Procedural mesh generation workflow
+│   └── midi_generator.mmd      — Procedural MIDI generation workflow
+├── src/
+│   ├── lib.rs                  — Public API re-exports
+│   ├── main.rs                 — CLI entry point (stub)
+│   ├── error.rs                — NodeError and GraphError hierarchies
+│   └── graph/
+│       ├── mod.rs              — Graph struct, Subgraph, SubgraphDirective, construction/query, custom serde
+│       ├── node.rs             — NodeId, Node with builder pattern
+│       ├── edge.rs             — EdgeData (source_port, target_port, label)
+│       ├── port.rs             — Port (name + PortType)
+│       ├── types.rs            — PortType enum, Value enum, type parsing and compatibility
+│       ├── metadata.rs         — GraphMetadata
+│       └── validation.rs       — Graph validation (cycles, orphans, type mismatches, missing inputs)
+└── ergon/
+    ├── project-data/           — Ergon project metadata files
+    └── active-documents/       — Active design docs, plans, ADRs
 ```
