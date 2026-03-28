@@ -1,8 +1,16 @@
+pub mod adapter;
 pub mod error;
 pub mod execute;
 pub mod graph;
+pub mod handlers;
 pub mod mermaid;
+pub mod registry;
+pub mod template;
 
+pub use adapter::{
+    AdapterCapabilities, AdapterRegistry, AiAdapter, AiRequest, AiResponse, MockAdapter,
+    TokenUsage,
+};
 pub use error::{GraphError, NodeError, PortTypeMismatchInfo};
 pub use execute::blackboard::{Blackboard, BlackboardScope};
 pub use execute::control::{evaluate_guard, GuardResult, LoopConfig};
@@ -17,4 +25,7 @@ pub use graph::node::{Node, NodeId};
 pub use graph::port::Port;
 pub use graph::types::{PortType, Value};
 pub use graph::{Graph, Subgraph, SubgraphDirective};
+pub use handlers::LlmCallHandler;
 pub use mermaid::{export_mermaid, load_mermaid, MermaidError};
+pub use registry::NodeRegistry;
+pub use template::{PromptTemplate, TemplateError};

@@ -2,13 +2,13 @@
 
 <!-- Outline of source code folders and files with descriptions. -->
 <!-- Keep entries concise — one line per item. -->
-<!-- Last updated: 2026-03-28 (Phase 2) -->
+<!-- Last updated: 2026-03-28 (Phase 3) -->
 
 ## src/
 
 | File | Description |
 |------|-------------|
-| `lib.rs` | Crate root. Declares `error`, `graph`, and `execute` modules. Re-exports all public types including execute types: `Blackboard`, `BlackboardScope`, `GuardResult`, `LoopConfig`, `evaluate_guard`, plus all graph and error types. |
+| `lib.rs` | Crate root. Declares `error`, `graph`, `execute`, `mermaid`, `adapter`, `handlers`, `registry`, and `template` modules. Re-exports all public types across all layers. |
 | `main.rs` | Binary entry point. Prints version string (stub for future CLI). |
 | `error.rs` | Error types using `thiserror`. `NodeError` covers runtime failures (timeout, cancel, type mismatch, adapter error). `GraphError` covers structural issues (cycles, orphans, port type mismatches, duplicates, missing inputs, not-found). |
 
@@ -43,6 +43,28 @@
 | `annotation.rs` | Annotation value parsing (`%% @NodeID key.path: value`) with dot-path expansion into nested JSON. Validates reserved keys (handler, inputs, outputs, config, exec, *_llm). Applies extracted annotations to `Graph` nodes, populating handler, port definitions, and config/exec fields. |
 | `loader.rs` | Entry point `load_mermaid(path: &Path) -> Result<Graph>`. Chains: parse → extract annotations → apply to graph → port resolution → subgraph directives → return fully typed, executable `Graph`. |
 | `export.rs` | `export_mermaid(graph: &Graph) -> String`. Serializes `Graph` back to valid Mermaid `.mmd` with embedded `%%` annotations for configuration. Supports round-trip: export → re-import → structurally equivalent graph. |
+
+## src/adapter/
+
+| File | Description |
+|------|-------------|
+| `mod.rs` | `AiAdapter` trait with `call` and `capabilities` methods. `AdapterCapabilities` with `satisfies`/`missing` helpers. `AiRequest` builder, `AiResponse`, and `TokenUsage` types. |
+| `mock.rs` | `MockAdapter`: pattern-matched responses keyed by prompt substring, configurable default response, and capabilities override. Used in tests. |
+| `registry.rs` | `AdapterRegistry`: register named adapters, set/get default, resolve by name or default, validate capability requirements. |
+
+## src/handlers/
+
+| File | Description |
+|------|-------------|
+| `mod.rs` | Re-exports all built-in `NodeHandler` implementations. |
+| `llm_call.rs` | `LlmCallHandler`: `NodeHandler` that resolves an adapter, renders a `PromptTemplate` from node config, calls the adapter, and writes output. Supports `transform`/`oracle` execution modes and `json` output format. |
+
+## src/
+
+| File | Description |
+|------|-------------|
+| `registry.rs` | `NodeRegistry`: register/lookup/override `NodeHandler` factories by name. Provides `validate_graph` to check all graph nodes have registered handlers. |
+| `template.rs` | `PromptTemplate`: compile-time parsing and render-time interpolation of `{var}`, `{inputs.*}`, `{ctx.*}` placeholders; `{#if var}...{/if}` conditional blocks; `{{`/`}}` escape sequences. |
 
 ## examples/
 

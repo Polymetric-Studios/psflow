@@ -232,8 +232,8 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 3.1.1 | [ ] | Node type registry | Register handler implementations by type name; lookup at graph load time. Use `inventory` crate or explicit registration | P0 |
-| 3.1.2 | [ ] | Handler trait | Standard async handler trait: `async fn execute(&self, inputs, ctx, config) -> Result<Outputs>`; with lifecycle hooks (init, cleanup) | P0 |
+| 3.1.1 | [x] | Node type registry | Register handler implementations by type name; lookup at graph load time. Use `inventory` crate or explicit registration | P0 |
+| 3.1.2 | [x] | Handler trait | Standard async handler trait: `async fn execute(&self, inputs, ctx, config) -> Result<Outputs>`; with lifecycle hooks (init, cleanup) | P0 |
 | 3.1.3 | [ ] | Built-in utility nodes | Passthrough, transform/map, delay, log, merge, split, gate (conditional pass), race_select (collect race candidates and pick winner via score or LLM criterion), reactive_entry (designated re-entry point for reactive executor), event_entry (entry point for event-driven triggers), snapshot (checkpoint execution state for resume) | P1 |
 | 3.1.4 | [ ] | Error handling nodes | Catch node (wraps children, routes errors), fallback (try A else B), error transform | P1 |
 | 3.1.5 | [ ] | Plugin/extension loading | Load node handlers from shared libraries (`.so`/`.dylib`) at runtime via `libloading`, or compile-time via feature flags | P2 |
@@ -242,23 +242,23 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 3.2.1 | [ ] | AI adapter trait | `trait AiAdapter { async fn complete(&self, req: AiRequest) -> Result<AiResponse>; async fn judge(&self, candidates: &[&str], criteria: &str) -> Result<usize>; fn capabilities(&self) -> AdapterCapabilities; }` Core abstraction all backends implement | P0 |
-| 3.2.2 | [ ] | Adapter capabilities & validation | `AdapterCapabilities` struct declaring: tool_use, structured_output, vision, conversation_history, max_tokens. Nodes declare required capabilities; graph validation rejects mismatches before execution | P0 |
-| 3.2.3 | [ ] | AiRequest / AiResponse types | Request: prompt template, variables, output schema, temperature, max_tokens, stop sequences. Response: text, structured data, token usage, latency. Serde-serializable for snapshot/replay | P0 |
+| 3.2.1 | [x] | AI adapter trait | `trait AiAdapter { async fn complete(&self, req: AiRequest) -> Result<AiResponse>; async fn judge(&self, candidates: &[&str], criteria: &str) -> Result<usize>; fn capabilities(&self) -> AdapterCapabilities; }` Core abstraction all backends implement | P0 |
+| 3.2.2 | [x] | Adapter capabilities & validation | `AdapterCapabilities` struct declaring: tool_use, structured_output, vision, conversation_history, max_tokens. Nodes declare required capabilities; graph validation rejects mismatches before execution | P0 |
+| 3.2.3 | [x] | AiRequest / AiResponse types | Request: prompt template, variables, output schema, temperature, max_tokens, stop sequences. Response: text, structured data, token usage, latency. Serde-serializable for snapshot/replay | P0 |
 | 3.2.4 | [ ] | Claude Code CLI adapter | Subprocess lifecycle management: spawn session, send prompts via stdin, parse responses from stdout, maintain conversation context across calls, clean shutdown. Primary development adapter | P0 |
 | 3.2.5 | [ ] | Anthropic API adapter | Direct HTTP via `reqwest` to Messages API. Stateless; context assembled from blackboard per-call. Supports tool_use and structured output via API features | P1 |
 | 3.2.6 | [ ] | OpenAI-compatible adapter | HTTP to any OpenAI-shaped endpoint (ollama, vllm, litellm). Capability detection via model metadata. For local models and cost optimization | P1 |
-| 3.2.7 | [ ] | Mock adapter | Deterministic responses from a response map (prompt pattern → canned response). For testing and CI | P0 |
+| 3.2.7 | [x] | Mock adapter | Deterministic responses from a response map (prompt pattern → canned response). For testing and CI | P0 |
 | 3.2.11 | [ ] | Mock adapter recording mode | Run graph with real adapter, save all request/response pairs keyed by prompt hash. Replay in tests via mock adapter for deterministic CI without live LLM calls | P1 |
-| 3.2.8 | [ ] | Adapter registry & selection | Register adapters by name; select per-graph or per-node via annotation (`%% @NODE config.adapter: "claude_cli"`). Default adapter configurable at engine level | P0 |
+| 3.2.8 | [x] | Adapter registry & selection | Register adapters by name; select per-graph or per-node via annotation (`%% @NODE config.adapter: "claude_cli"`). Default adapter configurable at engine level | P0 |
 | 3.2.9 | [ ] | Conversation context accumulation | `ConversationHistory` blackboard type: formatted message list (role, content, tool_results). Automatically passed to stateless adapters. Claude CLI adapter uses native conversation instead | P1 |
-| 3.2.10 | [ ] | Prompt template engine | Variable interpolation from context/inputs (`{ctx.key}`, `{inputs.data}`), conditional sections, iteration over collections. Compiled at graph load time for validation | P0 |
+| 3.2.10 | [x] | Prompt template engine | Variable interpolation from context/inputs (`{ctx.key}`, `{inputs.data}`), conditional sections, iteration over collections. Compiled at graph load time for validation | P0 |
 
 ### 3.3 Ergon Integration Nodes
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 3.3.1 | [ ] | LLM call node | Delegates to AI adapter trait (3.2.1) via prompt template engine (3.2.10). Configurable model, prompt template with variable interpolation from context, structured output parsing via adapter's capabilities. Supports both transform (data in → data out) and oracle (judge/decide) modes | P0 |
+| 3.3.1 | [x] | LLM call node | Delegates to AI adapter trait (3.2.1) via prompt template engine (3.2.10). Configurable model, prompt template with variable interpolation from context, structured output parsing via adapter's capabilities. Supports both transform (data in → data out) and oracle (judge/decide) modes | P0 |
 | 3.3.2 | [ ] | HTTP / API call node | Method, URL template, headers, body template, response extraction via `reqwest` | P1 |
 | 3.3.3 | [ ] | File I/O nodes | Read file, write file, glob/list, with path templating from context | P1 |
 | 3.3.4 | [ ] | Accumulator / memory node | Append results to a running collection in context; supports `ConversationHistory` type for LLM context windows. Configurable scope (global, subgraph, node) | P1 |
@@ -268,17 +268,17 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 3.T.1 | [ ] | Registry lookup tests | Register, lookup, override, missing handler error; verify `inventory`-based or explicit registration works end-to-end | P0 |
-| 3.T.2 | [ ] | Handler contract tests | Generic test harness any handler must pass: receives correct inputs, context mutations visible, config applied, cleanup called on failure | P0 |
+| 3.T.1 | [x] | Registry lookup tests | Register, lookup, override, missing handler error; verify `inventory`-based or explicit registration works end-to-end | P0 |
+| 3.T.2 | [x] | Handler contract tests | Generic test harness any handler must pass: receives correct inputs, context mutations visible, config applied, cleanup called on failure | P0 |
 | 3.T.3 | [ ] | Built-in node tests | Each utility node (passthrough, transform, delay, merge, split, gate) tested with representative inputs | P1 |
 | 3.T.4 | [ ] | Error handling node tests | Catch routes errors correctly, fallback triggers on failure, error transform reshapes error types | P1 |
 | 3.T.5 | [ ] | Integration node tests | LLM call node with mock adapter, file I/O nodes against temp directories, accumulator state persistence | P1 |
-| 3.T.6 | [ ] | AI adapter trait tests | Generic test harness any adapter must pass: complete returns valid response, judge returns valid index, capabilities are accurate | P0 |
+| 3.T.6 | [x] | AI adapter trait tests | Generic test harness any adapter must pass: complete returns valid response, judge returns valid index, capabilities are accurate | P0 |
 | 3.T.7 | [ ] | Mock adapter recording tests | Run graph with real adapter in recording mode, save responses, replay with mock adapter, verify identical graph outputs | P1 |
 | 3.T.8 | [ ] | Claude Code CLI adapter tests | Subprocess lifecycle: spawn, send prompt, receive response, maintain conversation, clean shutdown. Test timeout handling and crash recovery | P1 |
-| 3.T.9 | [ ] | Capability validation tests | Graph with nodes requiring structured_output; adapter without it → validation error at load time, not runtime | P0 |
+| 3.T.9 | [x] | Capability validation tests | Graph with nodes requiring structured_output; adapter without it → validation error at load time, not runtime | P0 |
 | 3.T.10 | [ ] | Conversation context accumulation tests | Multiple LLM nodes in sequence; verify ConversationHistory builds correctly on blackboard; stateless adapter receives full context on each call. Include case: ConversationHistory exceeds token budget — verify truncation/windowing strategy applies | P1 |
-| 3.T.11 | [ ] | Prompt template tests | Variable interpolation, missing variable errors, conditional sections, collection iteration, compile-time validation | P0 |
+| 3.T.11 | [x] | Prompt template tests | Variable interpolation, missing variable errors, conditional sections, collection iteration, compile-time validation | P0 |
 
 ---
 
