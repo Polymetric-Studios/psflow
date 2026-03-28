@@ -1,12 +1,13 @@
 use crate::error::NodeError;
 use crate::execute::context::{CancellationToken, ExecutionContext};
+use crate::execute::control;
 use crate::execute::event::ExecutionEvent;
 use crate::execute::lifecycle::NodeState;
 use crate::execute::{
     ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler, Outputs,
 };
 use crate::graph::node::NodeId;
-use crate::graph::Graph;
+use crate::graph::{Graph, SubgraphDirective};
 use petgraph::algo::toposort;
 use petgraph::stable_graph::NodeIndex;
 use petgraph::Direction;
@@ -76,6 +77,11 @@ async fn execute_impl(
         });
     }
 
+    // Build subgraph membership: node_id → subgraph index
+    let subgraph_membership = build_subgraph_membership(graph);
+    // Track which subgraphs have been fully executed
+    let mut executed_subgraphs: HashSet<String> = HashSet::new();
+
     let waves = compute_waves(graph)?;
     let passthrough: Arc<dyn NodeHandler> = Arc::new(PassthroughHandler);
 
@@ -90,10 +96,92 @@ async fn execute_impl(
             continue;
         }
 
-        let mut handles = Vec::new();
+        // Separate nodes into subgraph-managed and independently-executed
+        let mut subgraphs_to_run: Vec<usize> = Vec::new();
+        let mut independent_nodes: Vec<&NodeId> = Vec::new();
 
         for node_id in wave {
             if ctx.get_state(&node_id.0).is_terminal() {
+                continue;
+            }
+            if let Some(sg_idx) = subgraph_membership.get(node_id) {
+                let sg = &graph.subgraphs()[*sg_idx];
+                if sg.directive != SubgraphDirective::None
+                    && !executed_subgraphs.contains(&sg.id)
+                    && !subgraphs_to_run.contains(sg_idx)
+                {
+                    subgraphs_to_run.push(*sg_idx);
+                }
+            } else {
+                independent_nodes.push(node_id);
+            }
+        }
+
+        // Execute subgraphs with their directives
+        for sg_idx in &subgraphs_to_run {
+            let sg = &graph.subgraphs()[*sg_idx];
+            executed_subgraphs.insert(sg.id.clone());
+
+            // Filter to non-terminal nodes in the subgraph
+            let sg_nodes: Vec<NodeId> = sg
+                .nodes
+                .iter()
+                .filter(|id| !ctx.get_state(&id.0).is_terminal())
+                .cloned()
+                .collect();
+
+            if sg_nodes.is_empty() {
+                continue;
+            }
+
+            match &sg.directive {
+                SubgraphDirective::Parallel => {
+                    control::execute_parallel(
+                        &sg_nodes, graph, handlers, &ctx, &passthrough,
+                    )
+                    .await?;
+                }
+                SubgraphDirective::Race => {
+                    control::execute_race(
+                        &sg_nodes, graph, handlers, &ctx, &passthrough,
+                    )
+                    .await?;
+                }
+                SubgraphDirective::Loop => {
+                    let loop_config = parse_loop_config(graph, &sg.nodes);
+                    control::execute_loop(
+                        &sg_nodes, &loop_config, graph, handlers, &ctx, &passthrough,
+                    )
+                    .await?;
+                }
+                SubgraphDirective::Event => {
+                    // Event-driven execution is not yet implemented (Phase 1.3.5)
+                    return Err(ExecutionError::ValidationFailed(
+                        format!("subgraph '{}' uses Event directive which is not yet implemented", sg.id)
+                    ));
+                }
+                _ => {
+                    // Named or None with nodes — execute as sequence
+                    control::execute_sequence(
+                        &sg_nodes, graph, handlers, &ctx, &passthrough, true,
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        // Execute independent nodes (original wave-based parallel logic)
+        let mut handles = Vec::new();
+
+        for node_id in &independent_nodes {
+            if ctx.get_state(&node_id.0).is_terminal() {
+                continue;
+            }
+
+            // Check if this node is blocked by an upstream branch decision
+            if is_branch_blocked(graph, node_id, &ctx) {
+                let _ = ctx.set_state(&node_id.0, NodeState::Cancelled);
+                cancel_downstream(graph, node_id, &ctx);
                 continue;
             }
 
@@ -114,19 +202,16 @@ async fn execute_impl(
             let cancel = ctx.cancel_token().clone();
             let ctx_clone = ctx.clone();
 
-            // Per-node timeout from exec.timeout_ms annotation
             let timeout_dur = node
                 .exec
                 .get("timeout_ms")
                 .and_then(|v| v.as_u64())
                 .map(Duration::from_millis);
 
-            // Transition to Pending (in the main loop, before spawn)
             ctx.set_state(&node_id_str, NodeState::Pending)
                 .map_err(|e| ExecutionError::ValidationFailed(e.to_string()))?;
 
             handles.push(tokio::spawn(async move {
-                // Check cancellation before running
                 if cancel.is_cancelled() {
                     return (
                         node_id_str,
@@ -136,12 +221,10 @@ async fn execute_impl(
                     );
                 }
 
-                // Transition to Running inside the spawned task
                 if let Err(e) = ctx_clone.set_state(&node_id_str, NodeState::Running) {
                     return (node_id_str, Err(e));
                 }
 
-                // Execute with optional timeout
                 let result = if let Some(timeout) = timeout_dur {
                     match tokio::time::timeout(
                         timeout,
@@ -171,6 +254,9 @@ async fn execute_impl(
 
             match outcome {
                 Ok(outputs) => {
+                    // Check if this is a branch node and record the decision
+                    handle_branch_decision(graph, &node_id, &outputs, &ctx);
+
                     ctx.store_outputs(&node_id, outputs.clone());
                     ctx.emit(ExecutionEvent::NodeCompleted {
                         node_id: node_id.clone(),
@@ -202,6 +288,91 @@ async fn execute_impl(
         events: ctx.take_events(),
         elapsed,
     })
+}
+
+/// Build a map from node ID to the subgraph index it belongs to.
+fn build_subgraph_membership(graph: &Graph) -> HashMap<NodeId, usize> {
+    let mut membership = HashMap::new();
+    for (idx, sg) in graph.subgraphs().iter().enumerate() {
+        for node_id in &sg.nodes {
+            membership.insert(node_id.clone(), idx);
+        }
+    }
+    membership
+}
+
+/// Check if a node is a branch node (has a guard config) and record the decision.
+fn handle_branch_decision(
+    graph: &Graph,
+    node_id: &str,
+    outputs: &Outputs,
+    ctx: &ExecutionContext,
+) {
+    let nid = NodeId::new(node_id);
+    let Some(node) = graph.node(&nid) else {
+        return;
+    };
+
+    // A node is a branch if it has config.guard
+    let guard_expr = node.config.get("guard").and_then(|v| v.as_str());
+    let Some(guard_expr) = guard_expr else {
+        return;
+    };
+
+    let bb = ctx.blackboard();
+    let result = control::evaluate_guard(guard_expr, outputs, &bb);
+    drop(bb);
+
+    match result {
+        Ok(guard_result) => {
+            ctx.set_branch_decision(node_id, guard_result.edge_label().to_string());
+        }
+        Err(_) => {
+            // Guard evaluation failed — default to "no"
+            ctx.set_branch_decision(node_id, "no".to_string());
+        }
+    }
+}
+
+/// Check if a node is blocked because an upstream branch didn't select its incoming edge.
+fn is_branch_blocked(graph: &Graph, node_id: &NodeId, ctx: &ExecutionContext) -> bool {
+    for (src_node, edge_data) in graph.incoming_edges(node_id) {
+        if let Some(decision) = ctx.get_branch_decision(&src_node.id.0) {
+            // The upstream node made a branch decision.
+            // If this edge has a label, it must match the decision.
+            if let Some(ref label) = edge_data.label {
+                if label != &decision {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Parse loop configuration from the first node in the subgraph that has exec.loop settings.
+fn parse_loop_config(graph: &Graph, node_ids: &[NodeId]) -> control::LoopConfig {
+    for nid in node_ids {
+        if let Some(node) = graph.node(nid) {
+            if let Some(count) = node.exec.get("loop_count").and_then(|v| v.as_u64()) {
+                return control::LoopConfig::Repeat(count as usize);
+            }
+            if let Some(guard) = node.exec.get("loop_while").and_then(|v| v.as_str()) {
+                let max = node
+                    .exec
+                    .get("loop_max_iterations")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize)
+                    .unwrap_or(control::DEFAULT_MAX_LOOP_ITERATIONS);
+                return control::LoopConfig::While {
+                    guard: guard.to_string(),
+                    max_iterations: max,
+                };
+            }
+        }
+    }
+    // Default: single execution (same as sequence)
+    control::LoopConfig::Repeat(1)
 }
 
 /// Group nodes into parallel waves based on dependency depth.
@@ -236,7 +407,7 @@ pub(crate) fn compute_waves(graph: &Graph) -> Result<Vec<Vec<NodeId>>, Execution
 }
 
 /// Collect inputs for a node from upstream node outputs via edge port mapping.
-fn collect_inputs(graph: &Graph, node_id: &NodeId, ctx: &ExecutionContext) -> Outputs {
+pub(crate) fn collect_inputs(graph: &Graph, node_id: &NodeId, ctx: &ExecutionContext) -> Outputs {
     let mut inputs = Outputs::new();
     for (src_node, edge_data) in graph.incoming_edges(node_id) {
         if let Some(src_outputs) = ctx.get_outputs(&src_node.id.0) {
@@ -732,6 +903,272 @@ mod tests {
         assert_eq!(result.node_states["X"], NodeState::Completed);
         assert_eq!(result.node_states["Y"], NodeState::Failed);
         assert_eq!(result.node_states["Z"], NodeState::Cancelled);
+    }
+
+    // -- Branch / conditional tests --
+
+    #[tokio::test]
+    async fn branch_follows_yes_path() {
+        // BRANCH(guard: "inputs.flag == true") --yes--> YES_NODE
+        //                                      --no---> NO_NODE
+        let mut graph = Graph::new();
+
+        let producer = Node::new("PROD", "Producer").with_handler("produce_true");
+        graph.add_node(producer).unwrap();
+
+        let mut branch = Node::new("BR", "Branch").with_handler("pass_through");
+        branch.config = serde_json::json!({ "guard": "inputs.flag == true" });
+        graph.add_node(branch).unwrap();
+
+        graph.add_node(Node::new("YES", "Yes").with_handler("ok")).unwrap();
+        graph.add_node(Node::new("NO", "No").with_handler("ok")).unwrap();
+
+        graph.add_edge(&"PROD".into(), "flag", &"BR".into(), "flag", None).unwrap();
+        graph.add_edge(&"BR".into(), "", &"YES".into(), "", Some("yes".into())).unwrap();
+        graph.add_edge(&"BR".into(), "", &"NO".into(), "", Some("no".into())).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("ok".into(), sync_handler(|_, inputs| Ok(inputs)));
+        handlers.insert(
+            "produce_true".into(),
+            sync_handler(|_, _| {
+                let mut out = Outputs::new();
+                out.insert("flag".into(), Value::Bool(true));
+                Ok(out)
+            }),
+        );
+        handlers.insert(
+            "pass_through".into(),
+            sync_handler(|_, inputs| Ok(inputs)),
+        );
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["BR"], NodeState::Completed);
+        assert_eq!(result.node_states["YES"], NodeState::Completed);
+        assert_eq!(result.node_states["NO"], NodeState::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn branch_follows_no_path() {
+        let mut graph = Graph::new();
+
+        graph.add_node(Node::new("PROD", "Producer").with_handler("produce_false")).unwrap();
+
+        let mut branch = Node::new("BR", "Branch").with_handler("pass_through");
+        branch.config = serde_json::json!({ "guard": "inputs.flag == true" });
+        graph.add_node(branch).unwrap();
+
+        graph.add_node(Node::new("YES", "Yes").with_handler("ok")).unwrap();
+        graph.add_node(Node::new("NO", "No").with_handler("ok")).unwrap();
+
+        graph.add_edge(&"PROD".into(), "flag", &"BR".into(), "flag", None).unwrap();
+        graph.add_edge(&"BR".into(), "", &"YES".into(), "", Some("yes".into())).unwrap();
+        graph.add_edge(&"BR".into(), "", &"NO".into(), "", Some("no".into())).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("ok".into(), sync_handler(|_, inputs| Ok(inputs)));
+        handlers.insert(
+            "produce_false".into(),
+            sync_handler(|_, _| {
+                let mut out = Outputs::new();
+                out.insert("flag".into(), Value::Bool(false));
+                Ok(out)
+            }),
+        );
+        handlers.insert(
+            "pass_through".into(),
+            sync_handler(|_, inputs| Ok(inputs)),
+        );
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["BR"], NodeState::Completed);
+        assert_eq!(result.node_states["YES"], NodeState::Cancelled);
+        assert_eq!(result.node_states["NO"], NodeState::Completed);
+    }
+
+    // -- Subgraph directive tests --
+
+    #[tokio::test]
+    async fn parallel_subgraph_directive() {
+        // Two independent nodes in a parallel subgraph
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
+        graph.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
+
+        graph.add_subgraph(crate::graph::Subgraph {
+            id: "sg1".into(),
+            label: "parallel: workers".into(),
+            directive: SubgraphDirective::Parallel,
+            nodes: vec!["A".into(), "B".into()],
+            children: Vec::new(),
+        });
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Completed);
+        assert_eq!(result.node_states["B"], NodeState::Completed);
+    }
+
+    #[tokio::test]
+    async fn race_subgraph_one_wins() {
+        // Two nodes in a race subgraph. Both complete, but the framework
+        // should cancel siblings when the first completes.
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("FAST", "Fast").with_handler("fast")).unwrap();
+        graph.add_node(Node::new("SLOW", "Slow").with_handler("slow")).unwrap();
+
+        graph.add_subgraph(crate::graph::Subgraph {
+            id: "race1".into(),
+            label: "race: candidates".into(),
+            directive: SubgraphDirective::Race,
+            nodes: vec!["FAST".into(), "SLOW".into()],
+            children: Vec::new(),
+        });
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("fast".into(), sync_handler(|_, _| {
+            let mut out = Outputs::new();
+            out.insert("result".into(), Value::String("fast_won".into()));
+            Ok(out)
+        }));
+        handlers.insert(
+            "slow".into(),
+            Arc::new(SlowHandler(Duration::from_millis(200))),
+        );
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        // At least one completed, and siblings should be cancelled
+        let fast_state = result.node_states["FAST"];
+        let slow_state = result.node_states["SLOW"];
+        assert!(
+            (fast_state == NodeState::Completed && slow_state == NodeState::Cancelled)
+                || (fast_state == NodeState::Cancelled && slow_state == NodeState::Completed),
+            "expected one winner and one cancelled, got fast={fast_state:?} slow={slow_state:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn loop_subgraph_repeats() {
+        // A node in a loop subgraph with loop_count: 3
+        // The node increments a counter each iteration
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let mut node = Node::new("COUNTER", "Counter").with_handler("count");
+        node.exec = serde_json::json!({ "loop_count": 3 });
+        let mut graph = Graph::new();
+        graph.add_node(node).unwrap();
+
+        graph.add_subgraph(crate::graph::Subgraph {
+            id: "loop1".into(),
+            label: "loop: repeat".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["COUNTER".into()],
+            children: Vec::new(),
+        });
+
+        let counter_clone = counter.clone();
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert(
+            "count".into(),
+            sync_handler(move |_, _| {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+                Ok(Outputs::new())
+            }),
+        );
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
+        assert_eq!(result.node_states["COUNTER"], NodeState::Completed);
+    }
+
+    #[tokio::test]
+    async fn sequence_in_named_subgraph() {
+        // Nodes in a Named subgraph execute as a sequence
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("S1", "Step 1").with_handler("trace")).unwrap();
+        graph.add_node(Node::new("S2", "Step 2").with_handler("trace")).unwrap();
+        graph.add_node(Node::new("S3", "Step 3").with_handler("trace")).unwrap();
+        graph.add_edge(&"S1".into(), "", &"S2".into(), "", None).unwrap();
+        graph.add_edge(&"S2".into(), "", &"S3".into(), "", None).unwrap();
+
+        graph.add_subgraph(crate::graph::Subgraph {
+            id: "seq1".into(),
+            label: "pipeline".into(),
+            directive: SubgraphDirective::Named("pipeline".into()),
+            nodes: vec!["S1".into(), "S2".into(), "S3".into()],
+            children: Vec::new(),
+        });
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["S1"], NodeState::Completed);
+        assert_eq!(result.node_states["S2"], NodeState::Completed);
+        assert_eq!(result.node_states["S3"], NodeState::Completed);
+    }
+
+    #[tokio::test]
+    async fn sequence_fail_fast_cancels_remaining() {
+        // S1 → S2(fail) → S3. S3 should be cancelled.
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("S1", "S1").with_handler("ok")).unwrap();
+        graph.add_node(Node::new("S2", "S2").with_handler("fail")).unwrap();
+        graph.add_node(Node::new("S3", "S3").with_handler("ok")).unwrap();
+        graph.add_edge(&"S1".into(), "", &"S2".into(), "", None).unwrap();
+        graph.add_edge(&"S2".into(), "", &"S3".into(), "", None).unwrap();
+
+        graph.add_subgraph(crate::graph::Subgraph {
+            id: "seq1".into(),
+            label: "pipeline".into(),
+            directive: SubgraphDirective::Named("pipeline".into()),
+            nodes: vec!["S1".into(), "S2".into(), "S3".into()],
+            children: Vec::new(),
+        });
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("ok".into(), sync_handler(|_, inputs| Ok(inputs)));
+        handlers.insert(
+            "fail".into(),
+            sync_handler(|_, _| {
+                Err(NodeError::Failed {
+                    source_message: None,
+                    message: "fail".into(),
+                    recoverable: false,
+                })
+            }),
+        );
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["S1"], NodeState::Completed);
+        assert_eq!(result.node_states["S2"], NodeState::Failed);
+        assert_eq!(result.node_states["S3"], NodeState::Cancelled);
     }
 
     // -- Test helpers --

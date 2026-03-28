@@ -1,7 +1,7 @@
 # Project Structure
 
 <!-- Maintain this file to document the folder structure of the project. -->
-<!-- Last updated: 2026-03-28 -->
+<!-- Last updated: 2026-03-28 (Phase 2) -->
 
 ```
 psflow/
@@ -26,6 +26,12 @@ psflow/
 │   │   ├── types.rs            — PortType enum, Value enum, type parsing and compatibility
 │   │   ├── metadata.rs         — GraphMetadata
 │   │   └── validation.rs       — Graph validation (cycles, orphans, type mismatches, missing inputs)
+│   ├── execute/
+│   │   ├── mod.rs              — Execution module declarations and re-exports (blackboard, control, context, topological)
+│   │   ├── blackboard.rs       — Scoped key-value store (BlackboardScope: Global/Subgraph/Node, Blackboard struct with fallback reads)
+│   │   ├── context.rs          — ExecutionContext with Blackboard integration, branch decision tracking, and state reset
+│   │   ├── control.rs          — Control flow strategies: evaluate_guard(), execute_sequence/parallel/race/loop, GuardResult, LoopConfig
+│   │   └── topological.rs      — Topological executor with subgraph delegation, branch decision handling, and blocked-node detection
 │   └── mermaid/
 │       ├── mod.rs              — MermaidError enum, module re-exports
 │       ├── parse.rs            — Line-by-line Mermaid parser → ParsedMermaid intermediate representation

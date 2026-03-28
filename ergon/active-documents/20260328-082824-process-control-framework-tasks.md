@@ -189,11 +189,11 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 2.1.1 | [ ] | Sequence node | Run children in order; fail-fast or continue-on-error configurable | P0 |
-| 2.1.2 | [ ] | Parallel node | Run children concurrently via `tokio::join!`; configurable: all-must-succeed, any-can-fail, n-of-m | P0 |
-| 2.1.3 | [ ] | Race node | Run children concurrently via `tokio::select!`, resolve on first completion, cancel siblings | P1 |
-| 2.1.4 | [ ] | Conditional / branch node | Guard expressions evaluated against context; supports if/else and switch-on-value | P0 |
-| 2.1.5 | [ ] | Loop nodes | Repeat (fixed count), while (guard condition), map-over-collection (fan-out/fan-in) | P0 |
+| 2.1.1 | [x] | Sequence node | Run children in order; fail-fast or continue-on-error configurable | P0 |
+| 2.1.2 | [x] | Parallel node | Run children concurrently via `tokio::join!`; configurable: all-must-succeed, any-can-fail, n-of-m | P0 |
+| 2.1.3 | [x] | Race node | Run children concurrently via `tokio::select!`, resolve on first completion, cancel siblings | P1 |
+| 2.1.4 | [x] | Conditional / branch node | Guard expressions evaluated against context; supports if/else and switch-on-value | P0 |
+| 2.1.5 | [x] | Loop nodes | Repeat (fixed count), while (guard condition), map-over-collection (fan-out/fan-in) | P0 |
 | 2.1.6 | [ ] | Retry with backoff | Configurable max attempts, backoff strategy (fixed, exponential), timeout per attempt | P1 |
 | 2.1.7 | [ ] | Subgraph invocation node | Call a named graph as a function; input/output port mapping; supports recursion guard | P1 |
 | 2.1.8 | [ ] | Concurrency limits / throttling | Configurable max concurrent nodes per executor (`max_parallelism`), per parallel node (`config.max_concurrent`), and per adapter (`config.rate_limit`). Uses `tokio::sync::Semaphore`. Fan-out over 100 items with `max_concurrent: 5` runs 5 at a time. Adapter rate limiting prevents API quota exhaustion | P1 |
@@ -205,8 +205,8 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 2.2.1 | [ ] | Typed token flow on edges | Immutable data packets flow along edges; type-checked at connection time and at runtime via enum dispatch | P0 |
-| 2.2.2 | [ ] | Blackboard / scoped context | Shared mutable state with scoping (global, subgraph-local, node-local); read/write access control. Arena-allocated for performance | P0 |
+| 2.2.1 | [x] | Typed token flow on edges | Immutable data packets flow along edges; type-checked at connection time and at runtime via enum dispatch | P0 |
+| 2.2.2 | [x] | Blackboard / scoped context | Shared mutable state with scoping (global, subgraph-local, node-local); read/write access control. Arena-allocated for performance | P0 |
 | 2.2.3 | [ ] | Context inheritance for subgraphs | Child graphs inherit parent context with configurable isolation (read-only parent, private child scope) | P1 |
 | 2.2.4 | [ ] | Execution snapshots | Serialize full execution state (node states, blackboard, pending tokens) via `serde` for checkpoint/resume | P1 |
 | 2.2.5 | [ ] | Snapshot resume | Deserialize snapshot and continue execution from checkpoint; critical for long-running LLM workflows | P1 |
@@ -215,10 +215,10 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 2.T.1 | [ ] | Control flow primitive tests | Each primitive (sequence, parallel, race, branch, loop, retry, fan-out/fan-in) tested in isolation with mock nodes; verify ordering, cancellation, fan-out collection distribution, and error semantics. Include concurrency limit tests: parallel with `max_concurrent` respects semaphore bound | P0 |
+| 2.T.1 | [x] | Control flow primitive tests | Each primitive (sequence, parallel, race, branch, loop, retry, fan-out/fan-in) tested in isolation with mock nodes; verify ordering, cancellation, fan-out collection distribution, and error semantics. Include concurrency limit tests: parallel with `max_concurrent` respects semaphore bound | P0 |
 | 2.T.2 | [ ] | Property-based tests for control flow | `proptest` — randomly compose control flow trees, verify invariants: no double-execution, all nodes reach terminal state, cancellation propagates | P1 |
-| 2.T.3 | [ ] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
-| 2.T.4 | [ ] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
+| 2.T.3 | [x] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
+| 2.T.4 | [x] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
 | 2.T.5 | [ ] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results. Include case: snapshot with in-flight LLM call (pending adapter response) resumes correctly | P1 |
 | 2.T.6 | [ ] | LLM guard tests | Branch node with `guard_llm`: mock adapter returns true/false, verify correct path taken. Test fallback to deterministic guard when adapter unavailable | P1 |
 | 2.T.7 | [ ] | LLM race criterion tests | Race node with `criterion_llm`: mock adapter selects candidate by index, verify correct winner propagated and siblings cancelled | P1 |

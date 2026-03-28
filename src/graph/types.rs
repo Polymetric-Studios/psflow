@@ -112,6 +112,33 @@ impl Value {
             Value::Null => PortType::Any,
         }
     }
+
+    /// Check if this runtime value is assignable to a port of the given type.
+    ///
+    /// Follows the same rules as `PortType::is_compatible_with`: exact match,
+    /// `Any` wildcard, `i64`-to-`f32` coercion, and recursive Vec/Map checks.
+    /// `Null` is compatible with any type (analogous to `Option::None`).
+    pub fn matches_type(&self, port_type: &PortType) -> bool {
+        match (self, port_type) {
+            (_, PortType::Any) => true,
+            (Value::Null, _) => true,
+            (Value::String(_), PortType::String) => true,
+            (Value::Bool(_), PortType::Bool) => true,
+            (Value::I64(_), PortType::I64) => true,
+            (Value::I64(_), PortType::F32) => true, // coercion
+            (Value::F32(_), PortType::F32) => true,
+            (Value::Vec(items), PortType::Vec(inner)) => {
+                items.iter().all(|v| v.matches_type(inner))
+            }
+            (Value::Map(entries), PortType::Map(inner)) => {
+                entries.values().all(|v| v.matches_type(inner))
+            }
+            (Value::Domain { type_name, .. }, PortType::Domain(expected)) => {
+                type_name == expected
+            }
+            _ => false,
+        }
+    }
 }
 
 impl PartialEq for Value {
@@ -262,6 +289,73 @@ mod tests {
             .port_type(),
             PortType::Domain("Room".into())
         );
+    }
+
+    #[test]
+    fn matches_type_exact() {
+        assert!(Value::String("hi".into()).matches_type(&PortType::String));
+        assert!(Value::Bool(true).matches_type(&PortType::Bool));
+        assert!(Value::I64(42).matches_type(&PortType::I64));
+        assert!(Value::F32(3.14).matches_type(&PortType::F32));
+    }
+
+    #[test]
+    fn matches_type_any_wildcard() {
+        assert!(Value::String("x".into()).matches_type(&PortType::Any));
+        assert!(Value::I64(1).matches_type(&PortType::Any));
+    }
+
+    #[test]
+    fn matches_type_null_matches_anything() {
+        assert!(Value::Null.matches_type(&PortType::String));
+        assert!(Value::Null.matches_type(&PortType::I64));
+        assert!(Value::Null.matches_type(&PortType::Domain("Room".into())));
+    }
+
+    #[test]
+    fn matches_type_i64_to_f32_coercion() {
+        assert!(Value::I64(10).matches_type(&PortType::F32));
+        assert!(!Value::F32(1.0).matches_type(&PortType::I64));
+    }
+
+    #[test]
+    fn matches_type_vec_recursive() {
+        let v = Value::Vec(vec![Value::I64(1), Value::I64(2)]);
+        assert!(v.matches_type(&PortType::Vec(Box::new(PortType::I64))));
+        assert!(v.matches_type(&PortType::Vec(Box::new(PortType::F32)))); // coercion
+        assert!(!v.matches_type(&PortType::Vec(Box::new(PortType::String))));
+    }
+
+    #[test]
+    fn matches_type_empty_vec() {
+        let v = Value::Vec(vec![]);
+        assert!(v.matches_type(&PortType::Vec(Box::new(PortType::String))));
+    }
+
+    #[test]
+    fn matches_type_map_recursive() {
+        let mut m = BTreeMap::new();
+        m.insert("a".into(), Value::String("x".into()));
+        let v = Value::Map(m);
+        assert!(v.matches_type(&PortType::Map(Box::new(PortType::String))));
+        assert!(!v.matches_type(&PortType::Map(Box::new(PortType::I64))));
+    }
+
+    #[test]
+    fn matches_type_domain() {
+        let v = Value::Domain {
+            type_name: "Room".into(),
+            data: serde_json::json!({}),
+        };
+        assert!(v.matches_type(&PortType::Domain("Room".into())));
+        assert!(!v.matches_type(&PortType::Domain("Tile".into())));
+    }
+
+    #[test]
+    fn matches_type_mismatch() {
+        assert!(!Value::String("x".into()).matches_type(&PortType::Bool));
+        assert!(!Value::Bool(true).matches_type(&PortType::I64));
+        assert!(!Value::I64(1).matches_type(&PortType::String));
     }
 
     #[test]

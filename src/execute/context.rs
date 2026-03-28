@@ -1,10 +1,11 @@
 use crate::error::NodeError;
+use crate::execute::blackboard::Blackboard;
 use crate::execute::event::ExecutionEvent;
 use crate::execute::lifecycle::NodeState;
 use crate::execute::Outputs;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 /// Cooperative cancellation token backed by an atomic flag.
@@ -36,6 +37,9 @@ pub struct ExecutionContext {
     node_outputs: Mutex<HashMap<String, Outputs>>,
     events: Mutex<Vec<ExecutionEvent>>,
     cancel: CancellationToken,
+    blackboard: Mutex<Blackboard>,
+    /// Tracks branch decisions: maps branch node ID to the selected edge label.
+    branch_decisions: Mutex<HashMap<String, String>>,
 }
 
 impl ExecutionContext {
@@ -45,6 +49,8 @@ impl ExecutionContext {
             node_outputs: Mutex::new(HashMap::new()),
             events: Mutex::new(Vec::new()),
             cancel: CancellationToken::new(),
+            blackboard: Mutex::new(Blackboard::new()),
+            branch_decisions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -144,6 +150,44 @@ impl ExecutionContext {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()),
         )
+    }
+
+    // -- Blackboard --
+
+    /// Acquire a read/write lock on the blackboard.
+    pub fn blackboard(&self) -> MutexGuard<'_, Blackboard> {
+        self.blackboard.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    // -- Branch decisions --
+
+    /// Record a branch node's selected edge label.
+    pub fn set_branch_decision(&self, node_id: &str, label: String) {
+        self.branch_decisions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(node_id.to_string(), label);
+    }
+
+    /// Get the selected edge label for a branch node (if it made a decision).
+    pub fn get_branch_decision(&self, node_id: &str) -> Option<String> {
+        self.branch_decisions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(node_id)
+            .cloned()
+    }
+
+    // -- Loop support --
+
+    /// Reset node states and outputs to allow re-execution in loop iterations.
+    pub fn reset_states<'a>(&self, node_ids: impl Iterator<Item = &'a str>) {
+        let mut states = self.node_states.lock().unwrap_or_else(|e| e.into_inner());
+        let mut outputs = self.node_outputs.lock().unwrap_or_else(|e| e.into_inner());
+        for id in node_ids {
+            states.remove(id);
+            outputs.remove(id);
+        }
     }
 }
 
