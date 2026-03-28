@@ -261,7 +261,9 @@ graph TD
     %% @ARR_BUILDING outputs.arrangement: "Arrangement"
 
     %% @ARR_PICK handler: race_select
-    %% @ARR_PICK config.criterion: "first_balanced"
+    %% @ARR_PICK config.criterion_llm.adapter: "default"
+    %% @ARR_PICK config.criterion_llm.prompt: "You are a jazz arranger. Given these {candidates.len} arrangement approaches for a {ctx.song_config.style} piece in {ctx.song_config.key} {ctx.song_config.mode}, select the one with the best dynamic arc, instrument interplay, and stylistic authenticity. Consider tension/release pacing."
+    %% @ARR_PICK config.criterion_llm.fallback: "first_balanced"
     %% @ARR_PICK config.cancel_siblings: true
     %% @ARR_PICK inputs.arrangement: "Arrangement"
     %% @ARR_PICK outputs.form: "SongForm"
@@ -544,6 +546,10 @@ graph TD
     %% =============================================
 
     %% @VALIDATE handler: validate_harmony
+    %% @VALIDATE config.guard_llm.adapter: "default"
+    %% @VALIDATE config.guard_llm.prompt: "Analyze this MIDI sequence for harmonic validity in {ctx.song_config.key} {ctx.song_config.mode}. Check for: unintentional dissonance (not passing tones or jazz tensions), parallel fifths/octaves between voices, voice crossing between melody and pad. Note that some dissonance is intentional in {ctx.song_config.style}. Are there clashes that need fixing?"
+    %% @VALIDATE config.guard_llm.output: "bool"
+    %% @VALIDATE config.guard_llm.fallback_field: "max_dissonance"
     %% @VALIDATE config.max_dissonance: 0.3
     %% @VALIDATE config.check_parallel_fifths: true
     %% @VALIDATE config.check_voice_crossing: true
@@ -553,11 +559,15 @@ graph TD
     %% @VALIDATE outputs.valid: "bool"
     %% @VALIDATE outputs.clashes: "Clash[]"
 
-    %% @FIX handler: fix_clashes
+    %% @FIX handler: llm_call
     %% @FIX exec.retry: true
     %% @FIX exec.max_attempts: 3
-    %% @FIX config.strategy: "repitch_to_nearest_scale_tone"
-    %% @FIX config.prefer: "melody"
+    %% @FIX config.adapter: "default"
+    %% @FIX config.prompt: "Fix these harmonic clashes in a {ctx.song_config.style} context: {inputs.clashes}. For each clash, suggest the best resolution: repitch to nearest scale tone, convert to passing tone, adjust timing, or remove note. Preserve the melody voice. Output as MidiTrack[] adjustments."
+    %% @FIX config.output_schema: "MidiTrack[]"
+    %% @FIX config.fallback_handler: "fix_clashes"
+    %% @FIX config.fallback_strategy: "repitch_to_nearest_scale_tone"
+    %% @FIX config.fallback_prefer: "melody"
     %% @FIX inputs.sequence: "MidiSequence"
     %% @FIX inputs.clashes: "Clash[]"
     %% @FIX inputs.scale: "Scale"

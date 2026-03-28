@@ -72,6 +72,24 @@ The engine separates three concerns cleanly:
 
 **Context** — Runtime state: the blackboard (scoped shared state using arena allocation), immutable tokens flowing on edges, and execution snapshots for checkpoint/resume. Subgraphs inherit parent context with configurable isolation.
 
+**AI Adapter** — The strategy for how the graph accesses LLM intelligence. Swappable per invocation via trait objects, independent of the executor. Nodes that need LLM capabilities (transform, classification, generation, judgment) request them through the adapter trait — they never know which backend is running. Four adapters planned:
+- *Claude Code CLI* — subprocess with persistent conversation, built-in tool use, and context accumulation. Primary adapter for development and Ergon use.
+- *Anthropic API* — direct HTTP via `reqwest`. Stateless request/response; context managed manually via blackboard. For production and fine-grained control.
+- *OpenAI-compatible* — HTTP, same interface shape. For local models (ollama, llama.cpp) and cost optimization.
+- *Mock* — in-memory, deterministic responses. For testing and CI.
+
+The adapter declares its capabilities (tool use, structured output, vision, conversation history) and nodes assert what they require. Capability mismatches are caught at graph validation time, not runtime.
+
+### LLM Integration Model
+
+LLMs participate in the graph in two distinct roles:
+
+**LLM as transform** — data flows in, the LLM processes it, structured data flows out. The LLM is the compute inside a standard node handler. Used for classification, extraction, generation, summarization. The node's annotation specifies a prompt template with variable interpolation from context; the adapter handles the actual call.
+
+**LLM as oracle** — the LLM makes routing decisions that affect execution topology. Branch guards, race scoring, and loop termination conditions can delegate to the LLM instead of using deterministic expressions. The annotation convention uses `guard_llm`, `criterion_llm`, or `while_llm` keys to signal that the decision point calls the adapter. This keeps the graph structure declarative while allowing intelligent control flow.
+
+**LLM context accumulation** — as data flows through the graph, LLM nodes may need context from earlier nodes. When using the Claude Code CLI adapter, this happens naturally via the persistent conversation. For stateless adapters, the blackboard supports a `ConversationHistory` type that accumulates formatted context windows, passed to subsequent LLM calls automatically. The accumulator node (3.2.4) supports this pattern directly.
+
 ### Node Lifecycle
 
 Every node follows a strict state machine: `idle → pending → running → completed | failed | cancelled`. Transitions emit events to an execution bus, enabling logging, tracing, and visual debugging without coupling to the engine internals.
@@ -168,6 +186,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.1.5 | [ ] | Loop nodes | Repeat (fixed count), while (guard condition), map-over-collection (fan-out/fan-in) | P0 |
 | 2.1.6 | [ ] | Retry with backoff | Configurable max attempts, backoff strategy (fixed, exponential), timeout per attempt | P1 |
 | 2.1.7 | [ ] | Subgraph invocation node | Call a named graph as a function; input/output port mapping; supports recursion guard | P1 |
+| 2.1.8 | [ ] | LLM guard for branch nodes | `guard_llm` annotation key: branch delegates decision to AI adapter instead of deterministic expression. Prompt template with context interpolation, expects bool or enum response. Falls back to deterministic guard if adapter unavailable | P1 |
+| 2.1.9 | [ ] | LLM criterion for race nodes | `criterion_llm` annotation key: race delegates candidate selection to AI adapter. Adapter receives all candidate outputs, returns index of winner. Supports scoring rubric in prompt | P1 |
+| 2.1.10 | [ ] | LLM condition for loop termination | `while_llm` annotation key: loop continues/stops based on AI adapter judgment. Adapter receives accumulated state, returns bool. Supports "is this good enough?" pattern | P1 |
 
 ### 2.2 State & Data Management
 
@@ -188,6 +209,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.T.3 | [ ] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
 | 2.T.4 | [ ] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
 | 2.T.5 | [ ] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results | P1 |
+| 2.T.6 | [ ] | LLM guard tests | Branch node with `guard_llm`: mock adapter returns true/false, verify correct path taken. Test fallback to deterministic guard when adapter unavailable | P1 |
+| 2.T.7 | [ ] | LLM race criterion tests | Race node with `criterion_llm`: mock adapter selects candidate by index, verify correct winner propagated and siblings cancelled | P1 |
+| 2.T.8 | [ ] | LLM loop termination tests | Loop with `while_llm`: mock adapter returns true N times then false, verify correct iteration count and accumulated state | P1 |
 
 ---
 
@@ -203,15 +227,30 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 3.1.4 | [ ] | Error handling nodes | Catch node (wraps children, routes errors), fallback (try A else B), error transform | P1 |
 | 3.1.5 | [ ] | Plugin/extension loading | Load node handlers from shared libraries (`.so`/`.dylib`) at runtime via `libloading`, or compile-time via feature flags | P2 |
 
-### 3.2 Ergon Integration Nodes
+### 3.2 AI Adapter System
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 3.2.1 | [ ] | LLM call node | Configurable model, prompt template with variable interpolation from context, structured output parsing | P0 |
-| 3.2.2 | [ ] | HTTP / API call node | Method, URL template, headers, body template, response extraction via `reqwest` | P1 |
-| 3.2.3 | [ ] | File I/O nodes | Read file, write file, glob/list, with path templating from context | P1 |
-| 3.2.4 | [ ] | Accumulator / memory node | Append results to a running collection in context; supports conversation history pattern | P1 |
-| 3.2.5 | [ ] | Human-in-the-loop node | Pause execution, present data, wait for external input via channel, resume with response | P2 |
+| 3.2.1 | [ ] | AI adapter trait | `trait AiAdapter { async fn complete(&self, req: AiRequest) -> Result<AiResponse>; async fn judge(&self, candidates: &[&str], criteria: &str) -> Result<usize>; fn capabilities(&self) -> AdapterCapabilities; }` Core abstraction all backends implement | P0 |
+| 3.2.2 | [ ] | Adapter capabilities & validation | `AdapterCapabilities` struct declaring: tool_use, structured_output, vision, conversation_history, max_tokens. Nodes declare required capabilities; graph validation rejects mismatches before execution | P0 |
+| 3.2.3 | [ ] | AiRequest / AiResponse types | Request: prompt template, variables, output schema, temperature, max_tokens, stop sequences. Response: text, structured data, token usage, latency. Serde-serializable for snapshot/replay | P0 |
+| 3.2.4 | [ ] | Claude Code CLI adapter | Subprocess lifecycle management: spawn session, send prompts via stdin, parse responses from stdout, maintain conversation context across calls, clean shutdown. Primary development adapter | P0 |
+| 3.2.5 | [ ] | Anthropic API adapter | Direct HTTP via `reqwest` to Messages API. Stateless; context assembled from blackboard per-call. Supports tool_use and structured output via API features | P1 |
+| 3.2.6 | [ ] | OpenAI-compatible adapter | HTTP to any OpenAI-shaped endpoint (ollama, vllm, litellm). Capability detection via model metadata. For local models and cost optimization | P1 |
+| 3.2.7 | [ ] | Mock adapter | Deterministic responses from a response map (prompt pattern → canned response). For testing and CI. Supports recording mode: run with real adapter, save responses, replay in tests | P0 |
+| 3.2.8 | [ ] | Adapter registry & selection | Register adapters by name; select per-graph or per-node via annotation (`%% @NODE config.adapter: "claude_cli"`). Default adapter configurable at engine level | P0 |
+| 3.2.9 | [ ] | Conversation context accumulation | `ConversationHistory` blackboard type: formatted message list (role, content, tool_results). Automatically passed to stateless adapters. Claude CLI adapter uses native conversation instead | P1 |
+| 3.2.10 | [ ] | Prompt template engine | Variable interpolation from context/inputs (`{ctx.key}`, `{inputs.data}`), conditional sections, iteration over collections. Compiled at graph load time for validation | P0 |
+
+### 3.3 Ergon Integration Nodes
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 3.3.1 | [ ] | LLM call node | Delegates to AI adapter (3.2). Configurable model, prompt template with variable interpolation from context, structured output parsing via adapter's capabilities. Supports both transform (data in → data out) and oracle (judge/decide) modes | P0 |
+| 3.3.2 | [ ] | HTTP / API call node | Method, URL template, headers, body template, response extraction via `reqwest` | P1 |
+| 3.3.3 | [ ] | File I/O nodes | Read file, write file, glob/list, with path templating from context | P1 |
+| 3.3.4 | [ ] | Accumulator / memory node | Append results to a running collection in context; supports `ConversationHistory` type for LLM context windows. Configurable scope (global, subgraph, node) | P1 |
+| 3.3.5 | [ ] | Human-in-the-loop node | Pause execution, present data, wait for external input via channel, resume with response | P2 |
 
 ### 3.T Testing — Node System
 
@@ -221,7 +260,13 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 3.T.2 | [ ] | Handler contract tests | Generic test harness any handler must pass: receives correct inputs, context mutations visible, config applied, cleanup called on failure | P0 |
 | 3.T.3 | [ ] | Built-in node tests | Each utility node (passthrough, transform, delay, merge, split, gate) tested with representative inputs | P1 |
 | 3.T.4 | [ ] | Error handling node tests | Catch routes errors correctly, fallback triggers on failure, error transform reshapes error types | P1 |
-| 3.T.5 | [ ] | Integration node tests | LLM call node with mock HTTP, file I/O nodes against temp directories, accumulator state persistence | P1 |
+| 3.T.5 | [ ] | Integration node tests | LLM call node with mock adapter, file I/O nodes against temp directories, accumulator state persistence | P1 |
+| 3.T.6 | [ ] | AI adapter trait tests | Generic test harness any adapter must pass: complete returns valid response, judge returns valid index, capabilities are accurate | P0 |
+| 3.T.7 | [ ] | Mock adapter recording tests | Run graph with real adapter in recording mode, save responses, replay with mock adapter, verify identical graph outputs | P1 |
+| 3.T.8 | [ ] | Claude Code CLI adapter tests | Subprocess lifecycle: spawn, send prompt, receive response, maintain conversation, clean shutdown. Test timeout handling and crash recovery | P1 |
+| 3.T.9 | [ ] | Capability validation tests | Graph with nodes requiring structured_output; adapter without it → validation error at load time, not runtime | P0 |
+| 3.T.10 | [ ] | Conversation context accumulation tests | Multiple LLM nodes in sequence; verify ConversationHistory builds correctly on blackboard; stateless adapter receives full context on each call | P1 |
+| 3.T.11 | [ ] | Prompt template tests | Variable interpolation, missing variable errors, conditional sections, collection iteration, compile-time validation | P0 |
 
 ---
 
@@ -273,9 +318,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 ## Dependency Map
 
-**Critical path:** 1.1 → 1.2 → 1.3 → 2.1 → 2.2 → 3.1 → 3.2 → 4.1 → 4.2
+**Critical path:** 1.1 → 1.2 → 1.3 → 2.1 → 2.2 → 3.1 → 3.2 → 3.3 → 4.1 → 4.2
 
-Phase 5 runs in parallel once Phases 1–2 are stable. Ergon integration (3.2) can begin as soon as the core engine and control flow primitives are functional.
+Phase 5 runs in parallel once Phases 1–2 are stable. AI adapters (3.2) can begin as soon as the handler trait (3.1.2) is defined — the adapter trait is independent of graph topology. Claude Code CLI adapter (3.2.4) and mock adapter (3.2.7) should land first to unblock Ergon integration (3.3) and testing respectively. LLM oracle tasks (2.1.8–2.1.10) depend on both the adapter trait (3.2.1) and the control flow primitives (2.1.4–2.1.6).
 
 ## Priority Key
 

@@ -199,7 +199,9 @@ graph TD
     %% @ORGANIC_LAYOUT outputs.layout: "DungeonLayout"
 
     %% @LAYOUT_PICK handler: race_select
-    %% @LAYOUT_PICK config.criterion: "first_valid"
+    %% @LAYOUT_PICK config.criterion_llm.adapter: "default"
+    %% @LAYOUT_PICK config.criterion_llm.prompt: "You are evaluating dungeon layouts. Given these {candidates.len} candidates, select the one with the most interesting spatial flow, variety of room connections, and potential for exploration. Consider dead-end avoidance, loop quality, and pacing."
+    %% @LAYOUT_PICK config.criterion_llm.fallback: "first_valid"
     %% @LAYOUT_PICK config.cancel_siblings: true
     %% @LAYOUT_PICK inputs.layout: "DungeonLayout"
     %% @LAYOUT_PICK outputs.layout: "DungeonLayout"
@@ -354,14 +356,22 @@ graph TD
     %% @REGEN outputs.dungeon_config: "DungeonConfig"
 
     %% @BALANCE handler: validate_balance
+    %% @BALANCE config.guard_llm.adapter: "default"
+    %% @BALANCE config.guard_llm.prompt: "Evaluate this dungeon for play balance. Consider: monster difficulty curve (should escalate toward boss), loot reward pacing (enough motivation between hard sections), trap placement (not too punishing early). Is this dungeon balanced for a {ctx.dungeon_config.difficulty} experience?"
+    %% @BALANCE config.guard_llm.output: "bool"
+    %% @BALANCE config.guard_llm.fallback_field: "max_difficulty_variance"
     %% @BALANCE config.max_difficulty_variance: 0.3
     %% @BALANCE config.min_loot_per_difficulty: 1.0
     %% @BALANCE inputs.dungeon: "Dungeon"
     %% @BALANCE outputs.balanced: "bool"
     %% @BALANCE outputs.hot_spots: "RoomId[]"
 
-    %% @REBALANCE handler: adjust_difficulty
-    %% @REBALANCE config.strategy: "redistribute"
+    %% @REBALANCE handler: llm_call
+    %% @REBALANCE config.adapter: "default"
+    %% @REBALANCE config.prompt: "This dungeon has balance issues at rooms: {inputs.hot_spots}. Suggest specific adjustments: which monsters to move/remove/add, which loot to redistribute. Output as structured DungeonConfig adjustments."
+    %% @REBALANCE config.output_schema: "DungeonConfig"
+    %% @REBALANCE config.fallback_handler: "adjust_difficulty"
+    %% @REBALANCE config.fallback_strategy: "redistribute"
     %% @REBALANCE inputs.dungeon: "Dungeon"
     %% @REBALANCE inputs.hot_spots: "RoomId[]"
     %% @REBALANCE outputs.dungeon_config: "DungeonConfig"
