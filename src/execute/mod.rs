@@ -2,12 +2,14 @@ pub mod blackboard;
 pub mod context;
 pub mod control;
 pub mod event;
+pub mod event_bus;
 pub mod lifecycle;
 pub mod topological;
 
 pub use blackboard::{Blackboard, BlackboardScope};
 pub use context::{CancellationToken, ExecutionContext};
 pub use event::ExecutionEvent;
+pub use event_bus::{EventBus, EventBusError, EventSubscriber};
 pub use lifecycle::NodeState;
 pub use topological::TopologicalExecutor;
 
