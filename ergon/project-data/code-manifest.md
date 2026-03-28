@@ -24,6 +24,16 @@
 | `metadata.rs` | `GraphMetadata` struct: optional name, version, description, default_executor, required_adapter, author; plus required_capabilities and tags lists. Parsed from `%% @graph` annotations. |
 | `validation.rs` | Extends `Graph` with `validate()` and `validate_as_dag()` methods. Checks: orphan nodes (no connections in multi-node graphs), port existence, port type compatibility, missing required inputs, self-loops, and multi-node cycles (via Tarjan SCC). Returns all errors rather than failing on first. |
 
+## src/mermaid/
+
+| File | Description |
+|------|-------------|
+| `mod.rs` | `MermaidError` enum for parsing/annotation errors. Module re-exports for `parse`, `annotation`, `loader`, and `export` submodules. |
+| `parse.rs` | Line-by-line Mermaid parser producing `ParsedMermaid` intermediate representation with nodes, edges, subgraphs, and raw annotation lines. Uses `nom` combinator parsing. No dependency on `Graph` — purely syntactic. |
+| `annotation.rs` | Annotation value parsing (`%% @NodeID key.path: value`) with dot-path expansion into nested JSON. Validates reserved keys (handler, inputs, outputs, config, exec, *_llm). Applies extracted annotations to `Graph` nodes, populating handler, port definitions, and config/exec fields. |
+| `loader.rs` | Entry point `load_mermaid(path: &Path) -> Result<Graph>`. Chains: parse → extract annotations → apply to graph → port resolution → subgraph directives → return fully typed, executable `Graph`. |
+| `export.rs` | `export_mermaid(graph: &Graph) -> String`. Serializes `Graph` back to valid Mermaid `.mmd` with embedded `%%` annotations for configuration. Supports round-trip: export → re-import → structurally equivalent graph. |
+
 ## examples/
 
 | File | Description |

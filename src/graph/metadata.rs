@@ -10,6 +10,8 @@ pub struct GraphMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_executor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required_adapter: Option<String>,

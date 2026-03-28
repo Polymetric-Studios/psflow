@@ -20,8 +20,15 @@ flowchart TD
     validation["graph/validation.rs<br/>validate, validate_as_dag"]
     petgraph["petgraph::StableDiGraph"]
 
+    mermaid_mod["mermaid/mod.rs<br/>MermaidError<br/>module re-exports"]
+    parse["mermaid/parse.rs<br/>Parser → ParsedMermaid<br/>nom combinators"]
+    annotation["mermaid/annotation.rs<br/>@Annotation parsing<br/>dot-path expansion"]
+    loader["mermaid/loader.rs<br/>load_mermaid()<br/>parse + annotate + resolve"]
+    export["mermaid/export.rs<br/>export_mermaid()<br/>Graph → .mmd string"]
+
     lib --> graph_mod
     lib --> error
+    lib --> mermaid_mod
     main -.-> lib
 
     graph_mod --> node
@@ -38,6 +45,24 @@ flowchart TD
     node --> port
     port --> types
     error --> types
+
+    mermaid_mod --> parse
+    mermaid_mod --> annotation
+    mermaid_mod --> loader
+    mermaid_mod --> export
+
+    loader --> parse
+    loader --> annotation
+    loader --> graph_mod
+    loader --> validation
+    loader --> error
+
+    annotation --> error
+    annotation --> types
+
+    export --> graph_mod
+
+    parse --> error
 ```
 
 ## Key Design Decisions

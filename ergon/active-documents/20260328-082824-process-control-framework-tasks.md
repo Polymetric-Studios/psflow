@@ -137,11 +137,11 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 1.2.1 | [ ] | Mermaid flowchart parser | Parse standard Mermaid flowchart syntax into internal graph representation (nodes, edges, subgraphs, labels, edge labels); extract `%% @NodeID` annotations into structured config via dot-path expansion. Use `nom` or `pest` for parsing | P0 |
-| 1.2.2 | [ ] | Define annotation schema | Formal spec for the `%% @<NodeID> <key.path>: <value>` convention: supported value types, reserved keys (handler, inputs, outputs, config, exec), dot-path nesting rules. Include `exec.*` namespace for node-level directives: `exec.strategy` (fan_out, race), `exec.fan_key`, `exec.retry`, `exec.max_attempts`, `exec.backoff`, `exec.loop`, `exec.loop_over`. Include `*_llm` sub-schema for oracle keys: `guard_llm`, `criterion_llm`, `while_llm` with nested `adapter`, `prompt`, `output`, `fallback`/`fallback_field` properties. Define `score`/`quality_score` output port convention for deterministic race resolution | P0 |
-| 1.2.3 | [ ] | Annotated Mermaid loader | Parse `.mmd` file, combine topology and extracted annotations into a fully typed, executable Graph | P0 |
-| 1.2.4 | [ ] | Convention layer for control flow | Subgraph labels or node name prefixes that the parser recognizes as parallel, loop, retry, race directives | P1 |
-| 1.2.5 | [ ] | Graph → annotated Mermaid export | Serialize internal graph back to valid `.mmd` with `%%` annotations for visualization and round-tripping | P1 |
+| 1.2.1 | [x] | Mermaid flowchart parser | Parse standard Mermaid flowchart syntax into internal graph representation (nodes, edges, subgraphs, labels, edge labels); extract `%% @NodeID` annotations into structured config via dot-path expansion. Use `nom` or `pest` for parsing | P0 |
+| 1.2.2 | [x] | Define annotation schema | Formal spec for the `%% @<NodeID> <key.path>: <value>` convention: supported value types, reserved keys (handler, inputs, outputs, config, exec), dot-path nesting rules. Include `exec.*` namespace for node-level directives: `exec.strategy` (fan_out, race), `exec.fan_key`, `exec.retry`, `exec.max_attempts`, `exec.backoff`, `exec.loop`, `exec.loop_over`. Include `*_llm` sub-schema for oracle keys: `guard_llm`, `criterion_llm`, `while_llm` with nested `adapter`, `prompt`, `output`, `fallback`/`fallback_field` properties. Define `score`/`quality_score` output port convention for deterministic race resolution | P0 |
+| 1.2.3 | [x] | Annotated Mermaid loader | Parse `.mmd` file, combine topology and extracted annotations into a fully typed, executable Graph | P0 |
+| 1.2.4 | [x] | Convention layer for control flow | Subgraph labels or node name prefixes that the parser recognizes as parallel, loop, retry, race directives | P1 |
+| 1.2.5 | [x] | Graph → annotated Mermaid export | Serialize internal graph back to valid `.mmd` with `%%` annotations for visualization and round-tripping | P1 |
 
 ### 1.T Testing — Core Graph Engine
 
@@ -150,9 +150,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.T.1 | [x] | Unit tests for graph construction | Add/remove nodes and edges, port type validation rejects mismatches, duplicate edge detection | P0 |
 | 1.T.2 | [x] | Unit tests for graph validation | Cycle detection, orphan node detection, missing required inputs, type mismatch reporting | P0 |
 | 1.T.3 | [x] | Serde round-trip tests | Serialize graph to JSON and back; assert structural equality including subgraphs and port types | P0 |
-| 1.T.4 | [ ] | Mermaid parser tests | Parse representative `.mmd` files covering all node shapes, edge styles, subgraphs, and edge labels; verify extracted topology matches expected graph | P0 |
-| 1.T.5 | [ ] | Annotation extraction tests | Verify dot-path expansion, value type coercion, reserved key handling, malformed annotation error reporting | P0 |
-| 1.T.6 | [ ] | Mermaid round-trip tests | Load `.mmd` → export back to `.mmd` → reload; assert graph equivalence | P1 |
+| 1.T.4 | [x] | Mermaid parser tests | Parse representative `.mmd` files covering all node shapes, edge styles, subgraphs, and edge labels; verify extracted topology matches expected graph | P0 |
+| 1.T.5 | [x] | Annotation extraction tests | Verify dot-path expansion, value type coercion, reserved key handling, malformed annotation error reporting | P0 |
+| 1.T.6 | [x] | Mermaid round-trip tests | Load `.mmd` → export back to `.mmd` → reload; assert graph equivalence | P1 |
 | 1.T.7 | [ ] | Fuzz the Mermaid parser | `cargo-fuzz` or `proptest` on parser input; no panics, graceful error on malformed input | P1 |
 
 ### 1.3 Execution Engine

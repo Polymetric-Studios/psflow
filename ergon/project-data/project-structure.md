@@ -18,14 +18,20 @@ psflow/
 │   ├── lib.rs                  — Public API re-exports
 │   ├── main.rs                 — CLI entry point (stub)
 │   ├── error.rs                — NodeError and GraphError hierarchies
-│   └── graph/
-│       ├── mod.rs              — Graph struct, Subgraph, SubgraphDirective, construction/query, custom serde
-│       ├── node.rs             — NodeId, Node with builder pattern
-│       ├── edge.rs             — EdgeData (source_port, target_port, label)
-│       ├── port.rs             — Port (name + PortType)
-│       ├── types.rs            — PortType enum, Value enum, type parsing and compatibility
-│       ├── metadata.rs         — GraphMetadata
-│       └── validation.rs       — Graph validation (cycles, orphans, type mismatches, missing inputs)
+│   ├── graph/
+│   │   ├── mod.rs              — Graph struct, Subgraph, SubgraphDirective, construction/query, custom serde
+│   │   ├── node.rs             — NodeId, Node with builder pattern
+│   │   ├── edge.rs             — EdgeData (source_port, target_port, label)
+│   │   ├── port.rs             — Port (name + PortType)
+│   │   ├── types.rs            — PortType enum, Value enum, type parsing and compatibility
+│   │   ├── metadata.rs         — GraphMetadata
+│   │   └── validation.rs       — Graph validation (cycles, orphans, type mismatches, missing inputs)
+│   └── mermaid/
+│       ├── mod.rs              — MermaidError enum, module re-exports
+│       ├── parse.rs            — Line-by-line Mermaid parser → ParsedMermaid intermediate representation
+│       ├── annotation.rs       — Annotation parsing and application to Graph nodes
+│       ├── loader.rs           — load_mermaid() entry point: parse + annotate + resolve → Graph
+│       └── export.rs           — export_mermaid(): Graph → annotated Mermaid string
 └── ergon/
     ├── project-data/           — Ergon project metadata files
     └── active-documents/       — Active design docs, plans, ADRs
