@@ -80,11 +80,11 @@ impl ClaudeCliAdapter {
         }
 
         // Resume conversation if we have a session ID
-        if let Ok(guard) = self.session_id.lock() {
-            if let Some(ref id) = *guard {
-                cmd.arg("--resume").arg(id);
-            }
+        let guard = self.session_id.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ref id) = *guard {
+            cmd.arg("--resume").arg(id);
         }
+        drop(guard);
 
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -147,9 +147,8 @@ impl AiAdapter for ClaudeCliAdapter {
 
             // Store session ID for conversation continuity
             if let Some(sid) = parsed.get("session_id").and_then(|v| v.as_str()) {
-                if let Ok(mut guard) = self.session_id.lock() {
-                    *guard = Some(sid.to_string());
-                }
+                let mut guard = self.session_id.lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(sid.to_string());
             }
 
             // Extract usage if available
@@ -207,16 +206,27 @@ impl AiAdapter for ClaudeCliAdapter {
         prompt.push_str("Respond with ONLY the candidate number (0-based index). Nothing else.");
 
         let req = AiRequest::new(prompt).with_temperature(0.0);
+        let num_candidates = candidates.len();
 
         Box::pin(async move {
             let response = self.complete(req).await?;
             let text = response.text.trim();
 
-            // Parse the index from the response
-            text.parse::<usize>().map_err(|_| NodeError::AdapterError {
+            let idx = text.parse::<usize>().map_err(|_| NodeError::AdapterError {
                 adapter: "claude_cli".into(),
                 message: format!("judge response was not a valid index: '{text}'"),
-            })
+            })?;
+
+            if idx >= num_candidates {
+                return Err(NodeError::AdapterError {
+                    adapter: "claude_cli".into(),
+                    message: format!(
+                        "judge returned index {idx} but only {num_candidates} candidates exist"
+                    ),
+                });
+            }
+
+            Ok(idx)
         })
     }
 
