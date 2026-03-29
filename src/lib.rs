@@ -8,8 +8,8 @@ pub mod registry;
 pub mod template;
 
 pub use adapter::{
-    AdapterCapabilities, AdapterRegistry, AiAdapter, AiRequest, AiResponse, MockAdapter,
-    TokenUsage,
+    AdapterCapabilities, AdapterRegistry, AiAdapter, AiRequest, AiResponse, ClaudeCliAdapter,
+    MockAdapter, TokenUsage,
 };
 pub use error::{GraphError, NodeError, PortTypeMismatchInfo};
 pub use execute::blackboard::{Blackboard, BlackboardScope};

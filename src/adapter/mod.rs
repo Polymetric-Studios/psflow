@@ -1,6 +1,8 @@
+pub mod claude_cli;
 pub mod mock;
 pub mod registry;
 
+pub use claude_cli::ClaudeCliAdapter;
 pub use mock::MockAdapter;
 pub use registry::AdapterRegistry;
 
