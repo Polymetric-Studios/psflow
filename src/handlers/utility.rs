@@ -79,11 +79,7 @@ impl NodeHandler for DelayHandler {
             if delay_ms > 0 {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => {}
-                    _ = async {
-                        while !cancel.is_cancelled() {
-                            tokio::time::sleep(Duration::from_millis(10)).await;
-                        }
-                    } => {
+                    _ = cancel.cancelled() => {
                         return Err(NodeError::Cancelled {
                             reason: "cancelled during delay".into(),
                         });

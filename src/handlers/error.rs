@@ -92,8 +92,15 @@ impl NodeHandler for FallbackHandler {
         Box::pin(async move {
             match primary.execute(&node, inputs, cancel.clone()).await {
                 Ok(outputs) => Ok(outputs),
-                Err(_primary_err) => {
-                    fallback.execute(&node, inputs_backup, cancel).await
+                Err(primary_err) => {
+                    match fallback.execute(&node, inputs_backup, cancel).await {
+                        Ok(outputs) => Ok(outputs),
+                        Err(fallback_err) => Err(NodeError::Failed {
+                            source_message: Some(primary_err.to_string()),
+                            message: format!("fallback also failed: {fallback_err}"),
+                            recoverable: is_recoverable(&fallback_err),
+                        }),
+                    }
                 }
             }
         })
@@ -108,7 +115,7 @@ impl NodeHandler for FallbackHandler {
 ///
 /// Supported transforms:
 /// - `"simplify"`: Replaces detailed error with just the error type.
-/// - `"enrich"`: Adds `node_id` and `timestamp` to error outputs.
+/// - `"enrich"`: Adds `_error_node` (node ID) to error outputs.
 /// - Custom key mapping via `config.field_map`: `{"error": "failure_reason"}`.
 pub struct ErrorTransformHandler;
 
@@ -287,11 +294,23 @@ mod tests {
     }
 
     #[test]
-    fn fallback_both_fail_propagates_secondary_error() {
+    fn fallback_both_fail_includes_both_errors() {
         let handler = FallbackHandler::new(fail_handler(), timeout_handler());
         let result = run_handler(&handler, &Node::new("F", "Fallback"), Outputs::new());
 
-        assert!(matches!(result, Err(NodeError::Timeout { .. })));
+        match result {
+            Err(NodeError::Failed {
+                source_message,
+                message,
+                ..
+            }) => {
+                // Primary error preserved in source_message
+                assert!(source_message.unwrap().contains("intentional failure"));
+                // Fallback error in message
+                assert!(message.contains("fallback also failed"));
+            }
+            other => panic!("expected Failed with both errors, got {other:?}"),
+        }
     }
 
     // -- ErrorTransform tests --

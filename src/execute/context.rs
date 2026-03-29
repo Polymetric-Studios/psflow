@@ -4,29 +4,13 @@ use crate::execute::event::ExecutionEvent;
 use crate::execute::lifecycle::NodeState;
 use crate::execute::Outputs;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
 
-/// Cooperative cancellation token backed by an atomic flag.
-#[derive(Debug, Clone, Default)]
-pub struct CancellationToken {
-    cancelled: Arc<AtomicBool>,
-}
-
-impl CancellationToken {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Acquire)
-    }
-}
+/// Re-export `tokio_util::sync::CancellationToken` as the framework's
+/// cooperative cancellation primitive. Provides `.cancel()`, `.is_cancelled()`,
+/// and `.cancelled()` (an async future that resolves when cancelled).
+pub use tokio_util::sync::CancellationToken;
 
 /// Shared mutable state during graph execution.
 ///
