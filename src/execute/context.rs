@@ -1,5 +1,6 @@
 use crate::error::NodeError;
 use crate::execute::blackboard::Blackboard;
+use crate::execute::concurrency::ConcurrencyLimits;
 use crate::execute::event::ExecutionEvent;
 use crate::execute::lifecycle::NodeState;
 use crate::execute::Outputs;
@@ -24,6 +25,7 @@ pub struct ExecutionContext {
     blackboard: Mutex<Blackboard>,
     /// Tracks branch decisions: maps branch node ID to the selected edge label.
     branch_decisions: Mutex<HashMap<String, String>>,
+    concurrency: ConcurrencyLimits,
 }
 
 impl ExecutionContext {
@@ -35,12 +37,21 @@ impl ExecutionContext {
             cancel: CancellationToken::new(),
             blackboard: Mutex::new(Blackboard::new()),
             branch_decisions: Mutex::new(HashMap::new()),
+            concurrency: ConcurrencyLimits::new(),
         }
     }
 
     pub fn with_cancel(token: CancellationToken) -> Self {
         Self {
             cancel: token,
+            ..Self::new()
+        }
+    }
+
+    pub fn with_concurrency(token: CancellationToken, limits: ConcurrencyLimits) -> Self {
+        Self {
+            cancel: token,
+            concurrency: limits,
             ..Self::new()
         }
     }
@@ -141,6 +152,12 @@ impl ExecutionContext {
     /// Acquire a read/write lock on the blackboard.
     pub fn blackboard(&self) -> MutexGuard<'_, Blackboard> {
         self.blackboard.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    // -- Concurrency --
+
+    pub fn concurrency(&self) -> &ConcurrencyLimits {
+        &self.concurrency
     }
 
     // -- Branch decisions --

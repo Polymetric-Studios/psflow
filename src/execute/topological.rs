@@ -3,6 +3,7 @@ use crate::execute::context::{CancellationToken, ExecutionContext};
 use crate::execute::control;
 use crate::execute::event::ExecutionEvent;
 use crate::execute::lifecycle::NodeState;
+use crate::execute::concurrency::ConcurrencyLimits;
 use crate::execute::{
     ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler, Outputs,
 };
@@ -20,19 +21,28 @@ use std::time::{Duration, Instant};
 /// Executes graphs in dependency order, running independent nodes in parallel waves.
 pub struct TopologicalExecutor {
     cancel_token: CancellationToken,
+    concurrency: ConcurrencyLimits,
 }
 
 impl TopologicalExecutor {
     pub fn new() -> Self {
         Self {
             cancel_token: CancellationToken::new(),
+            concurrency: ConcurrencyLimits::new(),
         }
     }
 
     pub fn with_cancel(token: CancellationToken) -> Self {
         Self {
             cancel_token: token,
+            concurrency: ConcurrencyLimits::new(),
         }
+    }
+
+    /// Set global concurrency limits for this executor.
+    pub fn with_concurrency(mut self, limits: ConcurrencyLimits) -> Self {
+        self.concurrency = limits;
+        self
     }
 
     pub fn cancel_token(&self) -> &CancellationToken {
@@ -52,7 +62,12 @@ impl Executor for TopologicalExecutor {
         graph: &'a Graph,
         handlers: &'a HandlerRegistry,
     ) -> Pin<Box<dyn Future<Output = Result<ExecutionResult, ExecutionError>> + Send + 'a>> {
-        Box::pin(execute_impl(graph, handlers, self.cancel_token.clone()))
+        Box::pin(execute_impl(
+            graph,
+            handlers,
+            self.cancel_token.clone(),
+            self.concurrency.clone(),
+        ))
     }
 }
 
@@ -60,9 +75,10 @@ async fn execute_impl(
     graph: &Graph,
     handlers: &HandlerRegistry,
     cancel_token: CancellationToken,
+    concurrency: ConcurrencyLimits,
 ) -> Result<ExecutionResult, ExecutionError> {
     let start = Instant::now();
-    let ctx = Arc::new(ExecutionContext::with_cancel(cancel_token));
+    let ctx = Arc::new(ExecutionContext::with_concurrency(cancel_token, concurrency));
 
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
@@ -136,8 +152,9 @@ async fn execute_impl(
 
             match &sg.directive {
                 SubgraphDirective::Parallel => {
+                    let max_concurrent = parse_max_concurrent(graph, &sg.nodes);
                     control::execute_parallel(
-                        &sg_nodes, graph, handlers, &ctx, &passthrough,
+                        &sg_nodes, graph, handlers, &ctx, &passthrough, max_concurrent,
                     )
                     .await?;
                 }
@@ -208,10 +225,18 @@ async fn execute_impl(
                 .and_then(|v| v.as_u64())
                 .map(Duration::from_millis);
 
+            let retry_config = crate::execute::retry::RetryConfig::from_exec(&node.exec);
+
+            // Acquire global concurrency permit (blocks if at limit)
+            let _global_permit = ctx.concurrency().acquire().await;
+
             ctx.set_state(&node_id_str, NodeState::Pending)
                 .map_err(|e| ExecutionError::ValidationFailed(e.to_string()))?;
 
             handles.push(tokio::spawn(async move {
+                // Move permit into task so it's held until completion
+                let _permit = _global_permit;
+
                 if cancel.is_cancelled() {
                     return (
                         node_id_str,
@@ -225,13 +250,23 @@ async fn execute_impl(
                     return (node_id_str, Err(e));
                 }
 
+                let execute_fn = async {
+                    if let Some(ref rc) = retry_config {
+                        crate::execute::retry::execute_with_retry(
+                            &handler,
+                            &node_clone,
+                            inputs,
+                            cancel.clone(),
+                            rc,
+                        )
+                        .await
+                    } else {
+                        handler.execute(&node_clone, inputs, cancel.clone()).await
+                    }
+                };
+
                 let result = if let Some(timeout) = timeout_dur {
-                    match tokio::time::timeout(
-                        timeout,
-                        handler.execute(&node_clone, inputs, cancel),
-                    )
-                    .await
-                    {
+                    match tokio::time::timeout(timeout, execute_fn).await {
                         Ok(r) => r,
                         Err(_) => Err(NodeError::Timeout {
                             elapsed_ms: timeout.as_millis() as u64,
@@ -239,7 +274,7 @@ async fn execute_impl(
                         }),
                     }
                 } else {
-                    handler.execute(&node_clone, inputs, cancel).await
+                    execute_fn.await
                 };
 
                 (node_id_str, result)
@@ -351,6 +386,18 @@ fn is_branch_blocked(graph: &Graph, node_id: &NodeId, ctx: &ExecutionContext) ->
 }
 
 /// Parse loop configuration from the first node in the subgraph that has exec.loop settings.
+/// Parse `exec.max_concurrent` from subgraph nodes.
+fn parse_max_concurrent(graph: &Graph, node_ids: &[NodeId]) -> Option<usize> {
+    for nid in node_ids {
+        if let Some(node) = graph.node(nid) {
+            if let Some(max) = node.exec.get("max_concurrent").and_then(|v| v.as_u64()) {
+                return Some(max as usize);
+            }
+        }
+    }
+    None
+}
+
 fn parse_loop_config(graph: &Graph, node_ids: &[NodeId]) -> control::LoopConfig {
     for nid in node_ids {
         if let Some(node) = graph.node(nid) {
@@ -1088,7 +1135,7 @@ mod tests {
         handlers.insert(
             "count".into(),
             sync_handler(move |_, _| {
-                counter_clone.fetch_add(1, Ordering::SeqCst);
+                counter_clone.fetch_add(1, AtomicOrdering::SeqCst);
                 Ok(Outputs::new())
             }),
         );
@@ -1098,7 +1145,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(counter.load(Ordering::SeqCst), 3);
+        assert_eq!(counter.load(AtomicOrdering::SeqCst), 3);
         assert_eq!(result.node_states["COUNTER"], NodeState::Completed);
     }
 
@@ -1227,5 +1274,183 @@ mod tests {
                 Ok(Outputs::new())
             })
         }
+    }
+
+    // -- Retry integration tests --
+
+    #[tokio::test]
+    async fn node_with_retry_succeeds_on_second_attempt() {
+        use std::sync::atomic::AtomicU32;
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let mut graph = Graph::new();
+        let mut node = Node::new("R", "Retry").with_handler("flaky");
+        node.exec = serde_json::json!({
+            "retry": { "max_attempts": 3, "delay_ms": 1 }
+        });
+        graph.add_node(node).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert(
+            "flaky".into(),
+            sync_handler(move |_, _| {
+                let n = counter_clone.fetch_add(1, AtomicOrdering::SeqCst);
+                if n == 0 {
+                    Err(NodeError::Failed {
+                        source_message: None,
+                        message: "transient".into(),
+                        recoverable: true,
+                    })
+                } else {
+                    Ok(Outputs::new())
+                }
+            }),
+        );
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["R"], NodeState::Completed);
+        assert_eq!(counter.load(AtomicOrdering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn node_without_retry_fails_immediately() {
+        let mut graph = Graph::new();
+        graph
+            .add_node(Node::new("F", "Fail").with_handler("fail"))
+            .unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert(
+            "fail".into(),
+            sync_handler(|_, _| {
+                Err(NodeError::Failed {
+                    source_message: None,
+                    message: "fatal".into(),
+                    recoverable: true,
+                })
+            }),
+        );
+
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["F"], NodeState::Failed);
+    }
+
+    // -- Concurrency limit integration tests --
+
+    #[tokio::test]
+    async fn concurrency_limit_respected() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let concurrent = Arc::new(AtomicUsize::new(0));
+        let max_seen = Arc::new(AtomicUsize::new(0));
+
+        // 5 independent nodes with max_parallelism: 2
+        let mut graph = Graph::new();
+        for i in 0..5 {
+            graph
+                .add_node(Node::new(format!("N{i}"), format!("N{i}")).with_handler("track"))
+                .unwrap();
+        }
+
+        let c = concurrent.clone();
+        let m = max_seen.clone();
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert(
+            "track".into(),
+            Arc::new(ConcurrencyTracker(c, m)) as Arc<dyn NodeHandler>,
+        );
+
+        let result = TopologicalExecutor::new()
+            .with_concurrency(
+                crate::execute::concurrency::ConcurrencyLimits::with_max_parallelism(2),
+            )
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        for i in 0..5 {
+            assert_eq!(
+                result.node_states[&format!("N{i}")],
+                NodeState::Completed
+            );
+        }
+        assert!(
+            max_seen.load(AtomicOrdering::SeqCst) <= 2,
+            "max concurrent was {}, expected <= 2",
+            max_seen.load(AtomicOrdering::SeqCst)
+        );
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    struct ConcurrencyTracker(Arc<AtomicUsize>, Arc<AtomicUsize>);
+
+    impl NodeHandler for ConcurrencyTracker {
+        fn execute(
+            &self,
+            _node: &Node,
+            _inputs: Outputs,
+            _cancel: CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = Result<Outputs, NodeError>> + Send>> {
+            let concurrent = self.0.clone();
+            let max_seen = self.1.clone();
+            Box::pin(async move {
+                let cur = concurrent.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                // Update max seen
+                max_seen.fetch_max(cur, AtomicOrdering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                concurrent.fetch_sub(1, AtomicOrdering::SeqCst);
+                Ok(Outputs::new())
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn no_concurrency_limit_allows_full_parallelism() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let max_seen = Arc::new(AtomicUsize::new(0));
+        let concurrent = Arc::new(AtomicUsize::new(0));
+
+        let mut graph = Graph::new();
+        for i in 0..4 {
+            graph
+                .add_node(Node::new(format!("N{i}"), format!("N{i}")).with_handler("track"))
+                .unwrap();
+        }
+
+        let c = concurrent.clone();
+        let m = max_seen.clone();
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert(
+            "track".into(),
+            Arc::new(ConcurrencyTracker(c, m)) as Arc<dyn NodeHandler>,
+        );
+
+        // No concurrency limit
+        let result = TopologicalExecutor::new()
+            .execute(&graph, &handlers)
+            .await
+            .unwrap();
+
+        for i in 0..4 {
+            assert_eq!(result.node_states[&format!("N{i}")], NodeState::Completed);
+        }
+        // All 4 should run concurrently (same wave, no deps)
+        assert!(
+            max_seen.load(AtomicOrdering::SeqCst) >= 3,
+            "expected at least 3 concurrent, got {}",
+            max_seen.load(AtomicOrdering::SeqCst)
+        );
     }
 }

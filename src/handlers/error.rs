@@ -1,4 +1,5 @@
 use crate::error::NodeError;
+use crate::execute::retry::RetryConfig;
 use crate::execute::{CancellationToken, NodeHandler, Outputs};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
@@ -175,6 +176,42 @@ impl NodeHandler for ErrorTransformHandler {
             }
 
             Ok(outputs)
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Retry — composable retry wrapper for any handler
+// ---------------------------------------------------------------------------
+
+/// Composable retry wrapper. Wraps any `NodeHandler` with retry-on-failure logic.
+///
+/// This is the handler-level equivalent of the exec-level retry in the executor.
+/// Useful when you want to configure retry programmatically rather than via annotations.
+pub struct RetryHandler {
+    inner: Arc<dyn NodeHandler>,
+    config: RetryConfig,
+}
+
+impl RetryHandler {
+    pub fn new(inner: Arc<dyn NodeHandler>, config: RetryConfig) -> Self {
+        Self { inner, config }
+    }
+}
+
+impl NodeHandler for RetryHandler {
+    fn execute(
+        &self,
+        node: &Node,
+        inputs: Outputs,
+        cancel: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = Result<Outputs, NodeError>> + Send>> {
+        let inner = self.inner.clone();
+        let config = self.config.clone();
+        let node = node.clone();
+
+        Box::pin(async move {
+            crate::execute::retry::execute_with_retry(&inner, &node, inputs, cancel, &config).await
         })
     }
 }

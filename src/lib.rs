@@ -15,9 +15,10 @@ pub use error::{GraphError, NodeError, PortTypeMismatchInfo};
 pub use execute::blackboard::{Blackboard, BlackboardScope};
 pub use execute::control::{evaluate_guard, GuardResult, LoopConfig};
 pub use execute::{
-    sync_handler, CancellationToken, EventBus, EventBusError, EventSubscriber,
-    ExecutionContext, ExecutionError, ExecutionEvent, ExecutionResult, Executor,
-    HandlerRegistry, NodeHandler, NodeState, Outputs, TopologicalExecutor,
+    sync_handler, BackoffStrategy, CancellationToken, ConcurrencyLimits, EventBus,
+    EventBusError, EventSubscriber, ExecutionContext, ExecutionError, ExecutionEvent,
+    ExecutionResult, Executor, HandlerRegistry, NodeHandler, NodeState, Outputs,
+    RetryConfig, TopologicalExecutor,
 };
 pub use graph::edge::EdgeData;
 pub use graph::metadata::GraphMetadata;
@@ -27,7 +28,7 @@ pub use graph::types::{PortType, Value};
 pub use graph::{Graph, Subgraph, SubgraphDirective};
 pub use handlers::{
     CatchHandler, DelayHandler, ErrorTransformHandler, FallbackHandler, GateHandler,
-    LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, SplitHandler,
+    LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, RetryHandler, SplitHandler,
     TransformHandler,
 };
 pub use mermaid::{export_mermaid, load_mermaid, MermaidError};

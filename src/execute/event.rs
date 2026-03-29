@@ -26,4 +26,11 @@ pub enum ExecutionEvent {
     ExecutionCompleted {
         elapsed: Duration,
     },
+    NodeRetrying {
+        node_id: String,
+        attempt: u32,
+        max_attempts: u32,
+        error: NodeError,
+        next_delay_ms: u64,
+    },
 }

@@ -1,16 +1,20 @@
 pub mod blackboard;
+pub mod concurrency;
 pub mod context;
 pub mod control;
 pub mod event;
 pub mod event_bus;
 pub mod lifecycle;
+pub mod retry;
 pub mod topological;
 
 pub use blackboard::{Blackboard, BlackboardScope};
+pub use concurrency::ConcurrencyLimits;
 pub use context::{CancellationToken, ExecutionContext};
 pub use event::ExecutionEvent;
 pub use event_bus::{EventBus, EventBusError, EventSubscriber};
 pub use lifecycle::NodeState;
+pub use retry::{BackoffStrategy, RetryConfig};
 pub use topological::TopologicalExecutor;
 
 use crate::error::NodeError;

@@ -188,20 +188,39 @@ pub async fn execute_sequence(
 
 /// Execute subgraph nodes concurrently.
 ///
-/// All nodes launch simultaneously. Waits for all to complete.
+/// All nodes launch simultaneously unless `max_concurrent` is set,
+/// in which case at most that many run at once (via a local semaphore).
+/// Also respects the global concurrency limit from `ExecutionContext`.
 pub async fn execute_parallel(
     node_ids: &[NodeId],
     graph: &Graph,
     handlers: &HandlerRegistry,
     ctx: &Arc<ExecutionContext>,
     passthrough: &Arc<dyn NodeHandler>,
+    max_concurrent: Option<usize>,
 ) -> Result<(), ExecutionError> {
+    let local_sem = max_concurrent.map(super::concurrency::subgraph_semaphore);
     let mut handles = Vec::new();
 
     for node_id in node_ids {
         if ctx.is_cancelled() || ctx.get_state(&node_id.0).is_terminal() {
             continue;
         }
+
+        // Acquire local semaphore permit (if limited)
+        let _local_permit = if let Some(ref sem) = local_sem {
+            Some(
+                sem.clone()
+                    .acquire_owned()
+                    .await
+                    .expect("local semaphore closed"),
+            )
+        } else {
+            None
+        };
+
+        // Acquire global semaphore permit (if limited)
+        let _global_permit = ctx.concurrency().acquire().await;
 
         let handle =
             spawn_node_task(node_id.clone(), graph, handlers, ctx, passthrough.clone())?;
@@ -383,8 +402,19 @@ async fn execute_single_node(
         .map_err(|e| ExecutionError::ValidationFailed(e.to_string()))?;
 
     let cancel = ctx.cancel_token().clone();
+    let retry_config = super::retry::RetryConfig::from_exec(&node.exec);
+
+    // Core execution: retry wraps handler calls, node timeout wraps the entire sequence
+    let execute_fn = async {
+        if let Some(ref rc) = retry_config {
+            super::retry::execute_with_retry(&handler, node, inputs, cancel.clone(), rc).await
+        } else {
+            handler.execute(node, inputs, cancel.clone()).await
+        }
+    };
+
     let result = if let Some(timeout) = timeout_dur {
-        match tokio::time::timeout(timeout, handler.execute(node, inputs, cancel)).await {
+        match tokio::time::timeout(timeout, execute_fn).await {
             Ok(r) => r,
             Err(_) => Err(NodeError::Timeout {
                 elapsed_ms: timeout.as_millis() as u64,
@@ -392,7 +422,7 @@ async fn execute_single_node(
             }),
         }
     } else {
-        handler.execute(node, inputs, cancel).await
+        execute_fn.await
     };
 
     match &result {
@@ -452,6 +482,8 @@ fn spawn_node_task(
         .and_then(|v| v.as_u64())
         .map(Duration::from_millis);
 
+    let retry_config = super::retry::RetryConfig::from_exec(&node.exec);
+
     ctx.set_state(&node_id_str, NodeState::Pending)
         .map_err(|e| ExecutionError::ValidationFailed(e.to_string()))?;
 
@@ -469,9 +501,23 @@ fn spawn_node_task(
             return (node_id_str, Err(e));
         }
 
+        let execute_fn = async {
+            if let Some(ref rc) = retry_config {
+                super::retry::execute_with_retry(
+                    &handler,
+                    &node_clone,
+                    inputs,
+                    cancel.clone(),
+                    rc,
+                )
+                .await
+            } else {
+                handler.execute(&node_clone, inputs, cancel.clone()).await
+            }
+        };
+
         let result = if let Some(timeout) = timeout_dur {
-            match tokio::time::timeout(timeout, handler.execute(&node_clone, inputs, cancel)).await
-            {
+            match tokio::time::timeout(timeout, execute_fn).await {
                 Ok(r) => r,
                 Err(_) => Err(NodeError::Timeout {
                     elapsed_ms: timeout.as_millis() as u64,
@@ -479,7 +525,7 @@ fn spawn_node_task(
                 }),
             }
         } else {
-            handler.execute(&node_clone, inputs, cancel).await
+            execute_fn.await
         };
 
         (node_id_str, result)
