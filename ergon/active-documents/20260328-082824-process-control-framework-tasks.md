@@ -234,8 +234,8 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 |----|---|------|-------------------------------|-----|
 | 3.1.1 | [x] | Node type registry | Register handler implementations by type name; lookup at graph load time. Use `inventory` crate or explicit registration | P0 |
 | 3.1.2 | [x] | Handler trait | Standard async handler trait: `async fn execute(&self, inputs, ctx, config) -> Result<Outputs>`; with lifecycle hooks (init, cleanup) | P0 |
-| 3.1.3 | [ ] | Built-in utility nodes | Passthrough, transform/map, delay, log, merge, split, gate (conditional pass), race_select (collect race candidates and pick winner via score or LLM criterion), reactive_entry (designated re-entry point for reactive executor), event_entry (entry point for event-driven triggers), snapshot (checkpoint execution state for resume) | P1 |
-| 3.1.4 | [ ] | Error handling nodes | Catch node (wraps children, routes errors), fallback (try A else B), error transform | P1 |
+| 3.1.3 | [x] | Built-in utility nodes | Passthrough, transform/map, delay, log, merge, split, gate (conditional pass), race_select (collect race candidates and pick winner via score or LLM criterion), reactive_entry (designated re-entry point for reactive executor), event_entry (entry point for event-driven triggers), snapshot (checkpoint execution state for resume) | P1 |
+| 3.1.4 | [x] | Error handling nodes | Catch node (wraps children, routes errors), fallback (try A else B), error transform | P1 |
 | 3.1.5 | [ ] | Plugin/extension loading | Load node handlers from shared libraries (`.so`/`.dylib`) at runtime via `libloading`, or compile-time via feature flags | P2 |
 
 ### 3.2 AI Adapter System
@@ -270,8 +270,8 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 |----|---|------|-------------------------------|-----|
 | 3.T.1 | [x] | Registry lookup tests | Register, lookup, override, missing handler error; verify `inventory`-based or explicit registration works end-to-end | P0 |
 | 3.T.2 | [x] | Handler contract tests | Generic test harness any handler must pass: receives correct inputs, context mutations visible, config applied, cleanup called on failure | P0 |
-| 3.T.3 | [ ] | Built-in node tests | Each utility node (passthrough, transform, delay, merge, split, gate) tested with representative inputs | P1 |
-| 3.T.4 | [ ] | Error handling node tests | Catch routes errors correctly, fallback triggers on failure, error transform reshapes error types | P1 |
+| 3.T.3 | [x] | Built-in node tests | Each utility node (passthrough, transform, delay, merge, split, gate) tested with representative inputs | P1 |
+| 3.T.4 | [x] | Error handling node tests | Catch routes errors correctly, fallback triggers on failure, error transform reshapes error types | P1 |
 | 3.T.5 | [ ] | Integration node tests | LLM call node with mock adapter, file I/O nodes against temp directories, accumulator state persistence | P1 |
 | 3.T.6 | [x] | AI adapter trait tests | Generic test harness any adapter must pass: complete returns valid response, judge returns valid index, capabilities are accurate | P0 |
 | 3.T.7 | [ ] | Mock adapter recording tests | Run graph with real adapter in recording mode, save responses, replay with mock adapter, verify identical graph outputs | P1 |

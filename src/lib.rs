@@ -25,7 +25,11 @@ pub use graph::node::{Node, NodeId};
 pub use graph::port::Port;
 pub use graph::types::{PortType, Value};
 pub use graph::{Graph, Subgraph, SubgraphDirective};
-pub use handlers::LlmCallHandler;
+pub use handlers::{
+    CatchHandler, DelayHandler, ErrorTransformHandler, FallbackHandler, GateHandler,
+    LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, SplitHandler,
+    TransformHandler,
+};
 pub use mermaid::{export_mermaid, load_mermaid, MermaidError};
 pub use registry::NodeRegistry;
 pub use template::{PromptTemplate, TemplateError};
