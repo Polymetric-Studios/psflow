@@ -252,12 +252,13 @@ async fn execute_impl(
 
                 let execute_fn = async {
                     if let Some(ref rc) = retry_config {
-                        crate::execute::retry::execute_with_retry(
+                        crate::execute::retry::execute_with_retry_ctx(
                             &handler,
                             &node_clone,
                             inputs,
                             cancel.clone(),
                             rc,
+                            Some(&ctx_clone),
                         )
                         .await
                     } else {

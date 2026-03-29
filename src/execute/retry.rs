@@ -1,4 +1,6 @@
 use crate::error::NodeError;
+use crate::execute::context::ExecutionContext;
+use crate::execute::event::ExecutionEvent;
 use crate::execute::{CancellationToken, NodeHandler, Outputs};
 use crate::graph::node::Node;
 use serde::{Deserialize, Serialize};
@@ -39,7 +41,8 @@ impl RetryConfig {
         let max_attempts = retry
             .get("max_attempts")
             .and_then(|v| v.as_u64())
-            .unwrap_or(1) as u32;
+            .unwrap_or(1)
+            .min(100) as u32; // clamped to prevent absurd retry counts
 
         if max_attempts <= 1 {
             return None;
@@ -100,8 +103,11 @@ impl RetryConfig {
                 multiplier,
                 max_delay_ms,
             } => {
-                let delay = (*initial_delay_ms as f64) * multiplier.powi(attempt as i32);
-                (delay as u64).min(*max_delay_ms)
+                // Clamp exponent to avoid f64 overflow for large attempt counts
+                let clamped = attempt.min(63);
+                let delay = (*initial_delay_ms as f64) * multiplier.powi(clamped as i32);
+                let delay_ms = if delay.is_finite() { delay as u64 } else { *max_delay_ms };
+                delay_ms.min(*max_delay_ms)
             }
         };
         Duration::from_millis(ms)
@@ -122,6 +128,18 @@ pub async fn execute_with_retry(
     inputs: Outputs,
     cancel: CancellationToken,
     config: &RetryConfig,
+) -> Result<Outputs, NodeError> {
+    execute_with_retry_ctx(handler, node, inputs, cancel, config, None).await
+}
+
+/// Execute with retry, optionally emitting `NodeRetrying` events to the execution context.
+pub async fn execute_with_retry_ctx(
+    handler: &Arc<dyn NodeHandler>,
+    node: &Node,
+    inputs: Outputs,
+    cancel: CancellationToken,
+    config: &RetryConfig,
+    ctx: Option<&ExecutionContext>,
 ) -> Result<Outputs, NodeError> {
     let mut last_error = None;
 
@@ -155,7 +173,20 @@ pub async fn execute_with_retry(
             Ok(outputs) => return Ok(outputs),
             Err(ref e) if attempt + 1 < config.max_attempts && is_retryable(e, config) => {
                 let delay = config.delay_for_attempt(attempt);
-                last_error = Some(result.unwrap_err());
+                let error = result.unwrap_err();
+
+                // Emit retry event
+                if let Some(ctx) = ctx {
+                    ctx.emit(ExecutionEvent::NodeRetrying {
+                        node_id: node.id.0.clone(),
+                        attempt: attempt + 1,
+                        max_attempts: config.max_attempts,
+                        error: error.clone(),
+                        next_delay_ms: delay.as_millis() as u64,
+                    });
+                }
+
+                last_error = Some(error);
 
                 // Wait with cancellation support
                 tokio::select! {

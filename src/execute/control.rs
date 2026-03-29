@@ -207,8 +207,9 @@ pub async fn execute_parallel(
             continue;
         }
 
-        // Acquire local semaphore permit (if limited)
-        let _local_permit = if let Some(ref sem) = local_sem {
+        // Acquire permits BEFORE spawning — blocks when at limit.
+        // Permits are moved into wrapper tasks so they're held until completion.
+        let local_permit = if let Some(ref sem) = local_sem {
             Some(
                 sem.clone()
                     .acquire_owned()
@@ -218,12 +219,23 @@ pub async fn execute_parallel(
         } else {
             None
         };
+        let global_permit = ctx.concurrency().acquire().await;
 
-        // Acquire global semaphore permit (if limited)
-        let _global_permit = ctx.concurrency().acquire().await;
-
-        let handle =
+        let inner_handle =
             spawn_node_task(node_id.clone(), graph, handlers, ctx, passthrough.clone())?;
+
+        // Wrap the task to hold permits until the inner task completes
+        let handle = tokio::spawn(async move {
+            let _local = local_permit;
+            let _global = global_permit;
+            inner_handle.await.unwrap_or_else(|e| {
+                ("panic".to_string(), Err(NodeError::Failed {
+                    source_message: None,
+                    message: format!("task panic: {e}"),
+                    recoverable: false,
+                }))
+            })
+        });
         handles.push(handle);
     }
 
@@ -407,7 +419,7 @@ async fn execute_single_node(
     // Core execution: retry wraps handler calls, node timeout wraps the entire sequence
     let execute_fn = async {
         if let Some(ref rc) = retry_config {
-            super::retry::execute_with_retry(&handler, node, inputs, cancel.clone(), rc).await
+            super::retry::execute_with_retry_ctx(&handler, node, inputs, cancel.clone(), rc, Some(ctx)).await
         } else {
             handler.execute(node, inputs, cancel.clone()).await
         }
@@ -503,12 +515,13 @@ fn spawn_node_task(
 
         let execute_fn = async {
             if let Some(ref rc) = retry_config {
-                super::retry::execute_with_retry(
+                super::retry::execute_with_retry_ctx(
                     &handler,
                     &node_clone,
                     inputs,
                     cancel.clone(),
                     rc,
+                    Some(&ctx_clone),
                 )
                 .await
             } else {

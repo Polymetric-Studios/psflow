@@ -26,22 +26,6 @@ pub enum NodeError {
     AdapterError { adapter: String, message: String },
 }
 
-impl NodeError {
-    /// Whether this error is eligible for retry.
-    ///
-    /// Recoverable failures, timeouts, and adapter errors are retryable.
-    /// Cancellations and type mismatches are not.
-    pub fn is_retryable(&self) -> bool {
-        match self {
-            NodeError::Failed { recoverable, .. } => *recoverable,
-            NodeError::Timeout { .. } => true,
-            NodeError::AdapterError { .. } => true,
-            NodeError::Cancelled { .. } => false,
-            NodeError::TypeMismatch { .. } => false,
-        }
-    }
-}
-
 /// Details of a port type mismatch between connected nodes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PortTypeMismatchInfo {
