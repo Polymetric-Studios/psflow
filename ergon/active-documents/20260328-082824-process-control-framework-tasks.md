@@ -195,7 +195,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.1.4 | [x] | Conditional / branch node | Guard expressions evaluated against context; supports if/else and switch-on-value | P0 |
 | 2.1.5 | [x] | Loop nodes | Repeat (fixed count), while (guard condition), map-over-collection (fan-out/fan-in) | P0 |
 | 2.1.6 | [x] | Retry with backoff | Configurable max attempts, backoff strategy (fixed, exponential), timeout per attempt | P1 |
-| 2.1.7 | [ ] | Subgraph invocation node | Call a named graph as a function; input/output port mapping; supports recursion guard | P1 |
+| 2.1.7 | [x] | Subgraph invocation node | Call a named graph as a function; input/output port mapping; supports recursion guard | P1 |
 | 2.1.8 | [x] | Concurrency limits / throttling | Configurable max concurrent nodes per executor (`max_parallelism`), per parallel node (`config.max_concurrent`), and per adapter (`config.rate_limit`). Uses `tokio::sync::Semaphore`. Fan-out over 100 items with `max_concurrent: 5` runs 5 at a time. Adapter rate limiting prevents API quota exhaustion | P1 |
 | 2.1.9 | [ ] | LLM guard for branch nodes | `guard_llm` annotation key with sub-schema: `adapter` (name or "default"), `prompt` (template with `{ctx.*}` interpolation), `output` (bool or enum), `fallback` (deterministic expression) or `fallback_field` (sibling config key used as deterministic alternative). Branch delegates decision to AI adapter; falls back to deterministic guard if adapter unavailable or on error | P1 |
 | 2.1.10 | [ ] | LLM criterion for race nodes | `criterion_llm` annotation key: race delegates candidate selection to AI adapter. Adapter receives all candidate outputs, returns index of winner. Supports scoring rubric in prompt | P1 |
