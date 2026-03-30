@@ -439,4 +439,61 @@ mod tests {
             .unwrap();
         assert_eq!(outputs.get("has_key"), Some(&Value::Bool(false)));
     }
+
+    // -- 3.T.14: Additional script handler tests --
+
+    #[tokio::test]
+    async fn script_runtime_error_reported() {
+        let engine = default_script_engine();
+        let handler = RhaiHandler::new(engine);
+        let cancel = CancellationToken::new();
+
+        // Division by zero in Rhai
+        let node = make_node(serde_json::json!({
+            "script": "let x = 1 / 0; #{ result: x }"
+        }));
+
+        let result = handler.execute(&node, Outputs::new(), cancel).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("runtime error"));
+    }
+
+    #[tokio::test]
+    async fn script_timeout_via_max_operations() {
+        use crate::scripting::engine::{ScriptEngine, ScriptEngineConfig};
+
+        // Engine with very low operation limit
+        let engine = Arc::new(ScriptEngine::new(ScriptEngineConfig {
+            max_operations: 50,
+            ..Default::default()
+        }));
+        let handler = RhaiHandler::new(engine);
+        let cancel = CancellationToken::new();
+
+        let node = make_node(serde_json::json!({
+            "script": "let i = 0; loop { i += 1; } #{ result: i }"
+        }));
+
+        let result = handler.execute(&node, Outputs::new(), cancel).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn script_with_multiple_outputs() {
+        let engine = default_script_engine();
+        let handler = RhaiHandler::new(engine);
+        let cancel = CancellationToken::new();
+
+        let node = make_node(serde_json::json!({
+            "script": "let sum = inputs.a + inputs.b; let product = inputs.a * inputs.b; #{ sum: sum, product: product }"
+        }));
+
+        let mut inputs = Outputs::new();
+        inputs.insert("a".into(), Value::I64(3));
+        inputs.insert("b".into(), Value::I64(7));
+
+        let outputs = handler.execute(&node, inputs, cancel).await.unwrap();
+        assert_eq!(outputs.get("sum"), Some(&Value::I64(10)));
+        assert_eq!(outputs.get("product"), Some(&Value::I64(21)));
+    }
 }

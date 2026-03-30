@@ -294,10 +294,10 @@ Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scr
 | 3.T.9 | [x] | Capability validation tests | Graph with nodes requiring structured_output; adapter without it → validation error at load time, not runtime | P0 |
 | 3.T.10 | [ ] | Conversation context accumulation tests | Multiple LLM nodes in sequence; verify ConversationHistory builds correctly on blackboard; stateless adapter receives full context on each call. Include case: ConversationHistory exceeds token budget — verify truncation/windowing strategy applies | P1 |
 | 3.T.11 | [x] | Prompt template tests | Variable interpolation, missing variable errors, conditional sections, collection iteration, compile-time validation | P0 |
-| 3.T.12 | [ ] | Value ↔ Dynamic round-trip tests | All `Value` variants convert to `Dynamic` and back correctly. F32 precision through f64 round-trip. Domain variant via `rhai::serde`. Null↔UNIT. Nested Vec/Map structures | P1 |
-| 3.T.13 | [ ] | Rhai guard expression tests | Comparison operators (`>`, `<`, `>=`, `<=`), logical operators (`&&`, `\|\|`, `!`), nested property access (`inputs.item.score`), string methods (`inputs.name.len() > 0`), backwards compatibility with existing guards (`"true"`, `"false"`, `inputs.x == "yes"`, `ctx.flag`) | P1 |
-| 3.T.14 | [ ] | Script handler tests | Inline script execution, external `.rhai` file loading, script returning non-Map error, missing script config error, cancellation mid-script, timeout via max_operations, access to `config` values | P1 |
-| 3.T.15 | [ ] | Sandbox enforcement tests | Scripts cannot access filesystem or network. Operation limit triggers error on infinite loop. Call stack limit triggers on deep recursion. String/array/map size limits enforced | P1 |
+| 3.T.12 | [x] | Value ↔ Dynamic round-trip tests | All `Value` variants convert to `Dynamic` and back correctly. F32 precision through f64 round-trip. Domain variant via `rhai::serde`. Null↔UNIT. Nested Vec/Map structures | P1 |
+| 3.T.13 | [x] | Rhai guard expression tests | Comparison operators (`>`, `<`, `>=`, `<=`), logical operators (`&&`, `\|\|`, `!`), nested property access (`inputs.item.score`), string methods (`inputs.name.len() > 0`), backwards compatibility with existing guards (`"true"`, `"false"`, `inputs.x == "yes"`, `ctx.flag`) | P1 |
+| 3.T.14 | [x] | Script handler tests | Inline script execution, external `.rhai` file loading, script returning non-Map error, missing script config error, cancellation mid-script, timeout via max_operations, access to `config` values | P1 |
+| 3.T.15 | [x] | Sandbox enforcement tests | Scripts cannot access filesystem or network. Operation limit triggers error on infinite loop. Call stack limit triggers on deep recursion. String/array/map size limits enforced | P1 |
 
 ---
 

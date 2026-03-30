@@ -215,4 +215,130 @@ mod tests {
         let back = rhai_map_to_outputs(rhai_map);
         assert_eq!(back, outputs);
     }
+
+    // -- 3.T.12: Edge case tests --
+
+    #[test]
+    fn f32_nan_round_trip() {
+        let v = Value::F32(f32::NAN);
+        let d = value_to_dynamic(&v);
+        let back = dynamic_to_value(d);
+        // NaN doesn't equal itself, so check variant and NaN-ness
+        match back {
+            Value::F32(f) => assert!(f.is_nan()),
+            other => panic!("expected F32, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn f32_infinity_round_trip() {
+        let v = Value::F32(f32::INFINITY);
+        let d = value_to_dynamic(&v);
+        let back = dynamic_to_value(d);
+        match back {
+            Value::F32(f) => assert!(f.is_infinite() && f.is_sign_positive()),
+            other => panic!("expected F32, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn f32_neg_infinity_round_trip() {
+        let v = Value::F32(f32::NEG_INFINITY);
+        let d = value_to_dynamic(&v);
+        let back = dynamic_to_value(d);
+        match back {
+            Value::F32(f) => assert!(f.is_infinite() && f.is_sign_negative()),
+            other => panic!("expected F32, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn f32_zero_round_trip() {
+        let v = Value::F32(0.0);
+        let d = value_to_dynamic(&v);
+        let back = dynamic_to_value(d);
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn i64_boundary_round_trip() {
+        for val in [i64::MIN, i64::MAX, 0] {
+            let v = Value::I64(val);
+            let d = value_to_dynamic(&v);
+            let back = dynamic_to_value(d);
+            assert_eq!(back, v);
+        }
+    }
+
+    #[test]
+    fn empty_string_round_trip() {
+        let v = Value::String(String::new());
+        let d = value_to_dynamic(&v);
+        let back = dynamic_to_value(d);
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn empty_vec_round_trip() {
+        let v = Value::Vec(vec![]);
+        let d = value_to_dynamic(&v);
+        let back = dynamic_to_value(d);
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn empty_map_round_trip() {
+        let v = Value::Map(BTreeMap::new());
+        let d = value_to_dynamic(&v);
+        let back = dynamic_to_value(d);
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn deeply_nested_structure() {
+        // 3 levels deep: Vec<Map<Vec<I64>>>
+        let inner_vec = Value::Vec(vec![Value::I64(1), Value::I64(2)]);
+        let mut map = BTreeMap::new();
+        map.insert("data".into(), inner_vec);
+        let outer = Value::Vec(vec![Value::Map(map.clone()), Value::Map(map)]);
+
+        let d = value_to_dynamic(&outer);
+        let back = dynamic_to_value(d);
+        assert_eq!(back, outer);
+    }
+
+    #[test]
+    fn mixed_type_vec() {
+        let v = Value::Vec(vec![
+            Value::String("hello".into()),
+            Value::I64(42),
+            Value::Bool(true),
+            Value::Null,
+        ]);
+        let d = value_to_dynamic(&v);
+        let back = dynamic_to_value(d);
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn domain_with_nested_arrays() {
+        let v = Value::Domain {
+            type_name: "Complex".into(),
+            data: serde_json::json!({
+                "items": [1, 2, 3],
+                "nested": {"key": "val"}
+            }),
+        };
+        let d = value_to_dynamic(&v);
+        assert!(d.is_map());
+        // Verify nested structure survived the round trip
+        let back = dynamic_to_value(d);
+        match back {
+            Value::Map(m) => {
+                assert!(m.contains_key("items"));
+                assert!(m.contains_key("nested"));
+            }
+            other => panic!("expected Map, got {other:?}"),
+        }
+    }
 }

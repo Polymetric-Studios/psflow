@@ -1208,6 +1208,82 @@ mod tests {
         assert_eq!(result, GuardResult::Label("good".into()));
     }
 
+    // -- 3.T.13: Backwards compatibility tests --
+
+    #[test]
+    fn guard_compat_quoted_equality() {
+        // Old-style: inputs.x == "yes" (quoted string RHS)
+        let mut inputs = Outputs::new();
+        inputs.insert("answer".into(), Value::String("yes".into()));
+        let bb = Blackboard::new();
+
+        assert_eq!(
+            evaluate_guard("inputs.answer == \"yes\"", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn guard_compat_unquoted_equality() {
+        // Old-style: inputs.status == active (unquoted RHS — falls back to legacy)
+        let mut inputs = Outputs::new();
+        inputs.insert("status".into(), Value::String("active".into()));
+        let bb = Blackboard::new();
+
+        assert_eq!(
+            evaluate_guard("inputs.status == active", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn guard_ctx_bare_truthy_via_rhai() {
+        // ctx.flag resolves via Rhai (ctx is a Map in scope), not legacy fallback
+        let inputs = Outputs::new();
+        let mut bb = Blackboard::new();
+        bb.set(
+            "flag".into(),
+            Value::Bool(true),
+            BlackboardScope::Global,
+        );
+
+        assert_eq!(
+            evaluate_guard("ctx.flag", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn guard_rhai_negation() {
+        let mut inputs = Outputs::new();
+        inputs.insert("active".into(), Value::Bool(false));
+        let bb = Blackboard::new();
+
+        assert_eq!(
+            evaluate_guard("!inputs.active", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn guard_rhai_complex_combined() {
+        let mut inputs = Outputs::new();
+        inputs.insert("age".into(), Value::I64(25));
+        inputs.insert("name".into(), Value::String("alice".into()));
+        let mut bb = Blackboard::new();
+        bb.set("min_age".into(), Value::I64(18), BlackboardScope::Global);
+
+        assert_eq!(
+            evaluate_guard(
+                "inputs.age >= ctx.min_age && inputs.name.len() > 0",
+                &inputs,
+                &bb,
+            )
+            .unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
     // -- LLM oracle tests --
 
     #[tokio::test]

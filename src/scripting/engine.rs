@@ -388,4 +388,112 @@ mod tests {
         };
         let _engine = ScriptEngine::new(config);
     }
+
+    // -- 3.T.15: Sandbox enforcement tests --
+
+    #[test]
+    fn import_statement_blocked() {
+        // DummyModuleResolver should reject all imports
+        let engine = ScriptEngine::with_defaults();
+        let cancel = CancellationToken::new();
+        let mut scope = Scope::new();
+
+        let ast = engine.compile("import \"something\" as m; m::foo()").unwrap();
+        let result = engine.eval_ast(&mut scope, &ast, &cancel);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Module not found"),
+            "expected module resolution error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn string_size_limit_enforced() {
+        let engine = ScriptEngine::new(ScriptEngineConfig {
+            max_string_size: 100,
+            ..Default::default()
+        });
+        let cancel = CancellationToken::new();
+        let mut scope = Scope::new();
+
+        // Build a string that exceeds the limit
+        let ast = engine
+            .compile("let s = \"x\"; for i in 0..200 { s += \"x\"; } s")
+            .unwrap();
+        let result = engine.eval_ast(&mut scope, &ast, &cancel);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn array_size_limit_enforced() {
+        let engine = ScriptEngine::new(ScriptEngineConfig {
+            max_array_size: 50,
+            ..Default::default()
+        });
+        let cancel = CancellationToken::new();
+        let mut scope = Scope::new();
+
+        let ast = engine
+            .compile("let a = []; for i in 0..100 { a.push(i); } a")
+            .unwrap();
+        let result = engine.eval_ast(&mut scope, &ast, &cancel);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn map_size_limit_enforced() {
+        // Rhai's max_map_size is enforced at parse time on map literals
+        let engine = ScriptEngine::new(ScriptEngineConfig {
+            max_map_size: 3,
+            ..Default::default()
+        });
+
+        // Map literal exceeding the limit should fail to compile
+        let result = engine.compile("let m = #{a: 1, b: 2, c: 3, d: 4}; m");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn deep_recursion_blocked() {
+        let engine = ScriptEngine::new(ScriptEngineConfig {
+            max_call_levels: 10,
+            ..Default::default()
+        });
+        let cancel = CancellationToken::new();
+        let mut scope = Scope::new();
+
+        let ast = engine
+            .compile("fn deep(n) { if n > 0 { deep(n - 1) } else { 0 } } deep(100)")
+            .unwrap();
+        let result = engine.eval_ast(&mut scope, &ast, &cancel);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ctx_get_and_ctx_has_registered() {
+        // Verify the helper functions are available on eval engines
+        let engine = ScriptEngine::with_defaults();
+        let cancel = CancellationToken::new();
+        let mut scope = Scope::new();
+
+        let mut map = rhai::Map::new();
+        map.insert("key".into(), Dynamic::from(42_i64));
+        scope.push_dynamic("m", Dynamic::from_map(map));
+
+        let result = engine
+            .eval_expression("ctx_get(m, \"key\")", &mut scope, &cancel)
+            .unwrap();
+        assert_eq!(result.as_int().unwrap(), 42);
+
+        let result = engine
+            .eval_expression("ctx_has(m, \"key\")", &mut scope, &cancel)
+            .unwrap();
+        assert!(result.as_bool().unwrap());
+
+        let result = engine
+            .eval_expression("ctx_has(m, \"missing\")", &mut scope, &cancel)
+            .unwrap();
+        assert!(!result.as_bool().unwrap());
+    }
 }
