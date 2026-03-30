@@ -2,6 +2,7 @@ use crate::error::NodeError;
 use crate::execute::{CancellationToken, NodeHandler, Outputs};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
+use crate::handlers::common::{interpolate, value_to_json};
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::pin::Pin;
@@ -12,6 +13,13 @@ use std::pin::Pin;
 /// Supports simple `{key}` template interpolation in URL, headers, and body
 /// from the node's inputs.
 ///
+/// ## Security
+///
+/// **SSRF warning**: By default, the handler allows requests to any URL
+/// including internal/private networks. Set `config.allow_private: false`
+/// (the default) to block requests to private IP ranges (RFC 1918,
+/// link-local, loopback). Set `config.allow_private: true` to allow them.
+///
 /// ## Configuration
 ///
 /// - `config.url` (required): URL template, e.g. `"https://api.example.com/items/{id}"`
@@ -20,6 +28,7 @@ use std::pin::Pin;
 /// - `config.body`: Request body template (string). Sent as-is for POST/PUT/PATCH.
 /// - `config.body_json`: If true, serialize the entire inputs map as JSON body (overrides `body`).
 /// - `config.timeout_ms`: Request timeout in milliseconds (default: 30000).
+/// - `config.allow_private`: Allow requests to private/loopback IPs (default: false).
 ///
 /// ## Outputs
 ///
@@ -76,10 +85,33 @@ impl NodeHandler for HttpHandler {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
+            let allow_private = config
+                .get("allow_private")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
             let body_template = config.get("body").and_then(|v| v.as_str()).map(String::from);
 
             // Interpolate templates
             let url = interpolate(url_template, &inputs);
+
+            // SSRF protection: block private/loopback IPs unless explicitly allowed
+            if !allow_private {
+                if let Ok(parsed) = reqwest::Url::parse(&url) {
+                    if let Some(host) = parsed.host_str() {
+                        if is_private_host(host) {
+                            return Err(NodeError::Failed {
+                                source_message: None,
+                                message: format!(
+                                    "node '{node_id}': blocked request to private/loopback address '{host}'. \
+                                     Set config.allow_private: true to allow"
+                                ),
+                                recoverable: false,
+                            });
+                        }
+                    }
+                }
+            }
 
             // Build request
             let client = reqwest::Client::new();
@@ -168,79 +200,35 @@ impl NodeHandler for HttpHandler {
     }
 }
 
-/// Simple `{key}` template interpolation from inputs.
-fn interpolate(template: &str, inputs: &Outputs) -> String {
-    let mut result = template.to_string();
-    for (key, value) in inputs {
-        let placeholder = format!("{{{key}}}");
-        let replacement = match value {
-            Value::String(s) => s.clone(),
-            Value::I64(n) => n.to_string(),
-            Value::F32(f) => f.to_string(),
-            Value::Bool(b) => b.to_string(),
-            _ => continue,
-        };
-        result = result.replace(&placeholder, &replacement);
+/// Check if a hostname resolves to a private/loopback/link-local address.
+fn is_private_host(host: &str) -> bool {
+    // Check common private hostnames
+    if host == "localhost" || host == "0.0.0.0" || host == "::1" || host == "[::1]" {
+        return true;
     }
-    result
-}
 
-/// Convert a graph Value to a serde_json::Value.
-fn value_to_json(v: &Value) -> serde_json::Value {
-    match v {
-        Value::String(s) => serde_json::Value::String(s.clone()),
-        Value::Bool(b) => serde_json::Value::Bool(*b),
-        Value::I64(n) => serde_json::json!(*n),
-        Value::F32(f) => serde_json::json!(*f),
-        Value::Vec(items) => {
-            serde_json::Value::Array(items.iter().map(value_to_json).collect())
-        }
-        Value::Map(map) => {
-            let obj: serde_json::Map<String, serde_json::Value> =
-                map.iter().map(|(k, v)| (k.clone(), value_to_json(v))).collect();
-            serde_json::Value::Object(obj)
-        }
-        Value::Domain { data, .. } => data.clone(),
-        Value::Null => serde_json::Value::Null,
+    // Check IP address ranges
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback()           // 127.0.0.0/8
+                    || v4.is_private()      // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                    || v4.is_link_local()   // 169.254.0.0/16
+                    || v4.is_unspecified()  // 0.0.0.0
+            }
+            std::net::IpAddr::V6(v6) => {
+                v6.is_loopback()           // ::1
+                    || v6.is_unspecified()  // ::
+            }
+        };
     }
+
+    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn interpolate_simple() {
-        let mut inputs = Outputs::new();
-        inputs.insert("id".into(), Value::I64(42));
-        inputs.insert("name".into(), Value::String("test".into()));
-
-        let result = interpolate("https://api.example.com/{name}/{id}", &inputs);
-        assert_eq!(result, "https://api.example.com/test/42");
-    }
-
-    #[test]
-    fn interpolate_no_placeholders() {
-        let result = interpolate("https://example.com", &Outputs::new());
-        assert_eq!(result, "https://example.com");
-    }
-
-    #[test]
-    fn interpolate_missing_key_left_as_is() {
-        let result = interpolate("https://example.com/{missing}", &Outputs::new());
-        assert_eq!(result, "https://example.com/{missing}");
-    }
-
-    #[test]
-    fn value_to_json_conversions() {
-        assert_eq!(
-            value_to_json(&Value::String("hello".into())),
-            serde_json::json!("hello")
-        );
-        assert_eq!(value_to_json(&Value::I64(42)), serde_json::json!(42));
-        assert_eq!(value_to_json(&Value::Bool(true)), serde_json::json!(true));
-        assert_eq!(value_to_json(&Value::Null), serde_json::Value::Null);
-    }
 
     #[tokio::test]
     async fn missing_url_errors() {
@@ -276,5 +264,56 @@ mod tests {
 
         let result = HttpHandler.execute(&node, Outputs::new(), token).await;
         assert!(matches!(result, Err(NodeError::Cancelled { .. })));
+    }
+
+    // -- SSRF protection --
+
+    #[tokio::test]
+    async fn blocks_localhost_by_default() {
+        let mut node = Node::new("H", "Http");
+        node.config = serde_json::json!({ "url": "http://localhost:8080/admin" });
+
+        let result = HttpHandler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("private/loopback"));
+    }
+
+    #[tokio::test]
+    async fn blocks_private_ip_by_default() {
+        let mut node = Node::new("H", "Http");
+        node.config = serde_json::json!({ "url": "http://192.168.1.1/secret" });
+
+        let result = HttpHandler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("private/loopback"));
+    }
+
+    #[tokio::test]
+    async fn blocks_metadata_endpoint() {
+        let mut node = Node::new("H", "Http");
+        node.config = serde_json::json!({ "url": "http://169.254.169.254/latest/meta-data/" });
+
+        let result = HttpHandler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn is_private_host_checks() {
+        assert!(is_private_host("localhost"));
+        assert!(is_private_host("127.0.0.1"));
+        assert!(is_private_host("10.0.0.1"));
+        assert!(is_private_host("172.16.0.1"));
+        assert!(is_private_host("192.168.1.1"));
+        assert!(is_private_host("169.254.169.254"));
+        assert!(is_private_host("0.0.0.0"));
+        assert!(is_private_host("::1"));
+        assert!(!is_private_host("8.8.8.8"));
+        assert!(!is_private_host("example.com"));
     }
 }

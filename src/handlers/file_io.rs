@@ -2,6 +2,7 @@ use crate::error::NodeError;
 use crate::execute::{CancellationToken, NodeHandler, Outputs};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
+use crate::handlers::common::{interpolate, validate_path_containment};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -10,10 +11,10 @@ use std::pin::Pin;
 ///
 /// ## Configuration
 /// - `config.path` (required): File path template with `{key}` interpolation from inputs.
-/// - `config.encoding`: `"utf8"` (default) or `"bytes"` (returns raw bytes as Vec<I64>).
+/// - `config.base_dir`: If set, resolved paths must stay within this directory (path traversal protection).
 ///
 /// ## Outputs
-/// - `content`: File contents as String (utf8) or Vec (bytes)
+/// - `content`: File contents as String
 /// - `path`: The resolved file path
 pub struct ReadFileHandler;
 
@@ -45,6 +46,30 @@ impl NodeHandler for ReadFileHandler {
 
             let path = interpolate(path_template, &inputs);
 
+            // Path containment check
+            if let Some(base_dir) = config.get("base_dir").and_then(|v| v.as_str()) {
+                let safe_path = validate_path_containment(&path, base_dir).map_err(|e| {
+                    NodeError::Failed {
+                        source_message: None,
+                        message: format!("node '{node_id}': {e}"),
+                        recoverable: false,
+                    }
+                })?;
+                // Use the normalized path
+                let path = safe_path.to_string_lossy().to_string();
+                let content = tokio::fs::read_to_string(&path).await.map_err(|e| {
+                    NodeError::Failed {
+                        source_message: Some(e.to_string()),
+                        message: format!("node '{node_id}': failed to read '{path}': {e}"),
+                        recoverable: false,
+                    }
+                })?;
+                let mut outputs = Outputs::new();
+                outputs.insert("content".into(), Value::String(content));
+                outputs.insert("path".into(), Value::String(path));
+                return Ok(outputs);
+            }
+
             let content = tokio::fs::read_to_string(&path).await.map_err(|e| {
                 NodeError::Failed {
                     source_message: Some(e.to_string()),
@@ -67,6 +92,7 @@ impl NodeHandler for ReadFileHandler {
 /// - `config.path` (required): File path template with `{key}` interpolation.
 /// - `config.create_dirs`: If true (default), create parent directories as needed.
 /// - `config.input_key`: Key to read content from inputs (default: `"content"`).
+/// - `config.base_dir`: If set, resolved paths must stay within this directory (path traversal protection).
 ///
 /// ## Outputs
 /// - `path`: The resolved file path
@@ -110,6 +136,20 @@ impl NodeHandler for WriteFileHandler {
                 .unwrap_or(true);
 
             let path = interpolate(path_template, &inputs);
+
+            // Path containment check
+            let path = if let Some(base_dir) = config.get("base_dir").and_then(|v| v.as_str()) {
+                validate_path_containment(&path, base_dir)
+                    .map_err(|e| NodeError::Failed {
+                        source_message: None,
+                        message: format!("node '{node_id}': {e}"),
+                        recoverable: false,
+                    })?
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                path
+            };
 
             let content = inputs
                 .get(input_key)
@@ -212,22 +252,6 @@ impl NodeHandler for GlobHandler {
     }
 }
 
-/// Simple `{key}` template interpolation from inputs.
-fn interpolate(template: &str, inputs: &Outputs) -> String {
-    let mut result = template.to_string();
-    for (key, value) in inputs {
-        let placeholder = format!("{{{key}}}");
-        let replacement = match value {
-            Value::String(s) => s.clone(),
-            Value::I64(n) => n.to_string(),
-            Value::F32(f) => f.to_string(),
-            Value::Bool(b) => b.to_string(),
-            _ => continue,
-        };
-        result = result.replace(&placeholder, &replacement);
-    }
-    result
-}
 
 #[cfg(test)]
 mod tests {

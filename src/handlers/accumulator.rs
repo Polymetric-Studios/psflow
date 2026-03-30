@@ -71,14 +71,12 @@ impl NodeHandler for AccumulatorHandler {
             // Get the value to accumulate
             let new_value = inputs.get(input_key).cloned().unwrap_or(Value::Null);
 
-            // Read current collection, append, write back
+            // Read current collection, append, write back.
+            // The MutexGuard is held across the entire read-modify-write to ensure atomicity.
             let mut bb = ctx.blackboard();
             let mut collection = match bb.get(&bb_key, &scope) {
                 Some(Value::Vec(existing)) => existing.clone(),
-                Some(_) => {
-                    // Key exists but isn't a Vec — wrap existing value and append
-                    vec![bb.get(&bb_key, &scope).cloned().unwrap_or(Value::Null)]
-                }
+                Some(other) => vec![other.clone()],
                 None => Vec::new(),
             };
 
