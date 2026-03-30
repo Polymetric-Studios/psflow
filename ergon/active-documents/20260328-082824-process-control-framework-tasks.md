@@ -265,6 +265,20 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 3.3.4 | [x] | Accumulator / memory node | Append results to a running collection in context; supports `ConversationHistory` type for LLM context windows. Configurable scope (global, subgraph, node) | P1 |
 | 3.3.5 | [ ] | Human-in-the-loop node | Pause execution, present data, wait for external input via channel, resume with response | P2 |
 
+### 3.4 Scripting Engine (Rhai)
+
+Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scripting language purpose-built for Rust embedding. Provides three integration levels: rich guard expressions (replacing the hand-rolled string matcher), a script node handler for inline/external scripts, and a general-purpose alternative to compiled Rust handlers. Rhai is `Send + Sync` with the `sync` feature, sandboxed by default (no FS/network access), and compiles to WASM — compatible with all target bindings.
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 3.4.1 | [ ] | Add `rhai` dependency and Value conversions | Add `rhai = { version = "1", features = ["sync", "serde"] }` to Cargo.toml. Add public `From<Value> for serde_json::Value` and `From<serde_json::Value> for Value` conversions in `graph/types.rs` (move private `value_to_json` from `handlers/http.rs`) | P1 |
+| 3.4.2 | [ ] | Value ↔ Dynamic type bridge | Bidirectional conversion between psflow `Value` and Rhai `Dynamic`. Mapping: String↔String, Bool↔bool, I64↔INT(i64), F32↔FLOAT(f64, truncate on return), Vec↔Array, Map↔Map, Domain↔`rhai::serde::to_dynamic`, Null↔UNIT. Module: `src/scripting/bridge.rs` | P1 |
+| 3.4.3 | [ ] | ScriptEngine with sandbox | Rhai `Engine` wrapper with execution limits: `max_operations(100_000)`, `max_call_levels(32)`, `max_string_size(1_000_000)`, `max_array_size(10_000)`, `max_map_size(10_000)`. Disable `print`/`debug`. Cooperative cancellation via `engine.on_progress()` checking `CancellationToken`. Configurable limits via builder. Module: `src/scripting/engine.rs` | P1 |
+| 3.4.4 | [ ] | Rhai guard evaluator | Replace hand-rolled `evaluate_guard` in `execute/control.rs` with Rhai expression evaluation. Build `Scope` with `inputs` (Rhai Map from node outputs) and `ctx` (Rhai Map from blackboard). Use `eval_expression_with_scope`. Map bool results to `GuardResult::Bool`, string results to `GuardResult::Label`. Backwards compatible with existing guard syntax; unlocks `>`, `<`, `>=`, `<=`, `&&`, `\|\|`, arithmetic, string methods, `len()` | P1 |
+| 3.4.5 | [ ] | RhaiHandler node | `NodeHandler` impl executing Rhai scripts. Script source from `node.config["script"]` (inline) or `node.config["script_file"]` (external `.rhai` path). Injects `inputs` and `config` as Rhai Maps. Script return value (must be Map) converted to `Outputs`. Cancellation via engine progress callback. Annotation: `%% @A handler: rhai` + `%% @A config.script: "let x = inputs.value * 2; #{ result: x }"` | P1 |
+| 3.4.6 | [ ] | Registry auto-registration | `NodeRegistry::with_defaults(engine: Arc<ScriptEngine>)` pre-registers `"rhai"` handler alongside existing built-ins. Update CLI runner to use `with_defaults()` | P1 |
+| 3.4.7 | [ ] | Blackboard read access from scripts | Register custom Rhai functions: `ctx_get(key) -> Dynamic` (read global scope), `ctx_has(key) -> bool` (check existence). Blackboard is read-only from scripts; writes go through node outputs via executor | P1 |
+
 ### 3.T Testing — Node System
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
@@ -280,6 +294,10 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 3.T.9 | [x] | Capability validation tests | Graph with nodes requiring structured_output; adapter without it → validation error at load time, not runtime | P0 |
 | 3.T.10 | [ ] | Conversation context accumulation tests | Multiple LLM nodes in sequence; verify ConversationHistory builds correctly on blackboard; stateless adapter receives full context on each call. Include case: ConversationHistory exceeds token budget — verify truncation/windowing strategy applies | P1 |
 | 3.T.11 | [x] | Prompt template tests | Variable interpolation, missing variable errors, conditional sections, collection iteration, compile-time validation | P0 |
+| 3.T.12 | [ ] | Value ↔ Dynamic round-trip tests | All `Value` variants convert to `Dynamic` and back correctly. F32 precision through f64 round-trip. Domain variant via `rhai::serde`. Null↔UNIT. Nested Vec/Map structures | P1 |
+| 3.T.13 | [ ] | Rhai guard expression tests | Comparison operators (`>`, `<`, `>=`, `<=`), logical operators (`&&`, `\|\|`, `!`), nested property access (`inputs.item.score`), string methods (`inputs.name.len() > 0`), backwards compatibility with existing guards (`"true"`, `"false"`, `inputs.x == "yes"`, `ctx.flag`) | P1 |
+| 3.T.14 | [ ] | Script handler tests | Inline script execution, external `.rhai` file loading, script returning non-Map error, missing script config error, cancellation mid-script, timeout via max_operations, access to `config` values | P1 |
+| 3.T.15 | [ ] | Sandbox enforcement tests | Scripts cannot access filesystem or network. Operation limit triggers error on infinite loop. Call stack limit triggers on deep recursion. String/array/map size limits enforced | P1 |
 
 ---
 
@@ -334,6 +352,8 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 **Critical path:** 1.1 → 1.2 → 1.3 → 2.1 → 2.2 → 3.1 → 3.3 → 4.1 → 4.2
 
 **Parallel track:** 3.1.2 (handler trait) → 3.2.1 (adapter trait) → 3.2.4 (CLI adapter) + 3.2.7 (mock adapter) → 3.3.1 (LLM call node)
+
+**Scripting track:** 3.4.1 (dep + Value conversions) → 3.4.2 (bridge) → 3.4.3 (engine) → 3.4.4 (guards) + 3.4.5 (handler) in parallel → 3.4.6 (registry) + 3.4.7 (blackboard access). The scripting track depends on the port type system (1.1.6) and handler trait (3.1.2) but is otherwise independent — can run in parallel with 3.2 and 3.3. Guard evaluator (3.4.4) replaces the existing hand-rolled evaluator in `execute/control.rs`.
 
 Phase 5 runs in parallel once Phases 1–2 are stable. AI adapters (3.2) can begin as soon as the handler trait (3.1.2) is defined — the adapter trait is independent of graph topology. The adapter parallel track runs alongside the rest of 3.1; it does not block on 3.1 completing. Claude Code CLI adapter (3.2.4) and mock adapter (3.2.7) should land first to unblock Ergon integration (3.3) and testing respectively. LLM oracle tasks (2.1.9–2.1.11) depend on both the adapter trait (3.2.1) and the control flow primitives (2.1.4–2.1.6). Port type system (1.1.6) and error hierarchy (1.1.7) are foundational — all subsequent phases assume them.
 
