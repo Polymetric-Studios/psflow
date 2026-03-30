@@ -1,5 +1,6 @@
 use crate::execute::{HandlerRegistry, NodeHandler};
 use crate::graph::Graph;
+use crate::scripting::engine::ScriptEngine;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -16,6 +17,38 @@ impl NodeRegistry {
         Self {
             handlers: HashMap::new(),
         }
+    }
+
+    /// Create a registry pre-populated with all built-in standalone handlers,
+    /// including the `"rhai"` script handler backed by the given engine.
+    ///
+    /// Does not include wrapper handlers (`catch`, `fallback`, `retry`) or
+    /// context-dependent handlers (`accumulator`) since those require runtime arguments.
+    pub fn with_defaults(engine: Arc<ScriptEngine>) -> Self {
+        use crate::handlers::*;
+
+        let mut reg = Self::new();
+
+        // Utility handlers
+        reg.register("passthrough", Arc::new(PassthroughHandler) as Arc<dyn NodeHandler>);
+        reg.register("transform", Arc::new(TransformHandler));
+        reg.register("delay", Arc::new(DelayHandler));
+        reg.register("log", Arc::new(LogHandler));
+        reg.register("merge", Arc::new(MergeHandler));
+        reg.register("split", Arc::new(SplitHandler));
+        reg.register("gate", Arc::new(GateHandler));
+        reg.register("error_transform", Arc::new(ErrorTransformHandler));
+
+        // Integration handlers
+        reg.register("http", Arc::new(HttpHandler));
+        reg.register("read_file", Arc::new(ReadFileHandler));
+        reg.register("write_file", Arc::new(WriteFileHandler));
+        reg.register("glob", Arc::new(GlobHandler));
+
+        // Scripting
+        reg.register("rhai", Arc::new(RhaiHandler::new(engine)));
+
+        reg
     }
 
     /// Register a handler by name. Overwrites any existing handler with the same name.

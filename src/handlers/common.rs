@@ -23,23 +23,10 @@ pub(crate) fn interpolate(template: &str, inputs: &Outputs) -> String {
 }
 
 /// Convert a graph `Value` to a `serde_json::Value`.
+///
+/// Delegates to the `From<&Value> for serde_json::Value` impl in `graph::types`.
 pub(crate) fn value_to_json(v: &Value) -> serde_json::Value {
-    match v {
-        Value::String(s) => serde_json::Value::String(s.clone()),
-        Value::Bool(b) => serde_json::Value::Bool(*b),
-        Value::I64(n) => serde_json::json!(*n),
-        Value::F32(f) => serde_json::json!(*f),
-        Value::Vec(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
-        Value::Map(map) => {
-            let obj: serde_json::Map<String, serde_json::Value> = map
-                .iter()
-                .map(|(k, v)| (k.clone(), value_to_json(v)))
-                .collect();
-            serde_json::Value::Object(obj)
-        }
-        Value::Domain { data, .. } => data.clone(),
-        Value::Null => serde_json::Value::Null,
-    }
+    serde_json::Value::from(v)
 }
 
 /// Validate that a resolved path stays within a base directory.

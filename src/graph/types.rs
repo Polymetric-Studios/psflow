@@ -141,6 +141,62 @@ impl Value {
     }
 }
 
+impl From<&Value> for serde_json::Value {
+    fn from(v: &Value) -> Self {
+        match v {
+            Value::String(s) => serde_json::Value::String(s.clone()),
+            Value::Bool(b) => serde_json::Value::Bool(*b),
+            Value::I64(n) => serde_json::json!(*n),
+            Value::F32(f) => serde_json::json!(*f),
+            Value::Vec(items) => {
+                serde_json::Value::Array(items.iter().map(serde_json::Value::from).collect())
+            }
+            Value::Map(map) => {
+                let obj: serde_json::Map<String, serde_json::Value> = map
+                    .iter()
+                    .map(|(k, v)| (k.clone(), serde_json::Value::from(v)))
+                    .collect();
+                serde_json::Value::Object(obj)
+            }
+            Value::Domain { data, .. } => data.clone(),
+            Value::Null => serde_json::Value::Null,
+        }
+    }
+}
+
+impl From<Value> for serde_json::Value {
+    fn from(v: Value) -> Self {
+        serde_json::Value::from(&v)
+    }
+}
+
+impl From<serde_json::Value> for Value {
+    fn from(v: serde_json::Value) -> Self {
+        match v {
+            serde_json::Value::Null => Value::Null,
+            serde_json::Value::Bool(b) => Value::Bool(b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Value::I64(i)
+                } else if let Some(f) = n.as_f64() {
+                    Value::F32(f as f32)
+                } else {
+                    Value::Null
+                }
+            }
+            serde_json::Value::String(s) => Value::String(s),
+            serde_json::Value::Array(arr) => {
+                Value::Vec(arr.into_iter().map(Value::from).collect())
+            }
+            serde_json::Value::Object(map) => {
+                let m: BTreeMap<std::string::String, Value> =
+                    map.into_iter().map(|(k, v)| (k, Value::from(v))).collect();
+                Value::Map(m)
+            }
+        }
+    }
+}
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

@@ -36,13 +36,20 @@ impl GuardResult {
 
 /// Evaluate a guard expression against node inputs and the blackboard.
 ///
-/// Supported expression forms:
-/// - `"true"` / `"false"` — boolean literal
-/// - `"inputs.key"` — lookup from node inputs, truthy check
-/// - `"inputs.key == value"` — equality comparison
-/// - `"inputs.key != value"` — inequality comparison
-/// - `"ctx.key"` — lookup from blackboard (global scope), truthy check
-/// - `"ctx.key == value"` — blackboard equality comparison
+/// Uses the Rhai scripting engine for expression evaluation, supporting the full
+/// range of operators (`>`, `<`, `>=`, `<=`, `&&`, `||`, `!`), arithmetic,
+/// string methods (`len()`, `contains()`, etc.), and nested property access.
+///
+/// Two variables are injected into the Rhai scope:
+/// - `inputs` — a Map built from node output values
+/// - `ctx` — a Map built from the blackboard (global scope)
+///
+/// The result type determines `GuardResult`:
+/// - Boolean → `GuardResult::Bool`
+/// - String  → `GuardResult::Label`
+///
+/// **Backwards compatibility:** If Rhai evaluation fails (e.g. unquoted string
+/// literals like `inputs.status == active`), falls back to the legacy evaluator.
 pub fn evaluate_guard(
     expr: &str,
     inputs: &Outputs,
@@ -50,6 +57,80 @@ pub fn evaluate_guard(
 ) -> Result<GuardResult, NodeError> {
     let expr = expr.trim();
 
+    // Try Rhai evaluation first
+    match eval_guard_rhai(expr, inputs, blackboard) {
+        Ok(result) => return Ok(result),
+        Err(_) => {
+            // Fall back to legacy evaluator for backwards compatibility
+        }
+    }
+
+    eval_guard_legacy(expr, inputs, blackboard)
+}
+
+/// Rhai-based guard evaluation.
+fn eval_guard_rhai(
+    expr: &str,
+    inputs: &Outputs,
+    blackboard: &Blackboard,
+) -> Result<GuardResult, NodeError> {
+    use crate::scripting::bridge::{outputs_to_rhai_map, value_to_dynamic};
+    use crate::scripting::engine::ScriptEngine;
+    use rhai::Dynamic;
+    use std::sync::OnceLock;
+    use tokio_util::sync::CancellationToken;
+
+    // Cache a single ScriptEngine for all guard evaluations to avoid
+    // constructing two Rhai Engine instances on every branch/loop check.
+    static GUARD_ENGINE: OnceLock<ScriptEngine> = OnceLock::new();
+    let engine = GUARD_ENGINE.get_or_init(ScriptEngine::with_defaults);
+    let cancel = CancellationToken::new();
+    let mut scope = rhai::Scope::new();
+
+    // Build `inputs` Map from node outputs
+    let inputs_map = outputs_to_rhai_map(inputs);
+    scope.push_dynamic("inputs", Dynamic::from_map(inputs_map));
+
+    // Build `ctx` Map from blackboard global scope
+    let mut ctx_map = rhai::Map::new();
+    for (key, value) in blackboard.global() {
+        ctx_map.insert(key.clone().into(), value_to_dynamic(value));
+    }
+    scope.push_dynamic("ctx", Dynamic::from_map(ctx_map));
+
+    let result = engine
+        .eval_expression(expr, &mut scope, &cancel)
+        .map_err(|e| NodeError::Failed {
+            source_message: None,
+            message: format!("guard expression error: {e}"),
+            recoverable: false,
+        })?;
+
+    if result.is_bool() {
+        Ok(GuardResult::Bool(result.as_bool().unwrap()))
+    } else if result.is_string() {
+        Ok(GuardResult::Label(result.into_string().unwrap()))
+    } else if result.is_int() {
+        // Treat nonzero as truthy
+        Ok(GuardResult::Bool(result.as_int().unwrap() != 0))
+    } else {
+        Ok(GuardResult::Bool(!result.is_unit()))
+    }
+}
+
+/// Legacy hand-rolled guard evaluator for backwards compatibility.
+///
+/// Handles forms that Rhai can't parse (e.g. unquoted string literals):
+/// - `"true"` / `"false"` — boolean literal
+/// - `"inputs.key"` — truthy check
+/// - `"inputs.key == value"` — equality (unquoted RHS)
+/// - `"inputs.key != value"` — inequality
+/// - `"ctx.key"` / `"ctx.key == value"` — blackboard lookup
+fn eval_guard_legacy(
+    expr: &str,
+    inputs: &Outputs,
+    blackboard: &Blackboard,
+) -> Result<GuardResult, NodeError> {
     // Boolean literals
     if expr == "true" {
         return Ok(GuardResult::Bool(true));
@@ -971,10 +1052,16 @@ mod tests {
     }
 
     #[test]
-    fn guard_missing_input_is_error() {
+    fn guard_missing_input_is_falsy() {
+        // With the Rhai evaluator, accessing a missing map key returns () (unit),
+        // which is falsy. This is more ergonomic than erroring — callers already
+        // use unwrap_or(Bool(false)) for the error case.
         let inputs = Outputs::new();
         let bb = Blackboard::new();
-        assert!(evaluate_guard("inputs.missing", &inputs, &bb).is_err());
+        assert_eq!(
+            evaluate_guard("inputs.missing", &inputs, &bb).unwrap(),
+            GuardResult::Bool(false)
+        );
     }
 
     #[test]
@@ -994,6 +1081,131 @@ mod tests {
         assert_eq!(GuardResult::Bool(true).edge_label(), "yes");
         assert_eq!(GuardResult::Bool(false).edge_label(), "no");
         assert_eq!(GuardResult::Label("custom".into()).edge_label(), "custom");
+    }
+
+    // -- Rhai guard expression tests --
+
+    #[test]
+    fn guard_rhai_comparison_operators() {
+        let mut inputs = Outputs::new();
+        inputs.insert("score".into(), Value::I64(85));
+        let bb = Blackboard::new();
+
+        assert_eq!(
+            evaluate_guard("inputs.score > 70", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+        assert_eq!(
+            evaluate_guard("inputs.score < 90", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+        assert_eq!(
+            evaluate_guard("inputs.score >= 85", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+        assert_eq!(
+            evaluate_guard("inputs.score <= 85", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+        assert_eq!(
+            evaluate_guard("inputs.score > 90", &inputs, &bb).unwrap(),
+            GuardResult::Bool(false)
+        );
+    }
+
+    #[test]
+    fn guard_rhai_logical_operators() {
+        let mut inputs = Outputs::new();
+        inputs.insert("a".into(), Value::Bool(true));
+        inputs.insert("b".into(), Value::Bool(false));
+        let bb = Blackboard::new();
+
+        assert_eq!(
+            evaluate_guard("inputs.a && !inputs.b", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+        assert_eq!(
+            evaluate_guard("inputs.a || inputs.b", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+        assert_eq!(
+            evaluate_guard("inputs.a && inputs.b", &inputs, &bb).unwrap(),
+            GuardResult::Bool(false)
+        );
+    }
+
+    #[test]
+    fn guard_rhai_arithmetic() {
+        let mut inputs = Outputs::new();
+        inputs.insert("x".into(), Value::I64(10));
+        inputs.insert("y".into(), Value::I64(3));
+        let bb = Blackboard::new();
+
+        assert_eq!(
+            evaluate_guard("inputs.x + inputs.y > 12", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+        assert_eq!(
+            evaluate_guard("inputs.x * inputs.y == 30", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn guard_rhai_string_methods() {
+        let mut inputs = Outputs::new();
+        inputs.insert("name".into(), Value::String("hello".into()));
+        let bb = Blackboard::new();
+
+        assert_eq!(
+            evaluate_guard("inputs.name.len() > 0", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+        assert_eq!(
+            evaluate_guard("inputs.name.contains(\"ell\")", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn guard_rhai_nested_map_access() {
+        let mut inner = std::collections::BTreeMap::new();
+        inner.insert("score".into(), Value::I64(95));
+        let mut inputs = Outputs::new();
+        inputs.insert("item".into(), Value::Map(inner));
+        let bb = Blackboard::new();
+
+        assert_eq!(
+            evaluate_guard("inputs.item.score > 90", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn guard_rhai_ctx_and_inputs_combined() {
+        let mut inputs = Outputs::new();
+        inputs.insert("value".into(), Value::I64(50));
+        let mut bb = Blackboard::new();
+        bb.set("threshold".into(), Value::I64(40), BlackboardScope::Global);
+
+        assert_eq!(
+            evaluate_guard("inputs.value > ctx.threshold", &inputs, &bb).unwrap(),
+            GuardResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn guard_rhai_returns_string_label() {
+        let mut inputs = Outputs::new();
+        inputs.insert("score".into(), Value::I64(85));
+        let bb = Blackboard::new();
+
+        let result = evaluate_guard(
+            "if inputs.score >= 90 { \"excellent\" } else if inputs.score >= 70 { \"good\" } else { \"poor\" }",
+            &inputs,
+            &bb,
+        ).unwrap();
+        assert_eq!(result, GuardResult::Label("good".into()));
     }
 
     // -- LLM oracle tests --

@@ -1,7 +1,7 @@
 use clap::Parser;
 use psflow::{
     load_mermaid, NodeRegistry, NodeState, TopologicalExecutor,
-    Executor, sync_handler, Outputs,
+    Executor, Outputs,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -56,9 +56,9 @@ fn main() -> ExitCode {
         graph.edge_count()
     );
 
-    // Build a minimal handler registry with a passthrough handler
-    let mut registry = NodeRegistry::new();
-    registry.register("passthrough", sync_handler(|_, inputs| Ok(inputs)));
+    // Build the handler registry with all built-in handlers
+    let engine = psflow::scripting::engine::default_script_engine();
+    let registry = NodeRegistry::with_defaults(engine);
 
     // Check for unregistered handlers
     let missing = registry.validate_graph(&graph);

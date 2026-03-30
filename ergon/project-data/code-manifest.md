@@ -58,12 +58,21 @@
 |------|-------------|
 | `mod.rs` | Re-exports all built-in `NodeHandler` implementations. |
 | `llm_call.rs` | `LlmCallHandler`: `NodeHandler` that resolves an adapter, renders a `PromptTemplate` from node config, calls the adapter, and writes output. Supports `transform`/`oracle` execution modes and `json` output format. |
+| `rhai_handler.rs` | `RhaiHandler`: `NodeHandler` executing inline/external Rhai scripts with inputs, config, and ctx (blackboard) access. |
+
+## src/scripting/
+
+| File | Description |
+|------|-------------|
+| `mod.rs` | Module exports for the scripting subsystem. |
+| `bridge.rs` | Bidirectional conversion layer between `Value` and Rhai `Dynamic` types. Provides `outputs_to_rhai_map` and `rhai_map_to_outputs` helpers for seamless type bridging. |
+| `engine.rs` | `ScriptEngine`: sandboxed Rhai execution environment with execution limits, cooperative cancellation support, and context access via `ctx_get`/`ctx_has` functions. |
 
 ## src/
 
 | File | Description |
 |------|-------------|
-| `registry.rs` | `NodeRegistry`: register/lookup/override `NodeHandler` factories by name. Provides `validate_graph` to check all graph nodes have registered handlers. |
+| `registry.rs` | `NodeRegistry`: register/lookup/override `NodeHandler` factories by name. Provides `validate_graph` to check all graph nodes have registered handlers. Includes `with_defaults()` method for built-in handler registration. |
 | `template.rs` | `PromptTemplate`: compile-time parsing and render-time interpolation of `{var}`, `{inputs.*}`, `{ctx.*}` placeholders; `{#if var}...{/if}` conditional blocks; `{{`/`}}` escape sequences. |
 
 ## examples/

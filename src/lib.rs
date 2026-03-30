@@ -5,6 +5,7 @@ pub mod graph;
 pub mod handlers;
 pub mod mermaid;
 pub mod registry;
+pub mod scripting;
 pub mod template;
 
 pub use adapter::{
@@ -28,8 +29,8 @@ pub use graph::types::{PortType, Value};
 pub use graph::{Graph, Subgraph, SubgraphDirective};
 pub use handlers::{
     CatchHandler, DelayHandler, ErrorTransformHandler, FallbackHandler, GateHandler,
-    LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, RetryHandler, SplitHandler,
-    TransformHandler,
+    LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, RhaiHandler, RetryHandler,
+    SplitHandler, TransformHandler,
 };
 pub use mermaid::{export_mermaid, load_mermaid, MermaidError};
 pub use registry::NodeRegistry;

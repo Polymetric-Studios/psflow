@@ -44,8 +44,13 @@ psflow/
 │   │   └── registry.rs         — AdapterRegistry: register, default selection, resolve, capability validation
 │   ├── handlers/
 │   │   ├── mod.rs              — Built-in handler exports
-│   │   └── llm_call.rs         — LlmCallHandler: NodeHandler delegating to AiAdapter via PromptTemplate; transform/oracle modes, json format
-│   ├── registry.rs             — NodeRegistry: handler registration, lookup, override, and graph validation
+│   │   ├── llm_call.rs         — LlmCallHandler: NodeHandler delegating to AiAdapter via PromptTemplate; transform/oracle modes, json format
+│   │   └── rhai_handler.rs     — RhaiHandler: NodeHandler executing inline/external Rhai scripts with inputs, config, and ctx (blackboard) access
+│   ├── scripting/
+│   │   ├── mod.rs              — Module exports
+│   │   ├── bridge.rs           — Bidirectional Value ↔ Rhai Dynamic type bridge with outputs_to_rhai_map/rhai_map_to_outputs helpers
+│   │   └── engine.rs           — Sandboxed Rhai ScriptEngine with execution limits, cooperative cancellation, ctx_get/ctx_has functions
+│   ├── registry.rs             — NodeRegistry: handler registration, lookup, override, and graph validation with with_defaults() method
 │   └── template.rs             — PromptTemplate: compile/render with {var} interpolation, {#if}...{/if} conditionals, escaped braces
 └── ergon/
     ├── project-data/           — Ergon project metadata files
