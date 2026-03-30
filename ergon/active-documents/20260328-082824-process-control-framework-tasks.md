@@ -263,7 +263,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 3.3.2 | [x] | HTTP / API call node | Method, URL template, headers, body template, response extraction via `reqwest` | P1 |
 | 3.3.3 | [x] | File I/O nodes | Read file, write file, glob/list, with path templating from context | P1 |
 | 3.3.4 | [x] | Accumulator / memory node | Append results to a running collection in context; supports `ConversationHistory` type for LLM context windows. Configurable scope (global, subgraph, node) | P1 |
-| 3.3.5 | [ ] | Human-in-the-loop node | Pause execution, present data, wait for external input via channel, resume with response | P2 |
+| 3.3.5 | [x] | Human-in-the-loop node | Pause execution, present data, wait for external input via channel, resume with response | P2 |
 
 ### 3.4 Scripting Engine (Rhai)
 
