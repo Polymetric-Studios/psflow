@@ -1,5 +1,6 @@
 # Process Control Framework — Master Task List
 
+**Updated:** 2026-03-30
 **Rust · Mermaid-Extended · Offline-First · Multi-Target**
 
 A domain-agnostic graph execution engine using annotated Mermaid files as the single-file definition format — topology, typing, node implementation, and execution semantics all in one `.mmd` file. Designed for offline workflow orchestration (Ergon primary), with architecture targeting real-time use, native embedding (C FFI / Unity), WASM for browser, and PyO3 for Python.
