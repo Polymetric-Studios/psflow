@@ -172,9 +172,9 @@ async fn execute_impl(
                     .await?;
                 }
                 SubgraphDirective::Event => {
-                    // Event-driven execution is not yet implemented (Phase 1.3.5)
+                    // Event subgraphs require the EventDrivenExecutor
                     return Err(ExecutionError::ValidationFailed(
-                        format!("subgraph '{}' uses Event directive which is not yet implemented", sg.id)
+                        format!("subgraph '{}' uses Event directive — use EventDrivenExecutor instead", sg.id)
                     ));
                 }
                 _ => {
@@ -338,7 +338,7 @@ fn build_subgraph_membership(graph: &Graph) -> HashMap<NodeId, usize> {
 }
 
 /// Check if a node is a branch node (has a guard config) and record the decision.
-fn handle_branch_decision(
+pub(crate) fn handle_branch_decision(
     graph: &Graph,
     node_id: &str,
     outputs: &Outputs,
@@ -371,7 +371,7 @@ fn handle_branch_decision(
 }
 
 /// Check if a node is blocked because an upstream branch didn't select its incoming edge.
-fn is_branch_blocked(graph: &Graph, node_id: &NodeId, ctx: &ExecutionContext) -> bool {
+pub(crate) fn is_branch_blocked(graph: &Graph, node_id: &NodeId, ctx: &ExecutionContext) -> bool {
     for (src_node, edge_data) in graph.incoming_edges(node_id) {
         if let Some(decision) = ctx.get_branch_decision(&src_node.id.0) {
             // The upstream node made a branch decision.
@@ -478,7 +478,7 @@ pub(crate) fn collect_inputs(graph: &Graph, node_id: &NodeId, ctx: &ExecutionCon
 }
 
 /// Mark all downstream (transitive successors) of a failed node as Cancelled.
-fn cancel_downstream(graph: &Graph, failed_id: &NodeId, ctx: &ExecutionContext) {
+pub(crate) fn cancel_downstream(graph: &Graph, failed_id: &NodeId, ctx: &ExecutionContext) {
     let mut stack = vec![failed_id.clone()];
     let mut visited = HashSet::new();
     visited.insert(failed_id.clone());
@@ -496,7 +496,7 @@ fn cancel_downstream(graph: &Graph, failed_id: &NodeId, ctx: &ExecutionContext) 
 }
 
 /// Default handler that passes inputs through as outputs unchanged.
-struct PassthroughHandler;
+pub(crate) struct PassthroughHandler;
 
 impl NodeHandler for PassthroughHandler {
     fn execute(

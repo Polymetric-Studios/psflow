@@ -4,8 +4,11 @@ pub mod context;
 pub mod control;
 pub mod event;
 pub mod event_bus;
+pub mod event_driven;
 pub mod lifecycle;
+pub mod reactive;
 pub mod retry;
+pub mod stepped;
 pub mod topological;
 
 pub use blackboard::{Blackboard, BlackboardScope};
@@ -15,6 +18,9 @@ pub use event::ExecutionEvent;
 pub use event_bus::{EventBus, EventBusError, EventSubscriber};
 pub use lifecycle::NodeState;
 pub use retry::{BackoffStrategy, RetryConfig};
+pub use event_driven::{EventDrivenExecutor, EventMessage, EventSender};
+pub use reactive::ReactiveExecutor;
+pub use stepped::{SteppedExecutor, TickResult};
 pub use topological::TopologicalExecutor;
 
 use crate::error::NodeError;
