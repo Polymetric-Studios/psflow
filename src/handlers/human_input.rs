@@ -2,11 +2,9 @@ use crate::error::NodeError;
 use crate::execute::{CancellationToken, NodeHandler, Outputs};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
 /// A prompt sent to the human operator, containing the data to review.
 #[derive(Debug, Clone)]
@@ -288,7 +286,7 @@ mod tests {
 
         let op = tokio::spawn(async move {
             for i in 0..3 {
-                let (prompt, responder) = receiver.recv().await.unwrap();
+                let (_prompt, responder) = receiver.recv().await.unwrap();
                 let mut resp = Outputs::new();
                 resp.insert("seq".into(), Value::I64(i));
                 responder.respond(resp);
@@ -305,5 +303,52 @@ mod tests {
         }
 
         op.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_execution_through_same_handler() {
+        let (handler, mut receiver) = HumanInputHandler::new();
+        let handler = std::sync::Arc::new(handler);
+
+        // Operator responds to prompts as they arrive
+        let op = tokio::spawn(async move {
+            let mut received = Vec::new();
+            for _ in 0..2 {
+                let (prompt, responder) = receiver.recv().await.unwrap();
+                let mut resp = Outputs::new();
+                resp.insert(
+                    "from".into(),
+                    Value::String(prompt.node_id.clone()),
+                );
+                received.push(prompt.node_id.clone());
+                responder.respond(resp);
+            }
+            received
+        });
+
+        // Two nodes execute concurrently through the same handler
+        let h1 = handler.clone();
+        let h2 = handler.clone();
+
+        let t1 = tokio::spawn(async move {
+            let node = Node::new("A", "Node A");
+            h1.execute(&node, Outputs::new(), CancellationToken::new()).await
+        });
+        let t2 = tokio::spawn(async move {
+            let node = Node::new("B", "Node B");
+            h2.execute(&node, Outputs::new(), CancellationToken::new()).await
+        });
+
+        let r1 = t1.await.unwrap().unwrap();
+        let r2 = t2.await.unwrap().unwrap();
+
+        // Both nodes got responses routed correctly
+        assert_eq!(r1.get("from"), Some(&Value::String("A".into())));
+        assert_eq!(r2.get("from"), Some(&Value::String("B".into())));
+
+        let received = op.await.unwrap();
+        assert_eq!(received.len(), 2);
+        assert!(received.contains(&"A".to_string()));
+        assert!(received.contains(&"B".to_string()));
     }
 }
