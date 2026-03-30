@@ -9,6 +9,7 @@ use crate::graph::Graph;
 use futures::future::select_all;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, trace};
 
 /// Default maximum iterations for `LoopConfig::While` to prevent runaway loops.
 pub const DEFAULT_MAX_LOOP_ITERATIONS: usize = 10_000;
@@ -59,13 +60,20 @@ pub fn evaluate_guard(
 
     // Try Rhai evaluation first
     match eval_guard_rhai(expr, inputs, blackboard) {
-        Ok(result) => return Ok(result),
+        Ok(result) => {
+            debug!(expr = expr, result = ?result, "guard evaluated (rhai)");
+            return Ok(result);
+        }
         Err(_) => {
-            // Fall back to legacy evaluator for backwards compatibility
+            trace!(expr = expr, "rhai eval failed, falling back to legacy");
         }
     }
 
-    eval_guard_legacy(expr, inputs, blackboard)
+    let result = eval_guard_legacy(expr, inputs, blackboard);
+    if let Ok(ref r) = result {
+        debug!(expr = expr, result = ?r, "guard evaluated (legacy)");
+    }
+    result
 }
 
 /// Rhai-based guard evaluation.

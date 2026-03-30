@@ -5,6 +5,7 @@ use psflow::{
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(name = "psflow", version, about = "Process flow execution engine")]
@@ -19,10 +20,34 @@ struct Cli {
     /// Print the execution trace (node states and outputs) as JSON.
     #[arg(long)]
     json: bool,
+
+    /// Log verbosity. Repeat for more detail: -v (info), -vv (debug), -vvv (trace).
+    /// Can also be set via RUST_LOG env var (e.g. RUST_LOG=psflow=debug).
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+
+    // Initialize tracing subscriber.
+    // RUST_LOG env var takes precedence; otherwise use -v flags.
+    let filter = if std::env::var("RUST_LOG").ok().filter(|v| !v.is_empty()).is_some() {
+        EnvFilter::from_default_env()
+    } else {
+        let level = match cli.verbose {
+            0 => "warn",
+            1 => "psflow=info",
+            2 => "psflow=debug",
+            _ => "psflow=trace",
+        };
+        EnvFilter::new(level)
+    };
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
 
     // Read the .mmd file
     let content = match std::fs::read_to_string(&cli.file) {

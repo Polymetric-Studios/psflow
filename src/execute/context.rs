@@ -7,6 +7,7 @@ use crate::execute::Outputs;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
+use tracing::trace;
 
 /// Re-export `tokio_util::sync::CancellationToken` as the framework's
 /// cooperative cancellation primitive. Provides `.cancel()`, `.is_cancelled()`,
@@ -95,6 +96,7 @@ impl ExecutionContext {
             states.insert(node_id.to_string(), state);
             old
         };
+        trace!(node = node_id, from = %old, to = %state, "state transition");
         self.emit(ExecutionEvent::StateChanged {
             node_id: node_id.to_string(),
             from: old,

@@ -17,6 +17,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tracing::{debug, info, info_span, trace, warn, Instrument};
 
 /// Executes graphs in dependency order, running independent nodes in parallel waves.
 pub struct TopologicalExecutor {
@@ -112,7 +113,15 @@ async fn execute_impl_with_blackboard(
     )>,
     adapter: Option<Arc<dyn crate::adapter::AiAdapter>>,
 ) -> Result<ExecutionResult, ExecutionError> {
+    let graph_name = graph
+        .metadata()
+        .name
+        .as_deref()
+        .unwrap_or("unnamed");
+
     let start = Instant::now();
+    info!(graph = graph_name, nodes = graph.node_count(), edges = graph.edge_count(), "execution started");
+
     let ctx = if let Some((parent_bb, inheritance)) = parent {
         Arc::new(ExecutionContext::with_parent_blackboard(
             cancel_token,
@@ -143,9 +152,11 @@ async fn execute_impl_with_blackboard(
     let mut executed_subgraphs: HashSet<String> = HashSet::new();
 
     let waves = compute_waves(graph)?;
+    debug!(wave_count = waves.len(), "dependency waves computed");
     let passthrough: Arc<dyn NodeHandler> = Arc::new(PassthroughHandler);
 
-    for wave in &waves {
+    for (wave_idx, wave) in waves.iter().enumerate() {
+        debug!(wave = wave_idx, nodes = wave.len(), "processing wave");
         // Check global cancellation before starting a new wave
         if ctx.is_cancelled() {
             for node_id in wave {
@@ -279,6 +290,9 @@ async fn execute_impl_with_blackboard(
             ctx.set_state(&node_id_str, NodeState::Pending)
                 .map_err(|e| ExecutionError::ValidationFailed(e.to_string()))?;
 
+            let handler_name = node.handler.clone().unwrap_or_else(|| "passthrough".into());
+            let node_span = info_span!("node", id = %node_id_str, handler = %handler_name);
+
             handles.push(tokio::spawn(async move {
                 // Move permit into task so it's held until completion
                 let _permit = _global_permit;
@@ -295,6 +309,8 @@ async fn execute_impl_with_blackboard(
                 if let Err(e) = ctx_clone.set_state(&node_id_str, NodeState::Running) {
                     return (node_id_str, Err(e));
                 }
+
+                trace!(node = %node_id_str, "handler executing");
 
                 let execute_fn = async {
                     if let Some(ref rc) = retry_config {
@@ -325,7 +341,7 @@ async fn execute_impl_with_blackboard(
                 };
 
                 (node_id_str, result)
-            }));
+            }.instrument(node_span)));
         }
 
         // Await all tasks in this wave
@@ -339,6 +355,7 @@ async fn execute_impl_with_blackboard(
                     // Check if this is a branch node and record the decision
                     handle_branch_decision(graph, &node_id, &outputs, &ctx, adapter.as_deref()).await;
 
+                    debug!(node = %node_id, output_keys = ?outputs.keys().collect::<Vec<_>>(), "node completed");
                     ctx.store_outputs(&node_id, outputs.clone());
                     ctx.emit(ExecutionEvent::NodeCompleted {
                         node_id: node_id.clone(),
@@ -347,9 +364,11 @@ async fn execute_impl_with_blackboard(
                     let _ = ctx.set_state(&node_id, NodeState::Completed);
                 }
                 Err(NodeError::Cancelled { .. }) => {
+                    debug!(node = %node_id, "node cancelled");
                     let _ = ctx.set_state(&node_id, NodeState::Cancelled);
                 }
                 Err(ref error) => {
+                    warn!(node = %node_id, error = %error, "node failed");
                     ctx.emit(ExecutionEvent::NodeFailed {
                         node_id: node_id.clone(),
                         error: error.clone(),
@@ -362,6 +381,7 @@ async fn execute_impl_with_blackboard(
     }
 
     let elapsed = start.elapsed();
+    info!(elapsed_ms = elapsed.as_millis() as u64, "execution completed");
     ctx.emit(ExecutionEvent::ExecutionCompleted { elapsed });
 
     Ok(ExecutionResult {

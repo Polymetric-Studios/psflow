@@ -6,6 +6,7 @@ use crate::graph::node::Node;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::warn;
 
 /// Backoff strategy for retries.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -174,6 +175,15 @@ pub async fn execute_with_retry_ctx(
             Err(ref e) if attempt + 1 < config.max_attempts && is_retryable(e, config) => {
                 let delay = config.delay_for_attempt(attempt);
                 let error = result.unwrap_err();
+
+                warn!(
+                    node = %node.id.0,
+                    attempt = attempt + 1,
+                    max_attempts = config.max_attempts,
+                    delay_ms = delay.as_millis() as u64,
+                    error = %error,
+                    "retrying node"
+                );
 
                 // Emit retry event
                 if let Some(ctx) = ctx {

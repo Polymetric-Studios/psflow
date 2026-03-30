@@ -96,7 +96,7 @@ impl NodeHandler for DelayHandler {
 // ---------------------------------------------------------------------------
 
 /// Passes inputs through unchanged. The node label is used as the log prefix.
-/// In a real system this would integrate with `tracing`; for now it emits to stderr.
+/// Emits input data via `tracing::info!` at the `info` level.
 pub struct LogHandler;
 
 impl NodeHandler for LogHandler {
@@ -110,7 +110,8 @@ impl NodeHandler for LogHandler {
         let node_id = node.id.0.clone();
         let logged = inputs.clone();
         Box::pin(async move {
-            eprintln!("[log:{node_id}] {label}: {logged:?}");
+            tracing::info!(node = %node_id, label = %label, keys = ?logged.keys().collect::<Vec<_>>(), "log node");
+            tracing::debug!(node = %node_id, data = ?logged, "log node data");
             Ok(inputs)
         })
     }

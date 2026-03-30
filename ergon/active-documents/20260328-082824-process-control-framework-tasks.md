@@ -308,7 +308,7 @@ Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scr
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
 | 4.1.1 | [x] | Execution event bus | Emit structured events for: node state changes, data flow, errors, timing. Subscribe/unsubscribe via `tokio::broadcast` | P0 |
-| 4.1.2 | [ ] | Structured logging | Per-node log context (node ID, execution ID, timestamp) via `tracing` crate; configurable verbosity with span hierarchies | P1 |
+| 4.1.2 | [x] | Structured logging | Per-node log context (node ID, execution ID, timestamp) via `tracing` crate; configurable verbosity with span hierarchies | P1 |
 | 4.1.3 | [ ] | Execution trace / history | Record full execution trace (which nodes ran, in what order, with what data) for replay and debugging | P1 |
 | 4.1.4 | [ ] | Performance metrics | Per-node timing, total execution time, bottleneck identification | P2 |
 
