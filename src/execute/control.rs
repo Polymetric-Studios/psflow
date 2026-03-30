@@ -138,6 +138,129 @@ fn is_truthy(val: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// LLM oracle evaluations
+// ---------------------------------------------------------------------------
+
+/// Evaluate a branch guard via LLM adapter.
+///
+/// Config schema (`config.guard_llm`):
+/// - `prompt`: Template string with `{inputs.*}` / `{ctx.*}` placeholders
+/// - `output`: Expected output type: `"bool"` (default) or `"label"`
+/// - `fallback`: Deterministic guard expression used if adapter fails
+///
+/// Returns the edge label string ("yes"/"no" for bool, or the label text).
+pub async fn evaluate_guard_llm(
+    llm_config: &serde_json::Value,
+    inputs: &Outputs,
+    ctx: &ExecutionContext,
+    adapter: &dyn crate::adapter::AiAdapter,
+) -> Result<String, NodeError> {
+    let prompt_template = llm_config
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| NodeError::Failed {
+            source_message: None,
+            message: "guard_llm: missing 'prompt' field".into(),
+            recoverable: false,
+        })?;
+
+    let output_type = llm_config
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or("bool");
+
+    let prompt = render_llm_prompt(prompt_template, inputs, ctx);
+
+    let request = crate::adapter::AiRequest::new(prompt);
+    let response = adapter.complete(request).await?;
+    let text = response.text.trim().to_lowercase();
+
+    match output_type {
+        "bool" => {
+            let is_true = text == "true" || text == "yes" || text == "1";
+            Ok(if is_true { "yes" } else { "no" }.to_string())
+        }
+        "label" => Ok(response.text.trim().to_string()),
+        _ => Ok(response.text.trim().to_string()),
+    }
+}
+
+/// Evaluate a race winner via LLM adapter's judge capability.
+///
+/// Takes candidate outputs (as formatted strings) and criteria,
+/// returns the index of the winning candidate.
+pub async fn evaluate_race_criterion_llm(
+    criteria: &str,
+    candidate_outputs: &[String],
+    adapter: &dyn crate::adapter::AiAdapter,
+) -> Result<usize, NodeError> {
+    adapter
+        .judge(candidate_outputs, criteria)
+        .await
+}
+
+/// Evaluate a loop continuation condition via LLM adapter.
+///
+/// Config schema (`exec.while_llm`):
+/// - `prompt`: Template string with `{ctx.*}` placeholders
+/// - `fallback`: Deterministic guard expression used if adapter fails
+///
+/// Returns true to continue the loop, false to stop.
+pub async fn evaluate_loop_condition_llm(
+    llm_config: &serde_json::Value,
+    ctx: &ExecutionContext,
+    adapter: &dyn crate::adapter::AiAdapter,
+) -> Result<bool, NodeError> {
+    let prompt_template = llm_config
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| NodeError::Failed {
+            source_message: None,
+            message: "while_llm: missing 'prompt' field".into(),
+            recoverable: false,
+        })?;
+
+    let prompt = render_llm_prompt(prompt_template, &Outputs::new(), ctx);
+
+    let request = crate::adapter::AiRequest::new(prompt);
+    let response = adapter.complete(request).await?;
+    let text = response.text.trim().to_lowercase();
+
+    Ok(text == "true" || text == "yes" || text == "continue" || text == "1")
+}
+
+/// Simple prompt template rendering with `{inputs.*}` and `{ctx.*}` placeholders.
+fn render_llm_prompt(template: &str, inputs: &Outputs, ctx: &ExecutionContext) -> String {
+    let mut result = template.to_string();
+
+    // Replace {inputs.key} placeholders
+    for (key, value) in inputs {
+        let placeholder = format!("{{inputs.{key}}}");
+        let replacement = value_to_string(value);
+        result = result.replace(&placeholder, &replacement);
+    }
+
+    // Replace {ctx.key} placeholders from blackboard
+    let bb = ctx.blackboard();
+    // Find all {ctx.*} patterns and resolve them
+    while let Some(start) = result.find("{ctx.") {
+        let rest = &result[start + 5..];
+        if let Some(end) = rest.find('}') {
+            let key = &rest[..end];
+            let replacement = bb
+                .get(key, &BlackboardScope::Global)
+                .map(value_to_string)
+                .unwrap_or_default();
+            result = format!("{}{}{}", &result[..start], replacement, &rest[end + 1..]);
+        } else {
+            break;
+        }
+    }
+
+    result
+}
+
+// ---------------------------------------------------------------------------
 // Subgraph execution strategies
 // ---------------------------------------------------------------------------
 
@@ -150,6 +273,12 @@ pub enum LoopConfig {
     /// `max_iterations` prevents runaway loops (defaults to `DEFAULT_MAX_LOOP_ITERATIONS`).
     While {
         guard: String,
+        max_iterations: usize,
+    },
+    /// Repeat while an LLM adapter says to continue. Falls back to deterministic
+    /// guard (`fallback` field) if adapter is unavailable or errors.
+    WhileLlm {
+        llm_config: serde_json::Value,
         max_iterations: usize,
     },
 }
@@ -247,6 +376,9 @@ pub async fn execute_parallel(
 ///
 /// Uses `futures::future::select_all` for true concurrent racing —
 /// the winner is determined by actual completion time, not spawn order.
+///
+/// If an `adapter` is provided and any node has `exec.criterion_llm`,
+/// all candidates run to completion and the adapter picks the winner.
 /// Returns the winning node's ID, or `None` if all failed.
 pub async fn execute_race(
     node_ids: &[NodeId],
@@ -255,8 +387,38 @@ pub async fn execute_race(
     ctx: &Arc<ExecutionContext>,
     passthrough: &Arc<dyn NodeHandler>,
 ) -> Result<Option<NodeId>, ExecutionError> {
+    execute_race_with_adapter(node_ids, graph, handlers, ctx, passthrough, None).await
+}
+
+/// Execute a race with optional LLM criterion for winner selection.
+pub async fn execute_race_with_adapter(
+    node_ids: &[NodeId],
+    graph: &Graph,
+    handlers: &HandlerRegistry,
+    ctx: &Arc<ExecutionContext>,
+    passthrough: &Arc<dyn NodeHandler>,
+    adapter: Option<&dyn crate::adapter::AiAdapter>,
+) -> Result<Option<NodeId>, ExecutionError> {
     if node_ids.is_empty() {
         return Ok(None);
+    }
+
+    // Check if any node has criterion_llm — if so, run all candidates then judge
+    let criterion_llm = node_ids.iter().find_map(|id| {
+        graph.node(id).and_then(|n| n.exec.get("criterion_llm").cloned())
+    });
+
+    if let (Some(criterion_config), Some(adapter)) = (&criterion_llm, adapter) {
+        return execute_race_with_criterion(
+            node_ids,
+            graph,
+            handlers,
+            ctx,
+            passthrough,
+            criterion_config,
+            adapter,
+        )
+        .await;
     }
 
     let mut task_ids: Vec<NodeId> = Vec::new();
@@ -339,6 +501,19 @@ pub async fn execute_loop(
     ctx: &Arc<ExecutionContext>,
     passthrough: &Arc<dyn NodeHandler>,
 ) -> Result<(), ExecutionError> {
+    execute_loop_with_adapter(node_ids, config, graph, handlers, ctx, passthrough, None).await
+}
+
+/// Execute a loop with optional LLM adapter for WhileLlm conditions.
+pub async fn execute_loop_with_adapter(
+    node_ids: &[NodeId],
+    config: &LoopConfig,
+    graph: &Graph,
+    handlers: &HandlerRegistry,
+    ctx: &Arc<ExecutionContext>,
+    passthrough: &Arc<dyn NodeHandler>,
+    adapter: Option<&dyn crate::adapter::AiAdapter>,
+) -> Result<(), ExecutionError> {
     match config {
         LoopConfig::Repeat(count) => {
             for _ in 0..*count {
@@ -372,8 +547,101 @@ pub async fn execute_loop(
                 execute_sequence(node_ids, graph, handlers, ctx, passthrough, true).await?;
             }
         }
+        LoopConfig::WhileLlm {
+            llm_config,
+            max_iterations,
+        } => {
+            for _ in 0..*max_iterations {
+                if ctx.is_cancelled() {
+                    break;
+                }
+
+                // Try LLM condition first
+                let should_continue = if let Some(adapter) = adapter {
+                    match evaluate_loop_condition_llm(llm_config, ctx, adapter).await {
+                        Ok(result) => result,
+                        Err(_) => {
+                            // Fallback to deterministic guard
+                            if let Some(fallback) = llm_config.get("fallback").and_then(|v| v.as_str()) {
+                                let bb = ctx.blackboard();
+                                let result = evaluate_guard(fallback, &Outputs::new(), &bb);
+                                drop(bb);
+                                result.unwrap_or(GuardResult::Bool(false)) == GuardResult::Bool(true)
+                            } else {
+                                false // No fallback, stop the loop
+                            }
+                        }
+                    }
+                } else {
+                    // No adapter — use fallback
+                    if let Some(fallback) = llm_config.get("fallback").and_then(|v| v.as_str()) {
+                        let bb = ctx.blackboard();
+                        let result = evaluate_guard(fallback, &Outputs::new(), &bb);
+                        drop(bb);
+                        result.unwrap_or(GuardResult::Bool(false)) == GuardResult::Bool(true)
+                    } else {
+                        false
+                    }
+                };
+
+                if !should_continue {
+                    break;
+                }
+
+                reset_node_states(node_ids, ctx);
+                execute_sequence(node_ids, graph, handlers, ctx, passthrough, true).await?;
+            }
+        }
     }
     Ok(())
+}
+
+/// Race variant: run all candidates to completion, then ask the adapter to pick the winner.
+async fn execute_race_with_criterion(
+    node_ids: &[NodeId],
+    graph: &Graph,
+    handlers: &HandlerRegistry,
+    ctx: &Arc<ExecutionContext>,
+    passthrough: &Arc<dyn NodeHandler>,
+    criterion_config: &serde_json::Value,
+    adapter: &dyn crate::adapter::AiAdapter,
+) -> Result<Option<NodeId>, ExecutionError> {
+    let criteria = criterion_config
+        .get("criteria")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Pick the best candidate.");
+
+    // Run all candidates concurrently (like parallel, not first-wins)
+    execute_parallel(node_ids, graph, handlers, ctx, passthrough, None).await?;
+
+    // Collect completed candidates and their outputs
+    let mut candidates: Vec<(NodeId, String)> = Vec::new();
+    for node_id in node_ids {
+        if ctx.get_state(&node_id.0) == NodeState::Completed {
+            let output_str = ctx
+                .get_outputs(&node_id.0)
+                .map(|o| format!("{o:?}"))
+                .unwrap_or_default();
+            candidates.push((node_id.clone(), output_str));
+        }
+    }
+
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    if candidates.len() == 1 {
+        return Ok(Some(candidates[0].0.clone()));
+    }
+
+    // Ask the adapter to judge
+    let candidate_texts: Vec<String> = candidates.iter().map(|(_, s)| s.clone()).collect();
+    let winner_idx = evaluate_race_criterion_llm(criteria, &candidate_texts, adapter)
+        .await
+        .unwrap_or(0); // fallback to first candidate on error
+
+    let winner_idx = winner_idx.min(candidates.len() - 1);
+    Ok(Some(candidates[winner_idx].0.clone()))
 }
 
 // ---------------------------------------------------------------------------
@@ -726,5 +994,174 @@ mod tests {
         assert_eq!(GuardResult::Bool(true).edge_label(), "yes");
         assert_eq!(GuardResult::Bool(false).edge_label(), "no");
         assert_eq!(GuardResult::Label("custom".into()).edge_label(), "custom");
+    }
+
+    // -- LLM oracle tests --
+
+    #[tokio::test]
+    async fn guard_llm_returns_yes() {
+        use crate::adapter::mock::MockAdapter;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new().with_default("true");
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let config = serde_json::json!({
+            "prompt": "Is this good? {inputs.data}",
+            "output": "bool"
+        });
+
+        let mut inputs = Outputs::new();
+        inputs.insert("data".into(), Value::String("test".into()));
+
+        let result = evaluate_guard_llm(&config, &inputs, &ctx, &adapter)
+            .await
+            .unwrap();
+        assert_eq!(result, "yes");
+    }
+
+    #[tokio::test]
+    async fn guard_llm_returns_no() {
+        use crate::adapter::mock::MockAdapter;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new().with_default("false");
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let config = serde_json::json!({
+            "prompt": "Is this good?",
+            "output": "bool"
+        });
+
+        let result = evaluate_guard_llm(&config, &Outputs::new(), &ctx, &adapter)
+            .await
+            .unwrap();
+        assert_eq!(result, "no");
+    }
+
+    #[tokio::test]
+    async fn guard_llm_label_mode() {
+        use crate::adapter::mock::MockAdapter;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new().with_default("priority_high");
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let config = serde_json::json!({
+            "prompt": "Classify this item",
+            "output": "label"
+        });
+
+        let result = evaluate_guard_llm(&config, &Outputs::new(), &ctx, &adapter)
+            .await
+            .unwrap();
+        assert_eq!(result, "priority_high");
+    }
+
+    #[tokio::test]
+    async fn guard_llm_missing_prompt_errors() {
+        use crate::adapter::mock::MockAdapter;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new();
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let config = serde_json::json!({ "output": "bool" });
+
+        let result = evaluate_guard_llm(&config, &Outputs::new(), &ctx, &adapter).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing 'prompt'"));
+    }
+
+    #[tokio::test]
+    async fn race_criterion_llm_selects_winner() {
+        use crate::adapter::mock::MockAdapter;
+
+        // Mock adapter's judge() returns the first candidate (index 0)
+        let adapter = MockAdapter::new();
+
+        let candidates = vec!["output A".to_string(), "output B".to_string()];
+        let result = evaluate_race_criterion_llm("Pick the best", &candidates, &adapter)
+            .await
+            .unwrap();
+
+        // MockAdapter.judge returns 0 by default
+        assert_eq!(result, 0);
+    }
+
+    #[tokio::test]
+    async fn loop_condition_llm_continues() {
+        use crate::adapter::mock::MockAdapter;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new().with_default("yes");
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let config = serde_json::json!({
+            "prompt": "Should we continue?"
+        });
+
+        let result = evaluate_loop_condition_llm(&config, &ctx, &adapter)
+            .await
+            .unwrap();
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn loop_condition_llm_stops() {
+        use crate::adapter::mock::MockAdapter;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new().with_default("no");
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let config = serde_json::json!({
+            "prompt": "Should we continue?"
+        });
+
+        let result = evaluate_loop_condition_llm(&config, &ctx, &adapter)
+            .await
+            .unwrap();
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn loop_condition_llm_missing_prompt_errors() {
+        use crate::adapter::mock::MockAdapter;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new();
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let config = serde_json::json!({});
+
+        let result = evaluate_loop_condition_llm(&config, &ctx, &adapter).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn render_llm_prompt_interpolates() {
+        use std::sync::Arc;
+
+        let ctx = Arc::new(ExecutionContext::new());
+        {
+            let mut bb = ctx.blackboard();
+            bb.set(
+                "mode".into(),
+                Value::String("fast".into()),
+                BlackboardScope::Global,
+            );
+        }
+
+        let mut inputs = Outputs::new();
+        inputs.insert("data".into(), Value::String("test_value".into()));
+
+        let result = render_llm_prompt(
+            "Process {inputs.data} in {ctx.mode} mode",
+            &inputs,
+            &ctx,
+        );
+
+        assert_eq!(result, "Process test_value in fast mode");
     }
 }

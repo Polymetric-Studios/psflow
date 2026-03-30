@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 pub struct TopologicalExecutor {
     cancel_token: CancellationToken,
     concurrency: ConcurrencyLimits,
+    adapter: Option<Arc<dyn crate::adapter::AiAdapter>>,
 }
 
 impl TopologicalExecutor {
@@ -29,6 +30,7 @@ impl TopologicalExecutor {
         Self {
             cancel_token: CancellationToken::new(),
             concurrency: ConcurrencyLimits::new(),
+            adapter: None,
         }
     }
 
@@ -36,12 +38,19 @@ impl TopologicalExecutor {
         Self {
             cancel_token: token,
             concurrency: ConcurrencyLimits::new(),
+            adapter: None,
         }
     }
 
     /// Set global concurrency limits for this executor.
     pub fn with_concurrency(mut self, limits: ConcurrencyLimits) -> Self {
         self.concurrency = limits;
+        self
+    }
+
+    /// Set an AI adapter for LLM oracle evaluations (guard_llm, criterion_llm, while_llm).
+    pub fn with_adapter(mut self, adapter: Arc<dyn crate::adapter::AiAdapter>) -> Self {
+        self.adapter = Some(adapter);
         self
     }
 
@@ -63,6 +72,7 @@ impl TopologicalExecutor {
             self.cancel_token.clone(),
             self.concurrency.clone(),
             Some((parent_bb, inheritance)),
+            self.adapter.clone(),
         )
         .await
     }
@@ -86,6 +96,7 @@ impl Executor for TopologicalExecutor {
             self.cancel_token.clone(),
             self.concurrency.clone(),
             None,
+            self.adapter.clone(),
         ))
     }
 }
@@ -99,6 +110,7 @@ async fn execute_impl_with_blackboard(
         &crate::execute::blackboard::Blackboard,
         crate::execute::blackboard::ContextInheritance,
     )>,
+    adapter: Option<Arc<dyn crate::adapter::AiAdapter>>,
 ) -> Result<ExecutionResult, ExecutionError> {
     let start = Instant::now();
     let ctx = if let Some((parent_bb, inheritance)) = parent {
@@ -191,15 +203,17 @@ async fn execute_impl_with_blackboard(
                     .await?;
                 }
                 SubgraphDirective::Race => {
-                    control::execute_race(
+                    control::execute_race_with_adapter(
                         &sg_nodes, graph, handlers, &ctx, &passthrough,
+                        adapter.as_deref(),
                     )
                     .await?;
                 }
                 SubgraphDirective::Loop => {
                     let loop_config = parse_loop_config(graph, &sg.nodes);
-                    control::execute_loop(
+                    control::execute_loop_with_adapter(
                         &sg_nodes, &loop_config, graph, handlers, &ctx, &passthrough,
+                        adapter.as_deref(),
                     )
                     .await?;
                 }
@@ -323,7 +337,7 @@ async fn execute_impl_with_blackboard(
             match outcome {
                 Ok(outputs) => {
                     // Check if this is a branch node and record the decision
-                    handle_branch_decision(graph, &node_id, &outputs, &ctx);
+                    handle_branch_decision(graph, &node_id, &outputs, &ctx, adapter.as_deref()).await;
 
                     ctx.store_outputs(&node_id, outputs.clone());
                     ctx.emit(ExecutionEvent::NodeCompleted {
@@ -370,35 +384,77 @@ fn build_subgraph_membership(graph: &Graph) -> HashMap<NodeId, usize> {
 }
 
 /// Check if a node is a branch node (has a guard config) and record the decision.
-pub(crate) fn handle_branch_decision(
+///
+/// Supports two modes:
+/// - `config.guard`: deterministic guard expression (evaluated synchronously)
+/// - `config.guard_llm.prompt`: LLM-based guard (async adapter call, with fallback)
+pub(crate) async fn handle_branch_decision(
     graph: &Graph,
     node_id: &str,
     outputs: &Outputs,
     ctx: &ExecutionContext,
+    adapter: Option<&dyn crate::adapter::AiAdapter>,
 ) {
     let nid = NodeId::new(node_id);
     let Some(node) = graph.node(&nid) else {
         return;
     };
 
-    // A node is a branch if it has config.guard
+    // Check for LLM guard first
+    let guard_llm = node.config.get("guard_llm");
     let guard_expr = node.config.get("guard").and_then(|v| v.as_str());
-    let Some(guard_expr) = guard_expr else {
+
+    // Neither guard nor guard_llm — not a branch node
+    if guard_llm.is_none() && guard_expr.is_none() {
         return;
-    };
+    }
 
-    let bb = ctx.blackboard();
-    let result = control::evaluate_guard(guard_expr, outputs, &bb);
-    drop(bb);
+    // Try LLM guard if configured and adapter available
+    if let Some(llm_config) = guard_llm {
+        if let Some(adapter) = adapter {
+            let result = control::evaluate_guard_llm(llm_config, outputs, ctx, adapter).await;
+            match result {
+                Ok(label) => {
+                    ctx.set_branch_decision(node_id, label);
+                    return;
+                }
+                Err(_) => {
+                    // Fall through to deterministic guard
+                }
+            }
+        }
+        // No adapter or adapter call failed — try deterministic fallback
+        if let Some(fallback) = llm_config.get("fallback").and_then(|v| v.as_str()) {
+            let bb = ctx.blackboard();
+            let result = control::evaluate_guard(fallback, outputs, &bb);
+            drop(bb);
+            match result {
+                Ok(guard_result) => {
+                    ctx.set_branch_decision(node_id, guard_result.edge_label().to_string());
+                    return;
+                }
+                Err(_) => {}
+            }
+        }
+    }
 
-    match result {
-        Ok(guard_result) => {
-            ctx.set_branch_decision(node_id, guard_result.edge_label().to_string());
+    // Deterministic guard
+    if let Some(guard_expr) = guard_expr {
+        let bb = ctx.blackboard();
+        let result = control::evaluate_guard(guard_expr, outputs, &bb);
+        drop(bb);
+
+        match result {
+            Ok(guard_result) => {
+                ctx.set_branch_decision(node_id, guard_result.edge_label().to_string());
+            }
+            Err(_) => {
+                ctx.set_branch_decision(node_id, "no".to_string());
+            }
         }
-        Err(_) => {
-            // Guard evaluation failed — default to "no"
-            ctx.set_branch_decision(node_id, "no".to_string());
-        }
+    } else {
+        // guard_llm with no deterministic fallback and adapter failed — default to "no"
+        ctx.set_branch_decision(node_id, "no".to_string());
     }
 }
 
@@ -446,6 +502,19 @@ fn parse_loop_config(graph: &Graph, node_ids: &[NodeId]) -> control::LoopConfig 
                     .unwrap_or(control::DEFAULT_MAX_LOOP_ITERATIONS);
                 return control::LoopConfig::While {
                     guard: guard.to_string(),
+                    max_iterations: max,
+                };
+            }
+            // LLM-based loop condition
+            if let Some(llm_config) = node.exec.get("while_llm") {
+                let max = node
+                    .exec
+                    .get("loop_max_iterations")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize)
+                    .unwrap_or(control::DEFAULT_MAX_LOOP_ITERATIONS);
+                return control::LoopConfig::WhileLlm {
+                    llm_config: llm_config.clone(),
                     max_iterations: max,
                 };
             }

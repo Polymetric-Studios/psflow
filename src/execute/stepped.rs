@@ -238,7 +238,7 @@ impl SteppedExecutor {
 
             match outcome {
                 Ok(outputs) => {
-                    handle_branch_decision(graph, &node_id, &outputs, ctx);
+                    handle_branch_decision(graph, &node_id, &outputs, ctx, None).await;
                     ctx.store_outputs(&node_id, outputs.clone());
                     ctx.emit(ExecutionEvent::NodeCompleted {
                         node_id: node_id.clone(),

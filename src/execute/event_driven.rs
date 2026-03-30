@@ -346,7 +346,7 @@ async fn propagate_from(
 
         match outcome {
             Ok(outputs) => {
-                handle_branch_decision(graph, &node_id_str, &outputs, ctx);
+                handle_branch_decision(graph, &node_id_str, &outputs, ctx, None).await;
                 ctx.store_outputs(&node_id_str, outputs.clone());
                 ctx.emit(ExecutionEvent::NodeCompleted {
                     node_id: node_id_str.clone(),
