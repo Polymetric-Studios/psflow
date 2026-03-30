@@ -56,6 +56,19 @@ impl ExecutionContext {
         }
     }
 
+    /// Create a context whose blackboard inherits from a parent blackboard.
+    pub fn with_parent_blackboard(
+        token: CancellationToken,
+        parent_bb: &Blackboard,
+        inheritance: crate::execute::blackboard::ContextInheritance,
+    ) -> Self {
+        Self {
+            cancel: token,
+            blackboard: Mutex::new(Blackboard::with_parent(parent_bb, inheritance)),
+            ..Self::new()
+        }
+    }
+
     pub fn cancel_token(&self) -> &CancellationToken {
         &self.cancel
     }

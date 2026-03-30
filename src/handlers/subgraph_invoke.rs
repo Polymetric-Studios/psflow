@@ -1,10 +1,11 @@
 use crate::error::NodeError;
+use crate::execute::blackboard::ContextInheritance;
 use crate::execute::context::CancellationToken;
 use crate::execute::{
-    ExecutionError, Executor, HandlerRegistry, NodeHandler, Outputs, TopologicalExecutor,
+    ExecutionContext, ExecutionError, Executor, HandlerRegistry, NodeHandler, Outputs,
+    TopologicalExecutor,
 };
 use crate::graph::node::Node;
-use crate::graph::types::Value;
 use crate::graph::Graph;
 use std::collections::HashMap;
 use std::future::Future;
@@ -113,15 +114,25 @@ impl Drop for DepthGuard {
 /// `exec.max_depth` (default 10). Exceeding the limit returns a
 /// non-recoverable error.
 ///
+/// ## Context inheritance
+///
+/// When a parent `ExecutionContext` is provided (via `with_context`), the
+/// child graph's blackboard inherits from the parent's. Configure via
+/// `exec.context_inheritance`: `"read_only"` (default), `"snapshot"`, or
+/// `"isolated"`.
+///
 /// ## Configuration
 ///
 /// - `config.graph` (required): Name of the graph in the library
 /// - `exec.max_depth`: Maximum concurrent invocation depth (default 10)
+/// - `exec.context_inheritance`: `"read_only"` | `"snapshot"` | `"isolated"`
 pub struct SubgraphInvocationHandler {
     library: Arc<GraphLibrary>,
     /// Deferred handler registry — set after construction to allow
     /// the registry to include this handler (for recursive invocation).
     handlers: Arc<OnceLock<HandlerRegistry>>,
+    /// Parent execution context for blackboard inheritance.
+    exec_ctx: Option<Arc<ExecutionContext>>,
     active_depth: Arc<AtomicUsize>,
     default_max_depth: usize,
 }
@@ -140,6 +151,7 @@ impl SubgraphInvocationHandler {
             Self {
                 library,
                 handlers: slot.clone(),
+                exec_ctx: None,
                 active_depth: Arc::new(AtomicUsize::new(0)),
                 default_max_depth: DEFAULT_MAX_DEPTH,
             },
@@ -148,17 +160,24 @@ impl SubgraphInvocationHandler {
     }
 
     /// Create a handler with a pre-set handler registry (no deferred init needed).
-    /// The child graph will use this registry. Recursive invocation only works
-    /// if this registry contains a `subgraph_invoke` handler.
     pub fn with_handlers(library: Arc<GraphLibrary>, handlers: HandlerRegistry) -> Self {
         let slot = Arc::new(OnceLock::new());
         slot.set(handlers).ok();
         Self {
             library,
             handlers: slot,
+            exec_ctx: None,
             active_depth: Arc::new(AtomicUsize::new(0)),
             default_max_depth: DEFAULT_MAX_DEPTH,
         }
+    }
+
+    /// Set the parent execution context for blackboard inheritance.
+    /// Child graphs will inherit the parent's blackboard data based on
+    /// `exec.context_inheritance` (default: `"read_only"`).
+    pub fn with_context(mut self, ctx: Arc<ExecutionContext>) -> Self {
+        self.exec_ctx = Some(ctx);
+        self
     }
 }
 
@@ -183,6 +202,7 @@ impl NodeHandler for SubgraphInvocationHandler {
         let library = self.library.clone();
         let handlers_lock = self.handlers.clone();
         let active_depth = self.active_depth.clone();
+        let exec_ctx = self.exec_ctx.clone();
         let config = node.config.clone();
         let exec = node.exec.clone();
         let node_id = node.id.0.clone();
@@ -244,7 +264,23 @@ impl NodeHandler for SubgraphInvocationHandler {
                 .map(|n| n.id.0.clone())
                 .collect();
 
-            // Execute child graph with input injection
+            // Parse context inheritance mode
+            let inheritance = match exec
+                .get("context_inheritance")
+                .and_then(|v| v.as_str())
+            {
+                Some("snapshot") => ContextInheritance::Snapshot,
+                Some("isolated") => ContextInheritance::Isolated,
+                _ => ContextInheritance::ReadOnly, // default
+            };
+
+            // Build parent blackboard reference for child context
+            let parent_bb = exec_ctx.as_ref().map(|ctx| {
+                let bb = ctx.blackboard();
+                bb.clone()
+            });
+
+            // Execute child graph with input injection and context inheritance
             let child_executor = TopologicalExecutor::with_cancel(cancel);
             let result = execute_child(
                 child_graph,
@@ -252,6 +288,8 @@ impl NodeHandler for SubgraphInvocationHandler {
                 &child_executor,
                 &inputs,
                 &source_nodes,
+                parent_bb.as_ref(),
+                inheritance,
             )
             .await
             .map_err(|e| NodeError::Failed {
@@ -284,9 +322,14 @@ async fn execute_child(
     executor: &TopologicalExecutor,
     parent_inputs: &Outputs,
     source_nodes: &[String],
+    parent_bb: Option<&crate::execute::blackboard::Blackboard>,
+    inheritance: ContextInheritance,
 ) -> Result<crate::execute::ExecutionResult, ExecutionError> {
     if source_nodes.is_empty() {
-        return executor.execute(graph, handlers).await;
+        return match parent_bb {
+            Some(bb) => executor.execute_with_parent(graph, handlers, bb, inheritance).await,
+            None => executor.execute(graph, handlers).await,
+        };
     }
 
     // Build a modified graph where source node handlers are replaced with
@@ -331,7 +374,14 @@ async fn execute_child(
         }
     }
 
-    executor.execute(&modified_graph, &child_handlers).await
+    match parent_bb {
+        Some(bb) => {
+            executor
+                .execute_with_parent(&modified_graph, &child_handlers, bb, inheritance)
+                .await
+        }
+        None => executor.execute(&modified_graph, &child_handlers).await,
+    }
 }
 
 /// Handler that ignores normal inputs and returns pre-configured data.
@@ -355,6 +405,7 @@ mod tests {
     use super::*;
     use crate::execute::sync_handler;
     use crate::graph::node::Node;
+    use crate::graph::types::Value;
 
     fn make_child_graph() -> Graph {
         // Simple: INPUT → DOUBLE → OUTPUT

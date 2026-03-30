@@ -48,6 +48,24 @@ impl TopologicalExecutor {
     pub fn cancel_token(&self) -> &CancellationToken {
         &self.cancel_token
     }
+
+    /// Execute a graph with a child blackboard that inherits from a parent.
+    pub async fn execute_with_parent(
+        &self,
+        graph: &Graph,
+        handlers: &HandlerRegistry,
+        parent_bb: &crate::execute::blackboard::Blackboard,
+        inheritance: crate::execute::blackboard::ContextInheritance,
+    ) -> Result<ExecutionResult, ExecutionError> {
+        execute_impl_with_blackboard(
+            graph,
+            handlers,
+            self.cancel_token.clone(),
+            self.concurrency.clone(),
+            Some((parent_bb, inheritance)),
+        )
+        .await
+    }
 }
 
 impl Default for TopologicalExecutor {
@@ -62,23 +80,36 @@ impl Executor for TopologicalExecutor {
         graph: &'a Graph,
         handlers: &'a HandlerRegistry,
     ) -> Pin<Box<dyn Future<Output = Result<ExecutionResult, ExecutionError>> + Send + 'a>> {
-        Box::pin(execute_impl(
+        Box::pin(execute_impl_with_blackboard(
             graph,
             handlers,
             self.cancel_token.clone(),
             self.concurrency.clone(),
+            None,
         ))
     }
 }
 
-async fn execute_impl(
+async fn execute_impl_with_blackboard(
     graph: &Graph,
     handlers: &HandlerRegistry,
     cancel_token: CancellationToken,
     concurrency: ConcurrencyLimits,
+    parent: Option<(
+        &crate::execute::blackboard::Blackboard,
+        crate::execute::blackboard::ContextInheritance,
+    )>,
 ) -> Result<ExecutionResult, ExecutionError> {
     let start = Instant::now();
-    let ctx = Arc::new(ExecutionContext::with_concurrency(cancel_token, concurrency));
+    let ctx = if let Some((parent_bb, inheritance)) = parent {
+        Arc::new(ExecutionContext::with_parent_blackboard(
+            cancel_token,
+            parent_bb,
+            inheritance,
+        ))
+    } else {
+        Arc::new(ExecutionContext::with_concurrency(cancel_token, concurrency))
+    };
 
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 

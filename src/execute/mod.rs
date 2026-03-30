@@ -11,7 +11,7 @@ pub mod retry;
 pub mod stepped;
 pub mod topological;
 
-pub use blackboard::{Blackboard, BlackboardScope};
+pub use blackboard::{Blackboard, BlackboardScope, ContextInheritance};
 pub use concurrency::ConcurrencyLimits;
 pub use context::{CancellationToken, ExecutionContext};
 pub use event::ExecutionEvent;
