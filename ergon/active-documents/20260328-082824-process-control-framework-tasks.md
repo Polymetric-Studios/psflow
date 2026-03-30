@@ -260,9 +260,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
 | 3.3.1 | [x] | LLM call node | Delegates to AI adapter trait (3.2.1) via prompt template engine (3.2.10). Configurable model, prompt template with variable interpolation from context, structured output parsing via adapter's capabilities. Supports both transform (data in → data out) and oracle (judge/decide) modes | P0 |
-| 3.3.2 | [ ] | HTTP / API call node | Method, URL template, headers, body template, response extraction via `reqwest` | P1 |
-| 3.3.3 | [ ] | File I/O nodes | Read file, write file, glob/list, with path templating from context | P1 |
-| 3.3.4 | [ ] | Accumulator / memory node | Append results to a running collection in context; supports `ConversationHistory` type for LLM context windows. Configurable scope (global, subgraph, node) | P1 |
+| 3.3.2 | [x] | HTTP / API call node | Method, URL template, headers, body template, response extraction via `reqwest` | P1 |
+| 3.3.3 | [x] | File I/O nodes | Read file, write file, glob/list, with path templating from context | P1 |
+| 3.3.4 | [x] | Accumulator / memory node | Append results to a running collection in context; supports `ConversationHistory` type for LLM context windows. Configurable scope (global, subgraph, node) | P1 |
 | 3.3.5 | [ ] | Human-in-the-loop node | Pause execution, present data, wait for external input via channel, resume with response | P2 |
 
 ### 3.T Testing — Node System
