@@ -58,18 +58,26 @@ struct DepthGuard(Arc<AtomicUsize>);
 
 impl DepthGuard {
     fn enter(counter: &Arc<AtomicUsize>, max: usize) -> Result<Self, NodeError> {
-        let prev = counter.fetch_add(1, Ordering::SeqCst);
-        if prev >= max {
-            counter.fetch_sub(1, Ordering::SeqCst);
-            return Err(NodeError::Failed {
-                source_message: None,
-                message: format!(
-                    "subgraph invocation depth exceeded (max: {max}, current: {prev})"
-                ),
-                recoverable: false,
-            });
+        // CAS loop: atomically check-and-increment to avoid TOCTOU race
+        // where concurrent callers could both pass the depth check.
+        loop {
+            let current = counter.load(Ordering::Acquire);
+            if current >= max {
+                return Err(NodeError::Failed {
+                    source_message: None,
+                    message: format!(
+                        "subgraph invocation depth exceeded (max: {max}, current: {current})"
+                    ),
+                    recoverable: false,
+                });
+            }
+            if counter
+                .compare_exchange(current, current + 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return Ok(DepthGuard(counter.clone()));
+            }
         }
-        Ok(DepthGuard(counter.clone()))
     }
 }
 
@@ -528,8 +536,60 @@ mod tests {
             .await
             .unwrap();
 
-        // Both values should propagate through to output
-        assert!(result.contains_key("SRC_X") || result.contains_key("SRC_Y"));
+        // Both values should propagate through — each source injects its matching key
+        assert_eq!(result.get("SRC_X"), Some(&Value::String("x_data".into())));
+        assert_eq!(result.get("SRC_Y"), Some(&Value::String("y_data".into())));
+    }
+
+    // -- No source nodes --
+
+    #[tokio::test]
+    async fn invoke_graph_with_no_source_nodes() {
+        // A graph with a self-contained node (no predecessors that we recognize as "sources"
+        // because it has an internal cycle... actually, let's test the simpler case:
+        // a single node with no predecessors)
+        // This tests the source_nodes.is_empty() early-return path... but a single node
+        // with no predecessors IS a source node. For no-source, we need a cycle.
+        // Actually, the simplest: just verify a single-node graph works (it IS a source).
+        // The "no source" path occurs with a cycle graph, which would fail validation.
+        // Instead, test an empty graph:
+        let mut library = GraphLibrary::new();
+        library.register("empty", Graph::new());
+
+        let handler =
+            SubgraphInvocationHandler::with_handlers(Arc::new(library), HandlerRegistry::new());
+
+        let mut node = Node::new("INVOKE", "Invoke");
+        node.config = serde_json::json!({ "graph": "empty" });
+
+        let result = handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert!(result.is_empty());
+    }
+
+    // -- Empty parent inputs --
+
+    #[tokio::test]
+    async fn invoke_with_empty_inputs() {
+        let mut library = GraphLibrary::new();
+        library.register("doubler", make_child_graph());
+
+        let handler =
+            SubgraphInvocationHandler::with_handlers(Arc::new(library), make_handlers());
+
+        let mut node = Node::new("INVOKE", "Invoke");
+        node.config = serde_json::json!({ "graph": "doubler" });
+
+        // Empty inputs — source node gets empty data, double of 0 = 0
+        let result = handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(result.get("result"), Some(&Value::I64(0)));
     }
 
     // -- Recursion guard --
