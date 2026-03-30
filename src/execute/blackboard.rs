@@ -16,11 +16,12 @@ pub enum BlackboardScope {
 /// Controls how a child blackboard inherits from its parent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextInheritance {
-    /// Child reads fall through to the parent's global scope.
-    /// Child writes stay in the child — parent is never modified.
+    /// Child reads fall through to a snapshot of the parent's global scope
+    /// taken at creation time. Child writes shadow parent keys but never
+    /// modify the parent. Removing a child key re-reveals the parent's value.
     ReadOnly,
-    /// Child gets a snapshot copy of the parent's global data at creation time.
-    /// No ongoing link to the parent. Writes stay local.
+    /// Child's global scope is pre-populated with a copy of the parent's data.
+    /// No fallthrough — child owns all data outright. `has_parent()` returns false.
     Snapshot,
     /// Child gets an empty blackboard. No parent data is visible.
     Isolated,

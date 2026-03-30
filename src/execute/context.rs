@@ -61,10 +61,12 @@ impl ExecutionContext {
         token: CancellationToken,
         parent_bb: &Blackboard,
         inheritance: crate::execute::blackboard::ContextInheritance,
+        limits: ConcurrencyLimits,
     ) -> Self {
         Self {
             cancel: token,
             blackboard: Mutex::new(Blackboard::with_parent(parent_bb, inheritance)),
+            concurrency: limits,
             ..Self::new()
         }
     }

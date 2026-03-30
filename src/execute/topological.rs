@@ -106,6 +106,7 @@ async fn execute_impl_with_blackboard(
             cancel_token,
             parent_bb,
             inheritance,
+            concurrency,
         ))
     } else {
         Arc::new(ExecutionContext::with_concurrency(cancel_token, concurrency))

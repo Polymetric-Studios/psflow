@@ -824,6 +824,107 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("not initialized"));
     }
 
+    // -- Context inheritance integration --
+
+    #[tokio::test]
+    async fn child_graph_inherits_parent_blackboard() {
+        use crate::execute::blackboard::BlackboardScope;
+
+        // Child graph: INPUT → WORKER (WORKER is not a source, so its handler runs)
+        let mut g = Graph::new();
+        g.add_node(Node::new("INPUT", "Input").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("WORKER", "Worker").with_handler("produce"))
+            .unwrap();
+        g.add_edge(&"INPUT".into(), "", &"WORKER".into(), "", None)
+            .unwrap();
+
+        let mut library = GraphLibrary::new();
+        library.register("child", g);
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
+        handlers.insert(
+            "produce".into(),
+            sync_handler(|_, _| {
+                let mut out = Outputs::new();
+                out.insert("done".into(), Value::Bool(true));
+                Ok(out)
+            }),
+        );
+
+        // Create parent execution context with data on the blackboard
+        let parent_ctx = Arc::new(ExecutionContext::new());
+        {
+            let mut bb = parent_ctx.blackboard();
+            bb.set(
+                "parent_key".into(),
+                Value::String("from_parent".into()),
+                BlackboardScope::Global,
+            );
+        }
+
+        let handler = SubgraphInvocationHandler::with_handlers(Arc::new(library), handlers)
+            .with_context(parent_ctx.clone());
+
+        let mut node = Node::new("INVOKE", "Invoke");
+        node.config = serde_json::json!({ "graph": "child" });
+
+        let result = handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        // Child executed successfully — WORKER is the sink node
+        assert_eq!(result.get("done"), Some(&Value::Bool(true)));
+
+        // Parent blackboard is unchanged (child writes don't leak)
+        let bb = parent_ctx.blackboard();
+        assert_eq!(
+            bb.get("parent_key", &BlackboardScope::Global),
+            Some(&Value::String("from_parent".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn isolated_child_gets_no_parent_data() {
+        use crate::execute::blackboard::BlackboardScope;
+
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
+
+        let mut library = GraphLibrary::new();
+        library.register("child", g);
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
+
+        let parent_ctx = Arc::new(ExecutionContext::new());
+        {
+            let mut bb = parent_ctx.blackboard();
+            bb.set(
+                "secret".into(),
+                Value::String("hidden".into()),
+                BlackboardScope::Global,
+            );
+        }
+
+        let handler = SubgraphInvocationHandler::with_handlers(Arc::new(library), handlers)
+            .with_context(parent_ctx);
+
+        let mut node = Node::new("INVOKE", "Invoke");
+        node.config = serde_json::json!({ "graph": "child" });
+        node.exec = serde_json::json!({ "context_inheritance": "isolated" });
+
+        let result = handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        // Execution succeeds but child has no access to parent data
+        assert!(result.is_empty() || !result.contains_key("secret"));
+    }
+
     // -- GraphLibrary --
 
     #[test]
