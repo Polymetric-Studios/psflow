@@ -218,6 +218,98 @@ impl ExecutionContext {
             .cloned()
     }
 
+    // -- Snapshot support --
+
+    /// Capture a serializable snapshot of the current execution state.
+    ///
+    /// The snapshot includes node states, outputs, blackboard, and branch decisions.
+    /// It can be serialized to JSON and later restored via `from_snapshot()`.
+    pub fn snapshot(&self) -> crate::execute::snapshot::ExecutionSnapshot {
+        let node_states = self
+            .node_states
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let node_outputs = self
+            .node_outputs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let bb = self
+            .blackboard
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let blackboard = bb.to_snapshot();
+        drop(bb);
+        let branch_decisions = self
+            .branch_decisions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+
+        crate::execute::snapshot::ExecutionSnapshot {
+            node_states,
+            node_outputs,
+            blackboard,
+            branch_decisions,
+            version: crate::execute::snapshot::ExecutionSnapshot::CURRENT_VERSION,
+        }
+    }
+
+    /// Restore an execution context from a snapshot.
+    ///
+    /// Completed nodes retain their state and outputs.
+    /// Interrupted nodes (Running/Pending) are reset to Idle for re-execution,
+    /// and their stale outputs are cleared.
+    pub fn from_snapshot(snapshot: crate::execute::snapshot::ExecutionSnapshot) -> Self {
+        Self::from_snapshot_with(
+            snapshot,
+            CancellationToken::new(),
+            ConcurrencyLimits::new(),
+        )
+    }
+
+    /// Restore from a snapshot with specific cancel token and concurrency limits.
+    ///
+    /// Used by `TopologicalExecutor::resume()` to preserve the executor's
+    /// external cancellation and concurrency configuration.
+    pub fn from_snapshot_with(
+        snapshot: crate::execute::snapshot::ExecutionSnapshot,
+        cancel: CancellationToken,
+        concurrency: ConcurrencyLimits,
+    ) -> Self {
+        // Collect terminal node IDs — only these keep their state and outputs
+        let terminal_ids: std::collections::HashSet<String> = snapshot
+            .node_states
+            .iter()
+            .filter(|(_, state)| state.is_terminal())
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        let node_states: HashMap<String, NodeState> = snapshot
+            .node_states
+            .into_iter()
+            .filter(|(id, _)| terminal_ids.contains(id))
+            .collect();
+
+        // Only retain outputs for terminal nodes — discard stale partial outputs
+        let node_outputs: HashMap<String, Outputs> = snapshot
+            .node_outputs
+            .into_iter()
+            .filter(|(id, _)| terminal_ids.contains(id))
+            .collect();
+
+        Self {
+            node_states: Mutex::new(node_states),
+            node_outputs: Mutex::new(node_outputs),
+            events: Mutex::new(Vec::new()),
+            cancel,
+            blackboard: Mutex::new(Blackboard::from_snapshot(snapshot.blackboard)),
+            branch_decisions: Mutex::new(snapshot.branch_decisions),
+            concurrency,
+        }
+    }
+
     // -- Loop support --
 
     /// Reset node states and outputs to allow re-execution in loop iterations.

@@ -209,8 +209,8 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.2.1 | [x] | Typed token flow on edges | Immutable data packets flow along edges; type-checked at connection time and at runtime via enum dispatch | P0 |
 | 2.2.2 | [x] | Blackboard / scoped context | Shared mutable state with scoping (global, subgraph-local, node-local); read/write access control. Arena-allocated for performance | P0 |
 | 2.2.3 | [x] | Context inheritance for subgraphs | Child graphs inherit parent context with configurable isolation (read-only parent, private child scope) | P1 |
-| 2.2.4 | [ ] | Execution snapshots | Serialize full execution state (node states, blackboard, pending tokens) via `serde` for checkpoint/resume | P1 |
-| 2.2.5 | [ ] | Snapshot resume | Deserialize snapshot and continue execution from checkpoint; critical for long-running LLM workflows | P1 |
+| 2.2.4 | [x] | Execution snapshots | Serialize full execution state (node states, blackboard, pending tokens) via `serde` for checkpoint/resume | P1 |
+| 2.2.5 | [x] | Snapshot resume | Deserialize snapshot and continue execution from checkpoint; critical for long-running LLM workflows | P1 |
 
 ### 2.T Testing — Control Flow & State
 
@@ -220,7 +220,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.T.2 | [ ] | Property-based tests for control flow | `proptest` — randomly compose control flow trees, verify invariants: no double-execution, all nodes reach terminal state, cancellation propagates | P1 |
 | 2.T.3 | [x] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
 | 2.T.4 | [x] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
-| 2.T.5 | [ ] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results. Include case: snapshot with in-flight LLM call (pending adapter response) resumes correctly | P1 |
+| 2.T.5 | [x] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results. Include case: snapshot with in-flight LLM call (pending adapter response) resumes correctly | P1 |
 | 2.T.6 | [x] | LLM guard tests | Branch node with `guard_llm`: mock adapter returns true/false, verify correct path taken. Test fallback to deterministic guard when adapter unavailable | P1 |
 | 2.T.7 | [x] | LLM race criterion tests | Race node with `criterion_llm`: mock adapter selects candidate by index, verify correct winner propagated and siblings cancelled | P1 |
 | 2.T.8 | [x] | LLM loop termination tests | Loop with `while_llm`: mock adapter returns true N times then false, verify correct iteration count and accumulated state | P1 |

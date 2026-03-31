@@ -9,6 +9,7 @@ pub mod lifecycle;
 pub mod reactive;
 pub mod retry;
 pub mod stepped;
+pub mod snapshot;
 pub mod topological;
 pub mod trace;
 

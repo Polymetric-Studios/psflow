@@ -1,4 +1,5 @@
 use crate::graph::types::Value;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -132,6 +133,42 @@ impl Blackboard {
     pub fn clear_scope(&mut self, id: &str) {
         self.scoped.remove(id);
     }
+
+    /// Create a serializable snapshot of the blackboard.
+    ///
+    /// Flattens the parent scope into global (since snapshots are point-in-time
+    /// captures that don't preserve the inheritance relationship).
+    pub fn to_snapshot(&self) -> BlackboardSnapshot {
+        let mut global = self.global.clone();
+        // Merge parent data into global (parent values are overridden by local)
+        if let Some(ref parent) = self.parent {
+            for (k, v) in parent.as_ref() {
+                global.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
+        BlackboardSnapshot {
+            global,
+            scoped: self.scoped.clone(),
+        }
+    }
+
+    /// Restore a blackboard from a snapshot.
+    pub fn from_snapshot(snapshot: BlackboardSnapshot) -> Self {
+        Self {
+            global: snapshot.global,
+            scoped: snapshot.scoped,
+            parent: None,
+        }
+    }
+}
+
+/// Serializable snapshot of blackboard state.
+///
+/// Parent scope is flattened into global since snapshots are point-in-time captures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlackboardSnapshot {
+    pub global: HashMap<String, Value>,
+    pub scoped: HashMap<String, HashMap<String, Value>>,
 }
 
 #[cfg(test)]

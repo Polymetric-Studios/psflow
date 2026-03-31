@@ -59,6 +59,32 @@ impl TopologicalExecutor {
         &self.cancel_token
     }
 
+    /// Resume execution from a snapshot.
+    ///
+    /// Completed nodes are skipped (their state and outputs are preserved).
+    /// Interrupted (Running/Pending) nodes are reset to Idle and re-executed.
+    /// The blackboard is restored from the snapshot.
+    /// The executor's cancel token and concurrency limits are preserved.
+    pub async fn resume(
+        &self,
+        graph: &Graph,
+        handlers: &HandlerRegistry,
+        snapshot: crate::execute::snapshot::ExecutionSnapshot,
+    ) -> Result<ExecutionResult, ExecutionError> {
+        let ctx = ExecutionContext::from_snapshot_with(
+            snapshot,
+            self.cancel_token.clone(),
+            self.concurrency.clone(),
+        );
+        execute_impl_from_context(
+            graph,
+            handlers,
+            Arc::new(ctx),
+            self.adapter.clone(),
+        )
+        .await
+    }
+
     /// Execute a graph with a child blackboard that inherits from a parent.
     pub async fn execute_with_parent(
         &self,
@@ -102,6 +128,27 @@ impl Executor for TopologicalExecutor {
     }
 }
 
+/// Execute with a pre-built context (used for snapshot resume).
+async fn execute_impl_from_context(
+    graph: &Graph,
+    handlers: &HandlerRegistry,
+    ctx: Arc<ExecutionContext>,
+    adapter: Option<Arc<dyn crate::adapter::AiAdapter>>,
+) -> Result<ExecutionResult, ExecutionError> {
+    let graph_name = graph
+        .metadata()
+        .name
+        .as_deref()
+        .unwrap_or("unnamed");
+
+    let start = Instant::now();
+    info!(graph = graph_name, nodes = graph.node_count(), "execution resumed");
+
+    ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
+
+    execute_core(graph, handlers, ctx, adapter, start).await
+}
+
 async fn execute_impl_with_blackboard(
     graph: &Graph,
     handlers: &HandlerRegistry,
@@ -134,6 +181,18 @@ async fn execute_impl_with_blackboard(
     };
 
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
+
+    execute_core(graph, handlers, ctx, adapter, start).await
+}
+
+/// Core execution logic shared by fresh execution and snapshot resume.
+async fn execute_core(
+    graph: &Graph,
+    handlers: &HandlerRegistry,
+    ctx: Arc<ExecutionContext>,
+    adapter: Option<Arc<dyn crate::adapter::AiAdapter>>,
+    start: Instant,
+) -> Result<ExecutionResult, ExecutionError> {
 
     if graph.node_count() == 0 {
         let elapsed = start.elapsed();
