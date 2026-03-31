@@ -60,7 +60,7 @@ impl LlmCallHandler {
     /// When set, each LLM node only sees history from its ancestor nodes,
     /// not from parallel branches.
     pub fn set_graph(&self, graph: Arc<Graph>) {
-        *self.graph.write().unwrap() = Some(graph);
+        *self.graph.write().unwrap_or_else(|e| e.into_inner()) = Some(graph);
     }
 }
 
@@ -75,7 +75,7 @@ impl NodeHandler for LlmCallHandler {
         let config = node.config.clone();
         let node_id = node.id.0.clone();
         let exec_ctx = self.exec_ctx.clone();
-        let graph = self.graph.read().unwrap().clone();
+        let graph = self.graph.read().unwrap_or_else(|e| e.into_inner()).clone();
 
         Box::pin(async move {
             if cancel.is_cancelled() {
@@ -516,25 +516,73 @@ mod tests {
     #[tokio::test]
     async fn ancestor_scoped_history_excludes_parallel_branches() {
         use crate::adapter::conversation::{
-            ConversationHistory, ConversationMessage, CONVERSATION_HISTORY_KEY,
+            ConversationHistory, ConversationMessage, MessageRole, CONVERSATION_HISTORY_KEY,
         };
+        use crate::adapter::{AdapterCapabilities, AiAdapter, AiRequest, AiResponse, TokenUsage};
         use crate::execute::blackboard::BlackboardScope;
+        use std::sync::Mutex;
 
-        // Graph: A → B, A → C (B and C are parallel, both LLM nodes)
+        // Recording adapter that captures conversation_history from each request
+        struct RecordingAdapter {
+            captured: Mutex<Vec<Vec<ConversationMessage>>>,
+        }
+        impl RecordingAdapter {
+            fn new() -> Self {
+                Self {
+                    captured: Mutex::new(Vec::new()),
+                }
+            }
+            fn captured_histories(&self) -> Vec<Vec<ConversationMessage>> {
+                self.captured.lock().unwrap().clone()
+            }
+        }
+        impl AiAdapter for RecordingAdapter {
+            fn complete(
+                &self,
+                req: AiRequest,
+            ) -> Pin<Box<dyn Future<Output = Result<AiResponse, NodeError>> + Send + '_>> {
+                self.captured.lock().unwrap().push(req.conversation_history);
+                Box::pin(async {
+                    Ok(AiResponse {
+                        text: "recorded".into(),
+                        structured: None,
+                        usage: TokenUsage::default(),
+                        latency_ms: 0,
+                    })
+                })
+            }
+            fn judge(
+                &self,
+                _candidates: &[String],
+                _criteria: &str,
+            ) -> Pin<Box<dyn Future<Output = Result<usize, NodeError>> + Send + '_>> {
+                Box::pin(async { Ok(0) })
+            }
+            fn capabilities(&self) -> &AdapterCapabilities {
+                &AdapterCapabilities {
+                    tool_use: false,
+                    structured_output: false,
+                    vision: false,
+                    conversation_history: true,
+                    max_tokens: None,
+                }
+            }
+            fn name(&self) -> &str {
+                "recording"
+            }
+        }
+
+        // Graph: A → B, A → C (B and C are parallel)
         let mut graph = Graph::new();
-        graph.add_node(Node::new("A", "Root LLM")).unwrap();
-        graph.add_node(Node::new("B", "Branch B LLM")).unwrap();
-        graph.add_node(Node::new("C", "Branch C LLM")).unwrap();
-        graph
-            .add_edge(&"A".into(), "out", &"B".into(), "in", None)
-            .unwrap();
-        graph
-            .add_edge(&"A".into(), "out", &"C".into(), "in", None)
-            .unwrap();
+        graph.add_node(Node::new("A", "Root")).unwrap();
+        graph.add_node(Node::new("B", "Branch B")).unwrap();
+        graph.add_node(Node::new("C", "Branch C")).unwrap();
+        graph.add_edge(&"A".into(), "out", &"B".into(), "in", None).unwrap();
+        graph.add_edge(&"A".into(), "out", &"C".into(), "in", None).unwrap();
 
         let ctx = Arc::new(ExecutionContext::new());
 
-        // Pre-populate history as if A and B have already run
+        // Pre-populate: A and B have already run
         {
             let mut history = ConversationHistory::new();
             history.push_exchange("A", "Root prompt", "Root response");
@@ -548,32 +596,35 @@ mod tests {
             );
         }
 
-        // Now node C runs — it should only see A's history, not B's
-        let adapter = Arc::new(MockAdapter::new().with_default("C response"));
-        let handler = LlmCallHandler::with_context(adapter, ctx.clone());
+        // Run node C with recording adapter
+        let adapter = Arc::new(RecordingAdapter::new());
+        let handler = LlmCallHandler::with_context(adapter.clone(), ctx.clone());
         handler.set_graph(Arc::new(graph));
 
-        let mut node_c = Node::new("C", "Branch C LLM");
+        let mut node_c = Node::new("C", "Branch C");
         node_c.config = serde_json::json!({ "prompt": "Branch C prompt" });
         handler
             .execute(&node_c, Outputs::new(), CancellationToken::new())
             .await
             .unwrap();
 
-        // The request to the adapter should have included only A's messages,
-        // not B's. We verify indirectly: the full history on blackboard now
-        // has A + B + C, but C's request only saw A.
-        // We can verify by checking the blackboard has all 3 exchanges.
-        let bb = ctx.blackboard();
-        let history = bb
-            .get(CONVERSATION_HISTORY_KEY, &BlackboardScope::Global)
-            .and_then(ConversationHistory::from_value)
-            .unwrap();
-        // 3 exchanges = 6 messages (A, B, C all accumulated)
-        assert_eq!(history.len(), 6);
+        // Verify the actual request sent to the adapter
+        let histories = adapter.captured_histories();
+        assert_eq!(histories.len(), 1);
+        let sent_history = &histories[0];
 
-        // The key verification: C's exchange was added correctly
-        assert_eq!(history.messages[4].node_id, Some("C".into()));
-        assert_eq!(history.messages[4].content, "Branch C prompt");
+        // C's ancestors are {A} — only A's messages should be in the request
+        assert_eq!(sent_history.len(), 2); // 1 exchange = 2 messages
+        assert_eq!(sent_history[0].node_id, Some("A".into()));
+        assert_eq!(sent_history[0].role, MessageRole::User);
+        assert_eq!(sent_history[0].content, "Root prompt");
+        assert_eq!(sent_history[1].node_id, Some("A".into()));
+        assert_eq!(sent_history[1].role, MessageRole::Assistant);
+
+        // B's messages must NOT be present
+        assert!(
+            !sent_history.iter().any(|m| m.node_id.as_deref() == Some("B")),
+            "parallel branch B's messages should be excluded"
+        );
     }
 }
