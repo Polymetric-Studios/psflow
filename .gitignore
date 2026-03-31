@@ -1,3 +1,9 @@
+# Build artifacts
+target/
+debugger/pkg/
+debugger/dist/
+debugger/node_modules/
+
 # Ergon
 ergon/ephemeral/
 ergon/screenshots/

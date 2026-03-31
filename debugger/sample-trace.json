@@ -1,0 +1,41 @@
+{
+  "records": [
+    {
+      "node_id": "A",
+      "order": 0,
+      "state": "completed",
+      "elapsed": { "secs": 0, "nanos": 52000000 },
+      "outputs": { "articles": { "type": "Vec", "value": [{ "type": "String", "value": "article1" }] } },
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "B",
+      "order": 1,
+      "state": "completed",
+      "elapsed": { "secs": 1, "nanos": 230000000 },
+      "outputs": { "classified": { "type": "String", "value": "relevant" } },
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "C",
+      "order": 2,
+      "state": "completed",
+      "elapsed": { "secs": 0, "nanos": 1000000 },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "D",
+      "order": 3,
+      "state": "completed",
+      "elapsed": { "secs": 0, "nanos": 850000000 },
+      "outputs": { "summary": { "type": "String", "value": "A summary of the article." } },
+      "error": null,
+      "retries": []
+    }
+  ],
+  "elapsed": { "secs": 2, "nanos": 133000000 }
+}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>psflow debugger</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="toolbar">
+      <div class="toolbar-left">
+        <button id="btn-load-mmd" title="Load .mmd file">Load .mmd</button>
+        <button id="btn-load-trace" title="Load trace JSON" disabled>Load Trace</button>
+        <span id="file-name" class="label"></span>
+      </div>
+      <div class="toolbar-center" id="playback-controls">
+        <button id="btn-step-back" title="Step back (Left)" disabled>&lt;</button>
+        <button id="btn-play" title="Play/Pause (Space)" disabled>Play</button>
+        <button id="btn-step-fwd" title="Step forward (Right)" disabled>&gt;</button>
+        <select id="speed-select" disabled>
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+          <option value="5">5x</option>
+          <option value="10">10x</option>
+        </select>
+        <span id="step-counter" class="label"></span>
+      </div>
+      <div class="toolbar-right">
+        <span id="status" class="label">No file loaded</span>
+      </div>
+    </header>
+    <div id="main">
+      <div id="editor-pane"></div>
+      <div id="inspector-pane">
+        <div id="inspector-header">Inspector</div>
+        <div id="inspector-content">
+          <p class="placeholder">Select a node to inspect</p>
+        </div>
+      </div>
+    </div>
+    <div id="timeline-pane"></div>
+  </div>
+  <input type="file" id="file-input-mmd" accept=".mmd" hidden />
+  <input type="file" id="file-input-trace" accept=".json" hidden />
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

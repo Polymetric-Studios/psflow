@@ -319,7 +319,6 @@ Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scr
 | 4.2.1 | [x] | CLI runner | Load graph from annotated `.mmd` file, execute, output results via `clap`. Ergon's primary entry point | P0 |
 | 4.2.2 | [x] | Dry-run / validation mode | Parse and validate graph without executing; report type errors, missing handlers, unreachable nodes | P1 |
 | 4.2.3 | [ ] | Mermaid live preview | Watch mode: edit Mermaid file, auto-render updated diagram. Integrates with existing Mermaid tooling | P2 |
-| 4.2.4 | [ ] | Visual debugger | Step through execution node-by-node; inspect context/blackboard at each step. Web-based UI via WASM | P2 |
 
 ### 4.T Testing — Observability & Tooling
 
@@ -331,19 +330,88 @@ Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scr
 
 ---
 
-## Phase 5 — Bindings & Distribution
+## Phase 5 — Text-Based Visual Debugger
 
-### 5.1 Multi-Target Bindings
+A web-based debugger that overlays execution state directly onto the `.mmd` source file. The Mermaid text *is* the visualization — CodeMirror 6 displays the file with colored decorations (background highlights, borders, gutter markers) on the text ranges corresponding to each node, updated in real-time or scrubbed through a trace. No graph rendering engine, no layout library — the source file is the single view.
+
+### Design
+
+The WASM-compiled Mermaid parser maps each node ID to its text ranges in the source (the node definition line and its `%% @NodeID` annotation block). The CodeMirror extension uses these ranges to apply `Decoration.mark()` with CSS classes driven by node lifecycle state. A side panel shows blackboard/token data for the selected node. Playback controls and a timeline scrubber drive the trace position.
+
+**Stack:** Vite + TypeScript, CodeMirror 6, WASM (`wasm-bindgen` + `tsify`), vanilla DOM for panels/controls.
+
+### 5.1 Foundation
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 5.1.1 | [ ] | Document core API surface | Freeze and document the public API that must be preserved across all binding targets | P1 |
-| 5.1.2 | [ ] | WASM compilation target | Compile core to WASM via `wasm-bindgen`; JS/TS bindings for browser-based tooling and web execution | P1 |
-| 5.1.3 | [ ] | C FFI for Unity integration | Expose core engine as C-compatible shared library for Hot City and other native consumers via `cbindgen` | P1 |
-| 5.1.4 | [ ] | PyO3 Python bindings | Python module wrapping core engine for data science and scripting integration | P2 |
-| 5.1.5 | [ ] | Portable integration test suite | Graph + expected output pairs in JSON; runner harness that loads test definitions and executes against native Rust. Defines the canonical expected-output baseline all bindings must match | P1 |
-| 5.1.6 | [ ] | Cross-binding conformance CI | CI pipeline that runs the test suite (5.1.5) through each binding target (C FFI, WASM JS, Python) and diffs results against the native Rust baseline. Failures block release | P1 |
-| 5.1.7 | [ ] | Cross-compilation CI | Build and test matrix for native targets (macOS, Linux, Windows), WASM, and Python wheels | P2 |
+| 5.1.1 | [ ] | WASM build of parser + trace types | Compile Mermaid parser and execution trace types to WASM via `wasm-bindgen`. Expose: `parse_mmd(source) -> ParsedGraph` (node IDs, text byte ranges for node definition line + annotation block, subgraph membership) and `parse_trace(json) -> Vec<TraceEvent>`. Use `tsify` to generate TypeScript types from Rust structs. No executor, no adapters, no async runtime | P0 |
+| 5.1.2 | [ ] | Web app shell | Vite + TypeScript scaffold. Two-panel layout: CodeMirror editor (left/main), inspector panel (right/bottom). Toolbar with playback controls. Loads WASM module on init. No framework — vanilla DOM + CSS for layout. Responsive split pane | P0 |
+| 5.1.3 | [ ] | CodeMirror editor setup | CodeMirror 6 instance with read-only mode, Mermaid syntax highlighting (custom or basic keyword highlighting via `@lezer/highlight`), line numbers, code folding for annotation blocks. Load `.mmd` file via file input or drag-and-drop | P0 |
+
+### 5.2 Source Highlighting
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 5.2.1 | [ ] | Node range mapping | On file load, call WASM `parse_mmd()` to get node-to-range map. Each entry: `{ nodeId, definitionRange: [from, to], annotationRange: [from, to] }`. Rebuild on file change. Handle parse errors gracefully (show error in editor, don't crash) | P0 |
+| 5.2.2 | [ ] | State decoration extension | CodeMirror extension that applies `Decoration.mark()` to node ranges based on current execution state. CSS classes: `.node-idle` (no decoration), `.node-pending` (yellow left border), `.node-running` (blue background + left border, subtle pulse animation), `.node-completed` (green left border), `.node-failed` (red background + left border), `.node-cancelled` (orange left border, dimmed text). Decorations update via `StateEffect` when trace position changes | P0 |
+| 5.2.3 | [ ] | Gutter markers | CodeMirror gutter extension showing state icons/dots on the first line of each node's definition. Click a gutter marker to select that node (opens inspector). Color matches the state decoration. Shows timing badge (duration in ms) when trace data is loaded | P1 |
+| 5.2.4 | [ ] | Node selection | Click anywhere in a node's text range to select it. Selected node gets a distinct highlight (stronger border/background). Selection drives the inspector panel. Keyboard navigation: up/down to move between nodes in execution order, left/right for dependency chain | P1 |
+
+### 5.3 Trace Playback
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 5.3.1 | [ ] | Trace loader | Load serialized execution traces (from 4.1.3) via WASM `parse_trace()`. Build an indexed event list: each event has timestamp, node ID, state transition, and optional data snapshot. Support file upload and URL fetch. Validate trace matches loaded graph (node IDs must align) | P0 |
+| 5.3.2 | [ ] | Playback controls | Play, pause, step-forward (next event), step-backward (previous event). Speed control (0.5x, 1x, 2x, 5x, 10x). On each step, update node states via the decoration extension (5.2.2). Keyboard shortcuts: Space (play/pause), Right (step forward), Left (step back), +/- (speed) | P0 |
+| 5.3.3 | [ ] | Timeline scrubber | Horizontal bar below the editor showing all trace events as ticks. Drag to scrub to any point — derive node states by replaying events up to that position. Current position indicator. Zoom in/out for dense traces. Color-code ticks by event type (state change, error, data) | P1 |
+| 5.3.4 | [ ] | Breakpoints | Click gutter to toggle breakpoint on a node. Playback pauses when that node enters `running` state. Visual indicator (red dot) in gutter. Breakpoint list in inspector. Breakpoints persist in localStorage | P1 |
+
+### 5.4 Inspection
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 5.4.1 | [ ] | Node inspector panel | Side panel showing details for the selected node at the current trace position. Static info: handler, config, port types. Runtime info: current state, inputs received, outputs produced, error (if failed), duration. JSON viewer with syntax highlighting for data values. Collapsible sections | P0 |
+| 5.4.2 | [ ] | Blackboard inspector | Tab or section in the inspector showing blackboard state at the current trace position. Scoped view: global, subgraph-local, node-local. Searchable. Highlights values that changed in the current step | P1 |
+| 5.4.3 | [ ] | Hover tooltips | Hover over a node definition line to see a compact summary tooltip: state, duration, output type. Hover over an annotation value to see the resolved runtime value (e.g., template variables expanded). Uses CodeMirror `hoverTooltip` facet | P1 |
+
+### 5.5 Live Connection
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 5.5.1 | [ ] | WebSocket event sink in engine | Add `tokio-tungstenite` WebSocket server to the psflow engine, configurable via CLI flag (`--debug-ws <port>`). Streams execution events from the event bus (4.1.1) as JSON. Accepts commands: pause, resume, step, cancel | P1 |
+| 5.5.2 | [ ] | Live connection in debugger | Connect to a running psflow process via WebSocket URL. Stream events into the trace loader (5.3.1) in append mode. Playback controls send pause/resume commands to the engine. Auto-scroll editor to the currently running node. Reconnect on disconnect | P2 |
+
+### 5.6 Export
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 5.6.1 | [ ] | Trace export / share | Export current `.mmd` + trace as a self-contained HTML file embedding the debugger app + data as inlined JSON. Opens in any browser with no server. Useful for sharing debug sessions and bug reports | P2 |
+
+### 5.T Testing — Visual Debugger
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 5.T.1 | [ ] | WASM parser parity tests | `parse_mmd()` in WASM produces identical node IDs, ranges, and subgraph structure as native Rust parser for a set of representative `.mmd` files. Trace deserialization round-trips correctly | P0 |
+| 5.T.2 | [ ] | Range mapping tests | Known `.mmd` files produce correct byte ranges for each node definition and annotation block. Verify ranges survive whitespace variations, empty annotation blocks, adjacent nodes | P1 |
+| 5.T.3 | [ ] | Decoration state tests | Unit test the state→decoration mapping: given a node-to-range map and a set of node states, verify correct CodeMirror `Decoration.mark()` ranges and CSS classes produced | P1 |
+| 5.T.4 | [ ] | Playback logic tests | Step-forward/backward through a known trace produces correct node states at each position. Breakpoints halt at the correct event. Speed control doesn't skip events. Scrubber position matches event index | P1 |
+| 5.T.5 | [ ] | End-to-end smoke test | Load `.mmd` file, load trace, play through execution, verify no console errors, all nodes reach a terminal state decoration, inspector shows correct data for selected node | P1 |
+
+---
+
+## Phase 6 — Bindings & Distribution
+
+### 6.1 Multi-Target Bindings
+
+| ID | | Task | Details / Acceptance Criteria | Pri |
+|----|---|------|-------------------------------|-----|
+| 6.1.1 | [ ] | Document core API surface | Freeze and document the public API that must be preserved across all binding targets | P1 |
+| 6.1.2 | [ ] | WASM compilation target | Compile core to WASM via `wasm-bindgen`; JS/TS bindings for browser-based tooling and web execution. The visual debugger (Phase 5) uses a minimal parser-only subset; this task covers the full engine including executor and adapter interfaces | P1 |
+| 6.1.3 | [ ] | C FFI for Unity integration | Expose core engine as C-compatible shared library for Hot City and other native consumers via `cbindgen` | P1 |
+| 6.1.4 | [ ] | PyO3 Python bindings | Python module wrapping core engine for data science and scripting integration | P2 |
+| 6.1.5 | [ ] | Portable integration test suite | Graph + expected output pairs in JSON; runner harness that loads test definitions and executes against native Rust. Defines the canonical expected-output baseline all bindings must match | P1 |
+| 6.1.6 | [ ] | Cross-binding conformance CI | CI pipeline that runs the test suite (6.1.5) through each binding target (C FFI, WASM JS, Python) and diffs results against the native Rust baseline. Failures block release | P1 |
+| 6.1.7 | [ ] | Cross-compilation CI | Build and test matrix for native targets (macOS, Linux, Windows), WASM, and Python wheels | P2 |
 
 ---
 
@@ -355,7 +423,9 @@ Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scr
 
 **Scripting track:** 3.4.1 (dep + Value conversions) → 3.4.2 (bridge) → 3.4.3 (engine) → 3.4.4 (guards) + 3.4.5 (handler) in parallel → 3.4.6 (registry) + 3.4.7 (blackboard access). The scripting track depends on the port type system (1.1.6) and handler trait (3.1.2) but is otherwise independent — can run in parallel with 3.2 and 3.3. Guard evaluator (3.4.4) replaces the existing hand-rolled evaluator in `execute/control.rs`.
 
-Phase 5 runs in parallel once Phases 1–2 are stable. AI adapters (3.2) can begin as soon as the handler trait (3.1.2) is defined — the adapter trait is independent of graph topology. The adapter parallel track runs alongside the rest of 3.1; it does not block on 3.1 completing. Claude Code CLI adapter (3.2.4) and mock adapter (3.2.7) should land first to unblock Ergon integration (3.3) and testing respectively. LLM oracle tasks (2.1.9–2.1.11) depend on both the adapter trait (3.2.1) and the control flow primitives (2.1.4–2.1.6). Port type system (1.1.6) and error hierarchy (1.1.7) are foundational — all subsequent phases assume them.
+**Visual debugger track:** 5.1.1 (WASM parser build) → 5.1.2 (web shell) + 5.1.3 (CodeMirror setup) in parallel → 5.2.1 (range mapping) → 5.2.2 (state decorations) + 5.3.1 (trace loader) in parallel → 5.3.2 (playback) → 5.4.1 (inspector) + 5.3.3 (timeline) + 5.2.3 (gutter) in parallel → 5.3.4 (breakpoints) + 5.4.2 (blackboard) + 5.4.3 (tooltips). Live connection (5.5) is independent once 5.3.1 exists; requires engine-side WebSocket sink (5.5.1). Depends on: Mermaid parser (1.2), execution trace format (4.1.3), event bus (4.1.1). The WASM build (5.1.1) compiles only the parser and trace types — much smaller surface than the full WASM target (6.1.2).
+
+Phase 6 runs in parallel once Phases 1–2 are stable. AI adapters (3.2) can begin as soon as the handler trait (3.1.2) is defined — the adapter trait is independent of graph topology. The adapter parallel track runs alongside the rest of 3.1; it does not block on 3.1 completing. Claude Code CLI adapter (3.2.4) and mock adapter (3.2.7) should land first to unblock Ergon integration (3.3) and testing respectively. LLM oracle tasks (2.1.9–2.1.11) depend on both the adapter trait (3.2.1) and the control flow primitives (2.1.4–2.1.6). Port type system (1.1.6) and error hierarchy (1.1.7) are foundational — all subsequent phases assume them.
 
 ## Priority Key
 

@@ -1,4 +1,28 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Byte range in the source text (half-open: [from, to)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Span {
+    pub from: usize,
+    pub to: usize,
+}
+
+impl Span {
+    pub fn new(from: usize, to: usize) -> Self {
+        Self { from, to }
+    }
+
+    /// Extend this span to include another span.
+    pub fn extend(&mut self, other: Span) {
+        if other.from < self.from {
+            self.from = other.from;
+        }
+        if other.to > self.to {
+            self.to = other.to;
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Direction {
@@ -41,6 +65,8 @@ pub struct ParsedNode {
     pub id: String,
     pub label: String,
     pub shape: NodeShape,
+    /// Byte range of the node's definition line in the source text.
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +82,8 @@ pub struct ParsedSubgraph {
     pub label: Option<String>,
     pub node_ids: Vec<String>,
     pub children: Vec<ParsedSubgraph>,
+    /// Byte range from `subgraph` keyword to `end` keyword (inclusive).
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +91,8 @@ pub struct ParsedAnnotation {
     pub target_id: String,
     pub key: String,
     pub raw_value: String,
+    /// Byte range of the entire annotation line in the source text.
+    pub span: Span,
 }
 
 #[derive(Debug, Default)]
@@ -78,13 +108,20 @@ pub struct ParsedMermaid {
 pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
     let mut result = ParsedMermaid::default();
     let mut sg_stack: Vec<ParsedSubgraph> = Vec::new();
+    let mut byte_offset: usize = 0;
 
     for (idx, raw_line) in input.lines().enumerate() {
         let line = raw_line.trim();
+        let line_byte_start = byte_offset;
+        let line_byte_end = byte_offset + raw_line.len();
+        // Advance past this line + its newline character
+        byte_offset = line_byte_end + if input[line_byte_end..].starts_with('\n') { 1 } else if input[line_byte_end..].starts_with("\r\n") { 2 } else { 0 };
+
         if line.is_empty() {
             continue;
         }
         let line_num = idx + 1;
+        let line_span = Span::new(line_byte_start, line_byte_end);
 
         // Graph/flowchart direction
         if let Some(dir_str) = line
@@ -107,13 +144,15 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
                 label,
                 node_ids: Vec::new(),
                 children: Vec::new(),
+                span: line_span,
             });
             continue;
         }
 
         // Subgraph end
         if line == "end" {
-            if let Some(sg) = sg_stack.pop() {
+            if let Some(mut sg) = sg_stack.pop() {
+                sg.span.extend(line_span);
                 if let Some(parent) = sg_stack.last_mut() {
                     parent.children.push(sg);
                 } else {
@@ -125,7 +164,8 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
 
         // Annotation: %% @NodeID key: value
         if let Some(rest) = line.strip_prefix("%% @") {
-            if let Some(ann) = parse_annotation(rest) {
+            if let Some(mut ann) = parse_annotation(rest) {
+                ann.span = line_span;
                 result.annotations.push(ann);
             }
             continue;
@@ -138,7 +178,8 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
 
         // Try edge declaration (supports chains: A --> B --> C)
         if let Some((nodes, edges)) = parse_edge_line(line) {
-            for node in nodes {
+            for mut node in nodes {
+                node.span = line_span;
                 register_node(&mut result.nodes, &mut sg_stack, node);
             }
             result.edges.extend(edges);
@@ -146,13 +187,16 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
         }
 
         // Try standalone node declaration: A[Label]
-        if let Some(node) = parse_node_ref(line) {
+        if let Some(mut node) = parse_node_ref(line) {
+            node.span = line_span;
             register_node(&mut result.nodes, &mut sg_stack, node);
         }
     }
 
-    // Auto-close unclosed subgraphs
-    while let Some(sg) = sg_stack.pop() {
+    // Auto-close unclosed subgraphs — span extends to end of input
+    let eof_span = Span::new(input.len(), input.len());
+    while let Some(mut sg) = sg_stack.pop() {
+        sg.span.extend(eof_span);
         if let Some(parent) = sg_stack.last_mut() {
             parent.children.push(sg);
         } else {
@@ -224,6 +268,7 @@ fn parse_annotation(s: &str) -> Option<ParsedAnnotation> {
         target_id,
         key,
         raw_value,
+        span: Span::default(),
     })
 }
 
@@ -319,6 +364,7 @@ fn parse_node_ref(s: &str) -> Option<ParsedNode> {
             id: id.to_string(),
             label: id.to_string(),
             shape: NodeShape::Rectangle,
+            span: Span::default(),
         });
     }
 
@@ -329,6 +375,7 @@ fn parse_node_ref(s: &str) -> Option<ParsedNode> {
         id: id.to_string(),
         label,
         shape,
+        span: Span::default(),
     })
 }
 
@@ -509,6 +556,47 @@ mod tests {
         let parsed = parse(input).unwrap();
         assert_eq!(parsed.nodes.len(), 2);
         assert_eq!(parsed.annotations.len(), 0);
+    }
+
+    #[test]
+    fn node_spans_point_to_definition_line() {
+        let input = "graph TD\n    A[Fetch] --> B[Process]\n    B --> C[Store]";
+        let parsed = parse(input).unwrap();
+        // Line 2: "    A[Fetch] --> B[Process]" starts at byte 9
+        let a_span = parsed.nodes["A"].span;
+        assert_eq!(&input[a_span.from..a_span.to], "    A[Fetch] --> B[Process]");
+        // B appears on the same edge line, so its span covers the same line
+        assert_eq!(parsed.nodes["B"].span, a_span);
+        // Line 3: "    B --> C[Store]" — but B already registered from line 2
+        let c_span = parsed.nodes["C"].span;
+        assert_eq!(&input[c_span.from..c_span.to], "    B --> C[Store]");
+    }
+
+    #[test]
+    fn annotation_spans_point_to_annotation_line() {
+        let input = "graph TD\n    A --> B\n\n    %% @A handler: fetch\n    %% @A config.url: \"https://x.com\"";
+        let parsed = parse(input).unwrap();
+        let ann0 = &parsed.annotations[0];
+        assert_eq!(ann0.target_id, "A");
+        assert_eq!(&input[ann0.span.from..ann0.span.to], "    %% @A handler: fetch");
+        let ann1 = &parsed.annotations[1];
+        assert_eq!(
+            &input[ann1.span.from..ann1.span.to],
+            "    %% @A config.url: \"https://x.com\""
+        );
+    }
+
+    #[test]
+    fn subgraph_span_covers_start_to_end() {
+        let input = "graph TD\n    subgraph Init [\"parallel: setup\"]\n        A --> B\n    end";
+        let parsed = parse(input).unwrap();
+        let sg = &parsed.subgraphs[0];
+        // Span covers from subgraph line through end line
+        let text = &input[sg.span.from..sg.span.to];
+        assert!(text.starts_with("    subgraph Init"));
+        assert!(text.ends_with("end"));
+        assert_eq!(sg.span.from, 9); // "graph TD\n" = 9 bytes
+        assert_eq!(sg.span.to, input.len());
     }
 }
 
