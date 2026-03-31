@@ -92,3 +92,97 @@ pub enum GraphError {
     #[error("node not found: {id}")]
     NodeNotFound { id: String },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn node_error_serde_round_trip() {
+        let errors = vec![
+            NodeError::Failed {
+                source_message: Some("upstream".into()),
+                message: "something broke".into(),
+                recoverable: true,
+            },
+            NodeError::Timeout {
+                elapsed_ms: 5000,
+                limit_ms: 3000,
+            },
+            NodeError::Cancelled {
+                reason: "user abort".into(),
+            },
+            NodeError::TypeMismatch {
+                expected: "string".into(),
+                got: "i64".into(),
+            },
+            NodeError::AdapterError {
+                adapter: "mock".into(),
+                message: "connection refused".into(),
+            },
+        ];
+
+        for err in &errors {
+            let json = serde_json::to_string(err).unwrap();
+            let parsed: NodeError = serde_json::from_str(&json).unwrap();
+            assert_eq!(&parsed, err);
+        }
+    }
+
+    #[test]
+    fn node_error_display_messages() {
+        assert!(
+            NodeError::Failed {
+                source_message: None,
+                message: "boom".into(),
+                recoverable: false,
+            }
+            .to_string()
+            .contains("boom")
+        );
+
+        assert!(
+            NodeError::Timeout {
+                elapsed_ms: 100,
+                limit_ms: 50,
+            }
+            .to_string()
+            .contains("100ms")
+        );
+
+        assert!(
+            NodeError::Cancelled {
+                reason: "test".into(),
+            }
+            .to_string()
+            .contains("test")
+        );
+    }
+
+    #[test]
+    fn graph_error_display_messages() {
+        assert!(
+            GraphError::DuplicateNodeId { id: "A".into() }
+                .to_string()
+                .contains("A")
+        );
+
+        assert!(
+            GraphError::NodeNotFound { id: "X".into() }
+                .to_string()
+                .contains("X")
+        );
+
+        let mismatch = PortTypeMismatchInfo {
+            source_node: "A".into(),
+            source_port: "out".into(),
+            target_node: "B".into(),
+            target_port: "in".into(),
+            source_type: PortType::String,
+            target_type: PortType::I64,
+        };
+        let display = mismatch.to_string();
+        assert!(display.contains("A.out"));
+        assert!(display.contains("B.in"));
+    }
+}

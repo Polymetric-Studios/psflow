@@ -248,4 +248,98 @@ mod tests {
         assert!(ctx.set_state("A", NodeState::Cancelled).is_ok());
         assert_eq!(ctx.get_state("A"), NodeState::Cancelled);
     }
+
+    #[test]
+    fn store_and_retrieve_outputs() {
+        let ctx = ExecutionContext::new();
+        let mut outputs = Outputs::new();
+        outputs.insert("key".into(), crate::graph::types::Value::I64(42));
+
+        ctx.store_outputs("A", outputs.clone());
+        let retrieved = ctx.get_outputs("A").unwrap();
+        assert_eq!(retrieved, outputs);
+    }
+
+    #[test]
+    fn get_outputs_missing_returns_none() {
+        let ctx = ExecutionContext::new();
+        assert!(ctx.get_outputs("missing").is_none());
+    }
+
+    #[test]
+    fn branch_decision_set_and_get() {
+        let ctx = ExecutionContext::new();
+        ctx.set_branch_decision("B", "yes".to_string());
+
+        assert_eq!(ctx.get_branch_decision("B"), Some("yes".to_string()));
+        assert_eq!(ctx.get_branch_decision("missing"), None);
+    }
+
+    #[test]
+    fn branch_decision_overwrite() {
+        let ctx = ExecutionContext::new();
+        ctx.set_branch_decision("B", "yes".to_string());
+        ctx.set_branch_decision("B", "no".to_string());
+
+        assert_eq!(ctx.get_branch_decision("B"), Some("no".to_string()));
+    }
+
+    #[test]
+    fn blackboard_via_context() {
+        let ctx = ExecutionContext::new();
+        {
+            let mut bb = ctx.blackboard();
+            bb.set(
+                "key".into(),
+                crate::graph::types::Value::String("value".into()),
+                crate::execute::blackboard::BlackboardScope::Global,
+            );
+        }
+        {
+            let bb = ctx.blackboard();
+            assert_eq!(
+                bb.get("key", &crate::execute::blackboard::BlackboardScope::Global),
+                Some(&crate::graph::types::Value::String("value".into()))
+            );
+        }
+    }
+
+    #[test]
+    fn reset_states_clears_state_and_outputs() {
+        let ctx = ExecutionContext::new();
+        ctx.set_state("A", NodeState::Pending).unwrap();
+        ctx.set_state("A", NodeState::Running).unwrap();
+        ctx.set_state("A", NodeState::Completed).unwrap();
+        ctx.store_outputs("A", Outputs::new());
+
+        ctx.reset_states(["A"].iter().copied());
+
+        assert_eq!(ctx.get_state("A"), NodeState::Idle);
+        assert!(ctx.get_outputs("A").is_none());
+    }
+
+    #[test]
+    fn emit_and_take_events() {
+        let ctx = ExecutionContext::new();
+        ctx.emit(ExecutionEvent::ExecutionStarted {
+            timestamp: std::time::Instant::now(),
+        });
+
+        let events = ctx.take_events();
+        assert_eq!(events.len(), 1);
+
+        // After take, events are empty
+        let events2 = ctx.take_events();
+        assert!(events2.is_empty());
+    }
+
+    #[test]
+    fn cancellation_propagates() {
+        let token = CancellationToken::new();
+        let ctx = ExecutionContext::with_cancel(token.clone());
+
+        assert!(!ctx.is_cancelled());
+        token.cancel();
+        assert!(ctx.is_cancelled());
+    }
 }

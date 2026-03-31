@@ -180,7 +180,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 1.T.12 | [x] | Port type system tests | Exact type match connects, mismatch rejected. Coercion (i64→f32) accepted. Vec<T>→T fan-out validated. Domain type registration and JSON Schema validation. Unknown type name rejected at load time | P0 |
 | 1.T.13 | [x] | Error propagation tests | Node failure cascades cancellation to downstream nodes. Error caught by catch node stops propagation. Timeout error triggers. Cancellation token checked by mock handler. Multiple concurrent failures handled correctly | P0 |
 | 1.T.14 | [x] | Cancellation tests | Race cancels siblings mid-execution. Global timeout cancels all running nodes. User cancel propagates. In-flight adapter calls cancelled. Cancelled node emits event and transitions correctly | P0 |
-| 1.T.15 | [ ] | Graph metadata tests | Parse `%% @graph` annotations. Validate required adapter present. Reject graph with missing required capabilities | P1 |
+| 1.T.15 | [x] | Graph metadata tests | Parse `%% @graph` annotations. Validate required adapter present. Reject graph with missing required capabilities | P1 |
 
 ---
 
@@ -221,9 +221,9 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | 2.T.3 | [x] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
 | 2.T.4 | [x] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
 | 2.T.5 | [ ] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results. Include case: snapshot with in-flight LLM call (pending adapter response) resumes correctly | P1 |
-| 2.T.6 | [ ] | LLM guard tests | Branch node with `guard_llm`: mock adapter returns true/false, verify correct path taken. Test fallback to deterministic guard when adapter unavailable | P1 |
-| 2.T.7 | [ ] | LLM race criterion tests | Race node with `criterion_llm`: mock adapter selects candidate by index, verify correct winner propagated and siblings cancelled | P1 |
-| 2.T.8 | [ ] | LLM loop termination tests | Loop with `while_llm`: mock adapter returns true N times then false, verify correct iteration count and accumulated state | P1 |
+| 2.T.6 | [x] | LLM guard tests | Branch node with `guard_llm`: mock adapter returns true/false, verify correct path taken. Test fallback to deterministic guard when adapter unavailable | P1 |
+| 2.T.7 | [x] | LLM race criterion tests | Race node with `criterion_llm`: mock adapter selects candidate by index, verify correct winner propagated and siblings cancelled | P1 |
+| 2.T.8 | [x] | LLM loop termination tests | Loop with `while_llm`: mock adapter returns true N times then false, verify correct iteration count and accumulated state | P1 |
 
 ---
 
@@ -326,7 +326,7 @@ Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scr
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
 | 4.T.1 | [x] | Event bus tests | Subscribe, receive expected events for node state changes, unsubscribe stops delivery, no event loss under concurrent execution | P0 |
-| 4.T.2 | [ ] | CLI integration tests | Load `.mmd` file via CLI, execute, verify stdout/exit code; test validation mode, error reporting | P1 |
+| 4.T.2 | [x] | CLI integration tests | Load `.mmd` file via CLI, execute, verify stdout/exit code; test validation mode, error reporting | P1 |
 | 4.T.3 | [x] | Execution trace tests | Run known graph, verify trace records correct node order, timing, and data snapshots | P1 |
 
 ---

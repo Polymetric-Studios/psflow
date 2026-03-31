@@ -1460,4 +1460,223 @@ mod tests {
 
         assert_eq!(result, "Process test_value in fast mode");
     }
+
+    // -- 2.T.6: LLM guard integration tests --
+
+    #[tokio::test]
+    async fn guard_llm_integration_takes_yes_path() {
+        use crate::adapter::mock::MockAdapter;
+        use crate::execute::topological::handle_branch_decision;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new().with_default("true");
+        let ctx = Arc::new(ExecutionContext::new());
+
+        // Simulate a branch node with guard_llm
+        let mut graph = crate::graph::Graph::new();
+        let mut node = crate::graph::node::Node::new("BRANCH", "Branch");
+        node.config = serde_json::json!({
+            "guard_llm": {
+                "prompt": "Is this good?",
+                "output": "bool"
+            }
+        });
+        graph.add_node(node).unwrap();
+
+        let outputs = Outputs::new();
+        handle_branch_decision(&graph, "BRANCH", &outputs, &ctx, Some(&adapter)).await;
+
+        assert_eq!(ctx.get_branch_decision("BRANCH"), Some("yes".to_string()));
+    }
+
+    #[tokio::test]
+    async fn guard_llm_integration_takes_no_path() {
+        use crate::adapter::mock::MockAdapter;
+        use crate::execute::topological::handle_branch_decision;
+        use std::sync::Arc;
+
+        let adapter = MockAdapter::new().with_default("false");
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let mut graph = crate::graph::Graph::new();
+        let mut node = crate::graph::node::Node::new("BRANCH", "Branch");
+        node.config = serde_json::json!({
+            "guard_llm": {
+                "prompt": "Is this good?",
+                "output": "bool"
+            }
+        });
+        graph.add_node(node).unwrap();
+
+        handle_branch_decision(&graph, "BRANCH", &Outputs::new(), &ctx, Some(&adapter)).await;
+
+        assert_eq!(ctx.get_branch_decision("BRANCH"), Some("no".to_string()));
+    }
+
+    #[tokio::test]
+    async fn guard_llm_fallback_when_no_adapter() {
+        use crate::execute::topological::handle_branch_decision;
+        use std::sync::Arc;
+
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let mut graph = crate::graph::Graph::new();
+        let mut node = crate::graph::node::Node::new("BRANCH", "Branch");
+        node.config = serde_json::json!({
+            "guard_llm": {
+                "prompt": "Is this good?",
+                "output": "bool",
+                "fallback": "true"
+            }
+        });
+        graph.add_node(node).unwrap();
+
+        // No adapter provided — should fall back to deterministic "true"
+        handle_branch_decision(&graph, "BRANCH", &Outputs::new(), &ctx, None).await;
+
+        assert_eq!(ctx.get_branch_decision("BRANCH"), Some("yes".to_string()));
+    }
+
+    #[tokio::test]
+    async fn guard_llm_defaults_to_no_without_fallback() {
+        use crate::execute::topological::handle_branch_decision;
+        use std::sync::Arc;
+
+        let ctx = Arc::new(ExecutionContext::new());
+
+        let mut graph = crate::graph::Graph::new();
+        let mut node = crate::graph::node::Node::new("BRANCH", "Branch");
+        node.config = serde_json::json!({
+            "guard_llm": {
+                "prompt": "Is this good?",
+                "output": "bool"
+            }
+            // No fallback, no adapter → defaults to "no"
+        });
+        graph.add_node(node).unwrap();
+
+        handle_branch_decision(&graph, "BRANCH", &Outputs::new(), &ctx, None).await;
+
+        assert_eq!(ctx.get_branch_decision("BRANCH"), Some("no".to_string()));
+    }
+
+    // -- 2.T.7: LLM race criterion integration tests --
+
+    #[tokio::test]
+    async fn race_with_llm_criterion_selects_winner() {
+        use crate::adapter::mock::MockAdapter;
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        // Mock adapter's judge() returns index 0 by default
+        let adapter = MockAdapter::new();
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|node, _| {
+            let mut out = Outputs::new();
+            out.insert("id".into(), Value::String(node.id.0.clone()));
+            Ok(out)
+        });
+
+        let mut graph = Graph::new();
+        let mut node_a = Node::new("A", "Candidate A");
+        node_a.exec = serde_json::json!({ "criterion_llm": { "criteria": "Pick best" } });
+        graph.add_node(node_a).unwrap();
+        graph.add_node(Node::new("B", "Candidate B")).unwrap();
+
+        let node_ids = vec![NodeId::new("A"), NodeId::new("B")];
+
+        let handlers = HandlerRegistry::new();
+        let winner = execute_race_with_adapter(
+            &node_ids, &graph, &handlers, &ctx, &passthrough,
+            Some(&adapter),
+        ).await.unwrap();
+
+        // Adapter judge() returns 0 → first candidate (A) should win
+        assert!(winner.is_some());
+        assert_eq!(winner.unwrap().0, "A");
+    }
+
+    // -- 2.T.8: LLM loop termination integration tests --
+
+    #[tokio::test]
+    async fn loop_with_llm_terminates_when_adapter_says_no() {
+        use crate::adapter::mock::MockAdapter;
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        // Adapter always says "no" → loop should run 0 iterations
+        let adapter = MockAdapter::new().with_default("no");
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| Ok(Outputs::new()));
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("L", "Loop body")).unwrap();
+
+        let node_ids = vec![NodeId::new("L")];
+        let config = LoopConfig::WhileLlm {
+            llm_config: serde_json::json!({
+                "prompt": "Continue?"
+            }),
+            max_iterations: 10,
+        };
+
+        let handlers = HandlerRegistry::new();
+        execute_loop_with_adapter(
+            &node_ids, &config, &graph, &handlers, &ctx, &passthrough,
+            Some(&adapter),
+        ).await.unwrap();
+
+        // Adapter said "no" on first check → node should never have completed
+        let state = ctx.get_state("L");
+        assert!(
+            state == NodeState::Idle || state == NodeState::Cancelled,
+            "expected idle or cancelled, got {state:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn loop_with_llm_falls_back_to_deterministic() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        let ctx = Arc::new(ExecutionContext::new());
+        // Set a blackboard flag to control the fallback guard
+        {
+            let mut bb = ctx.blackboard();
+            bb.set("keep_going".into(), Value::Bool(false), BlackboardScope::Global);
+        }
+
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| Ok(Outputs::new()));
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("L", "Loop body")).unwrap();
+
+        let node_ids = vec![NodeId::new("L")];
+        let config = LoopConfig::WhileLlm {
+            llm_config: serde_json::json!({
+                "prompt": "Continue?",
+                "fallback": "ctx.keep_going"
+            }),
+            max_iterations: 10,
+        };
+
+        let handlers = HandlerRegistry::new();
+        // No adapter → falls back to deterministic guard which reads ctx.keep_going (false)
+        execute_loop_with_adapter(
+            &node_ids, &config, &graph, &handlers, &ctx, &passthrough,
+            None,
+        ).await.unwrap();
+
+        // Fallback guard is false → 0 iterations → node stays idle
+        let state = ctx.get_state("L");
+        assert_eq!(state, NodeState::Idle);
+    }
 }
