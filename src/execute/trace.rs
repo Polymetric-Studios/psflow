@@ -137,6 +137,34 @@ impl ExecutionTrace {
         }
     }
 
+    /// Build a trace filtered to only the ancestors of a given node.
+    ///
+    /// This gives a node's-eye view of execution history: only nodes on the
+    /// paths leading to `node_id` are included. Useful for scoping LLM context
+    /// to a node's ancestor chain, excluding parallel branches.
+    pub fn for_node(
+        &self,
+        node_id: &str,
+        graph: &crate::graph::Graph,
+    ) -> Self {
+        let ancestors = graph.ancestors(&node_id.into());
+        let records: Vec<TraceRecord> = self
+            .records
+            .iter()
+            .filter(|r| ancestors.contains(&r.node_id.as_str().into()))
+            .cloned()
+            .enumerate()
+            .map(|(order, mut r)| {
+                r.order = order;
+                r
+            })
+            .collect();
+        ExecutionTrace {
+            records,
+            elapsed: self.elapsed,
+        }
+    }
+
     /// Look up a node's trace record by ID.
     pub fn node(&self, node_id: &str) -> Option<&TraceRecord> {
         self.records.iter().find(|r| r.node_id == node_id)
@@ -523,6 +551,77 @@ mod tests {
         assert_eq!(trace.failed_nodes().len(), 0);
         assert_eq!(trace.cancelled_nodes().len(), 0);
         assert_eq!(trace.retried_nodes().len(), 0);
+    }
+
+    // -- Scoped trace tests --
+
+    #[test]
+    fn for_node_filters_to_ancestor_path() {
+        use crate::graph::node::Node;
+        use crate::graph::Graph;
+
+        // Diamond: A → B, A → C, B → D, C → D
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("A", "A")).unwrap();
+        graph.add_node(Node::new("B", "B")).unwrap();
+        graph.add_node(Node::new("C", "C")).unwrap();
+        graph.add_node(Node::new("D", "D")).unwrap();
+        graph.add_edge(&"A".into(), "o", &"B".into(), "i", None).unwrap();
+        graph.add_edge(&"A".into(), "o", &"C".into(), "i", None).unwrap();
+        graph.add_edge(&"B".into(), "o", &"D".into(), "i", None).unwrap();
+        graph.add_edge(&"C".into(), "o", &"D".into(), "i", None).unwrap();
+
+        // Simulate all 4 nodes completing
+        let t0 = Instant::now();
+        let events = vec![
+            ExecutionEvent::ExecutionStarted { timestamp: t0 },
+            // A completes
+            ExecutionEvent::StateChanged { node_id: "A".into(), from: NodeState::Idle, to: NodeState::Pending, timestamp: t0 },
+            ExecutionEvent::StateChanged { node_id: "A".into(), from: NodeState::Pending, to: NodeState::Running, timestamp: t0 },
+            ExecutionEvent::NodeCompleted { node_id: "A".into(), outputs: Outputs::new() },
+            ExecutionEvent::StateChanged { node_id: "A".into(), from: NodeState::Running, to: NodeState::Completed, timestamp: t0 + Duration::from_millis(10) },
+            // B completes
+            ExecutionEvent::StateChanged { node_id: "B".into(), from: NodeState::Idle, to: NodeState::Pending, timestamp: t0 + Duration::from_millis(10) },
+            ExecutionEvent::StateChanged { node_id: "B".into(), from: NodeState::Pending, to: NodeState::Running, timestamp: t0 + Duration::from_millis(10) },
+            ExecutionEvent::NodeCompleted { node_id: "B".into(), outputs: Outputs::new() },
+            ExecutionEvent::StateChanged { node_id: "B".into(), from: NodeState::Running, to: NodeState::Completed, timestamp: t0 + Duration::from_millis(20) },
+            // C completes
+            ExecutionEvent::StateChanged { node_id: "C".into(), from: NodeState::Idle, to: NodeState::Pending, timestamp: t0 + Duration::from_millis(10) },
+            ExecutionEvent::StateChanged { node_id: "C".into(), from: NodeState::Pending, to: NodeState::Running, timestamp: t0 + Duration::from_millis(10) },
+            ExecutionEvent::NodeCompleted { node_id: "C".into(), outputs: Outputs::new() },
+            ExecutionEvent::StateChanged { node_id: "C".into(), from: NodeState::Running, to: NodeState::Completed, timestamp: t0 + Duration::from_millis(20) },
+            // D completes
+            ExecutionEvent::StateChanged { node_id: "D".into(), from: NodeState::Idle, to: NodeState::Pending, timestamp: t0 + Duration::from_millis(20) },
+            ExecutionEvent::StateChanged { node_id: "D".into(), from: NodeState::Pending, to: NodeState::Running, timestamp: t0 + Duration::from_millis(20) },
+            ExecutionEvent::NodeCompleted { node_id: "D".into(), outputs: Outputs::new() },
+            ExecutionEvent::StateChanged { node_id: "D".into(), from: NodeState::Running, to: NodeState::Completed, timestamp: t0 + Duration::from_millis(30) },
+            ExecutionEvent::ExecutionCompleted { elapsed: Duration::from_millis(30) },
+        ];
+
+        let full_trace = ExecutionTrace::from_events(&events);
+        assert_eq!(full_trace.records.len(), 4);
+
+        // B's view: should only see A (its sole ancestor)
+        let b_trace = full_trace.for_node("B", &graph);
+        assert_eq!(b_trace.records.len(), 1);
+        assert_eq!(b_trace.records[0].node_id, "A");
+
+        // C's view: should only see A (not B)
+        let c_trace = full_trace.for_node("C", &graph);
+        assert_eq!(c_trace.records.len(), 1);
+        assert_eq!(c_trace.records[0].node_id, "A");
+
+        // D's view: should see A, B, C (all ancestors)
+        let d_trace = full_trace.for_node("D", &graph);
+        assert_eq!(d_trace.records.len(), 3);
+        let d_ids: Vec<&str> = d_trace.execution_order();
+        assert!(d_ids.contains(&"A"));
+        assert!(d_ids.contains(&"B"));
+        assert!(d_ids.contains(&"C"));
+
+        // A's view: empty (no ancestors)
+        let a_trace = full_trace.for_node("A", &graph);
+        assert!(a_trace.records.is_empty());
     }
 
     // -- Integration test: trace from real executor --

@@ -215,6 +215,25 @@ impl Graph {
             .collect()
     }
 
+    /// Return all transitive predecessors (ancestors) of a node.
+    ///
+    /// Walks the graph backwards from `id`, collecting all nodes that are
+    /// reachable via incoming edges. The result is the set of nodes on all
+    /// paths leading to `id`. Useful for scoping traces and conversation
+    /// history to a node's ancestor path.
+    pub fn ancestors(&self, id: &NodeId) -> std::collections::HashSet<NodeId> {
+        let mut visited = std::collections::HashSet::new();
+        let mut stack = vec![id.clone()];
+        while let Some(current) = stack.pop() {
+            for pred in self.predecessors(&current) {
+                if visited.insert(pred.id.clone()) {
+                    stack.push(pred.id.clone());
+                }
+            }
+        }
+        visited
+    }
+
     pub fn successors(&self, id: &NodeId) -> Vec<&Node> {
         let Some(&idx) = self.node_map.get(id) else {
             return Vec::new();
@@ -530,6 +549,54 @@ mod tests {
             .map(|n| n.id.as_str())
             .collect();
         assert_eq!(succs, vec!["C"]);
+    }
+
+    #[test]
+    fn ancestors_linear_chain() {
+        let g = sample_graph(); // A → B → C
+        let ancestors_c = g.ancestors(&"C".into());
+        assert!(ancestors_c.contains(&"A".into()));
+        assert!(ancestors_c.contains(&"B".into()));
+        assert!(!ancestors_c.contains(&"C".into())); // self not included
+        assert_eq!(ancestors_c.len(), 2);
+    }
+
+    #[test]
+    fn ancestors_diamond() {
+        //   A
+        //  / \
+        // B   C
+        //  \ /
+        //   D
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A")).unwrap();
+        g.add_node(Node::new("B", "B")).unwrap();
+        g.add_node(Node::new("C", "C")).unwrap();
+        g.add_node(Node::new("D", "D")).unwrap();
+        g.add_edge(&"A".into(), "out", &"B".into(), "in", None).unwrap();
+        g.add_edge(&"A".into(), "out", &"C".into(), "in", None).unwrap();
+        g.add_edge(&"B".into(), "out", &"D".into(), "in", None).unwrap();
+        g.add_edge(&"C".into(), "out", &"D".into(), "in", None).unwrap();
+
+        // D's ancestors = {A, B, C}
+        let ancestors_d = g.ancestors(&"D".into());
+        assert_eq!(ancestors_d.len(), 3);
+        assert!(ancestors_d.contains(&"A".into()));
+        assert!(ancestors_d.contains(&"B".into()));
+        assert!(ancestors_d.contains(&"C".into()));
+
+        // B's ancestors = {A} only — not C
+        let ancestors_b = g.ancestors(&"B".into());
+        assert_eq!(ancestors_b.len(), 1);
+        assert!(ancestors_b.contains(&"A".into()));
+        assert!(!ancestors_b.contains(&"C".into()));
+    }
+
+    #[test]
+    fn ancestors_root_node_has_none() {
+        let g = sample_graph();
+        let ancestors_a = g.ancestors(&"A".into());
+        assert!(ancestors_a.is_empty());
     }
 
     #[test]

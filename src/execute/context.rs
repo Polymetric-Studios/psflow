@@ -146,6 +146,19 @@ impl ExecutionContext {
         crate::execute::trace::ExecutionTrace::from_events(&events)
     }
 
+    /// Build a trace scoped to the ancestors of a specific node.
+    ///
+    /// Only includes nodes on the paths leading to `node_id`, excluding
+    /// parallel branches. This is the trace a node "should see" — its
+    /// causal history, not the entire graph's execution.
+    pub fn live_trace_for(
+        &self,
+        node_id: &str,
+        graph: &crate::graph::Graph,
+    ) -> crate::execute::trace::ExecutionTrace {
+        self.live_trace().for_node(node_id, graph)
+    }
+
     pub fn take_events(&self) -> Vec<ExecutionEvent> {
         std::mem::take(
             &mut *self
