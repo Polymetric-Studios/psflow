@@ -66,6 +66,15 @@ button {
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.4; cursor: default; }
 
+#btn-run {
+  background: var(--state-completed-border);
+  color: var(--bg);
+  font-weight: 600;
+}
+#btn-run:hover:not(:disabled) {
+  border-color: #fff;
+}
+
 select {
   background: var(--border);
   color: var(--text);

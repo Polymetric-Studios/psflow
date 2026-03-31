@@ -48,8 +48,7 @@ function updateToolbar(): void {
 
 // --- File loading ---
 
-async function loadMmdFile(file: File): Promise<void> {
-  const text = await file.text();
+function setSource(text: string, fileName: string): void {
   state.source = text;
   state.parseResult = parse_mmd(text);
   state.trace = null;
@@ -61,8 +60,9 @@ async function loadMmdFile(file: File): Promise<void> {
   editor.setSource(text);
   editor.updateParseResult(state.parseResult);
 
-  document.getElementById("file-name")!.textContent = file.name;
+  document.getElementById("file-name")!.textContent = fileName;
   (document.getElementById("btn-load-trace") as HTMLButtonElement).disabled = false;
+  (document.getElementById("btn-run") as HTMLButtonElement).disabled = false;
 
   if (state.parseResult.errors.length > 0) {
     document.getElementById("status")!.textContent =
@@ -72,14 +72,16 @@ async function loadMmdFile(file: File): Promise<void> {
   update();
 }
 
-async function loadTraceFile(file: File): Promise<void> {
-  const text = await file.text();
-  state.trace = parse_trace(text);
+async function loadMmdFile(file: File): Promise<void> {
+  setSource(await file.text(), file.name);
+}
+
+function loadTrace(traceData: import("../pkg/psflow_wasm.js").TraceResult): void {
+  state.trace = traceData;
   state.tracePosition = -1;
   state.nodeStates = new Map();
   state.playing = false;
 
-  // Enable playback controls
   for (const id of ["btn-step-back", "btn-play", "btn-step-fwd", "speed-select"]) {
     (document.getElementById(id) as HTMLButtonElement).disabled = false;
   }
@@ -87,11 +89,63 @@ async function loadTraceFile(file: File): Promise<void> {
   update();
 }
 
+async function loadTraceFile(file: File): Promise<void> {
+  loadTrace(parse_trace(await file.text()));
+}
+
+// --- Run graph ---
+
+async function runGraph(): Promise<void> {
+  if (!state.source) return;
+
+  const status = document.getElementById("status")!;
+  const btnRun = document.getElementById("btn-run") as HTMLButtonElement;
+  btnRun.disabled = true;
+  status.textContent = "Running...";
+
+  try {
+    const resp = await fetch("/api/run", {
+      method: "POST",
+      body: state.source,
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      status.textContent = `Run failed`;
+      // Show the error in the inspector
+      document.getElementById("inspector-content")!.innerHTML =
+        `<div class="inspector-section"><h3>Error</h3><pre class="inspector-json">${escapeHtml(data.error)}</pre></div>`;
+      return;
+    }
+
+    // Parse and load the trace
+    const traceJson = JSON.stringify(data.trace);
+    loadTrace(parse_trace(traceJson));
+
+    // Auto-play to the end so you see the result immediately
+    playback.seekTo(state.trace!.events.length - 1);
+
+    status.textContent = `${state.parseResult!.nodes.length} nodes | executed in ${data.trace.elapsed.secs * 1000 + data.trace.elapsed.nanos / 1e6 | 0}ms`;
+  } finally {
+    btnRun.disabled = false;
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // --- Keyboard shortcuts ---
 
 function handleKeyboard(e: KeyboardEvent): void {
   // Don't capture when focused on input elements
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    runGraph().catch(showError);
+    return;
+  }
 
   switch (e.key) {
     case " ":
@@ -173,6 +227,8 @@ async function main(): Promise<void> {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (file) loadTraceFile(file).catch(showError);
   });
+
+  document.getElementById("btn-run")!.addEventListener("click", () => runGraph().catch(showError));
 
   document.getElementById("btn-play")!.addEventListener("click", () => playback.toggle());
   document.getElementById("btn-step-fwd")!.addEventListener("click", () => {
