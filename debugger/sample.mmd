@@ -1,0 +1,27 @@
+graph TD
+    A[Fetch RSS] --> B[Classify]
+    B --> C{Relevant?}
+    C -->|yes| D[Summarize]
+    C -->|no| E[Archive]
+
+    %% @A handler: fetch_rss
+    %% @A config.url: "https://feeds.example.com/tech"
+    %% @A config.max_items: 50
+    %% @A outputs.articles: "Article[]"
+
+    %% @B handler: llm_call
+    %% @B config.model: "claude-sonnet-4-20250514"
+    %% @B config.prompt: "classify_relevance"
+    %% @B inputs.articles: "Article[]"
+    %% @B outputs.classified: "ClassifiedArticle[]"
+
+    %% @C handler: branch
+    %% @C config.guard: "ctx.classified.relevant == true"
+
+    %% @D handler: llm_call
+    %% @D config.model: "claude-sonnet-4-20250514"
+    %% @D config.prompt: "summarize_article"
+    %% @D outputs.summary: "string"
+
+    %% @E handler: file_write
+    %% @E config.path: "./archive/{date}/{id}.json"

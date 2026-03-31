@@ -17,9 +17,13 @@ struct Cli {
     #[arg(long)]
     validate: bool,
 
-    /// Print the execution trace (node states and outputs) as JSON.
+    /// Print the execution result (node states and outputs) as JSON.
     #[arg(long)]
     json: bool,
+
+    /// Write the execution trace to a file (for use with the debugger).
+    #[arg(long, value_name = "PATH")]
+    trace: Option<PathBuf>,
 
     /// Log verbosity. Repeat for more detail: -v (info), -vv (debug), -vvv (trace).
     /// Can also be set via RUST_LOG env var (e.g. RUST_LOG=psflow=debug).
@@ -117,6 +121,21 @@ fn main() -> ExitCode {
 
     match result {
         Ok(result) => {
+            // Write trace file if requested
+            if let Some(ref trace_path) = cli.trace {
+                let trace = result.trace();
+                match serde_json::to_string_pretty(&trace) {
+                    Ok(json) => {
+                        if let Err(e) = std::fs::write(trace_path, &json) {
+                            eprintln!("error: cannot write trace to '{}': {e}", trace_path.display());
+                        } else {
+                            eprintln!("trace written to {}", trace_path.display());
+                        }
+                    }
+                    Err(e) => eprintln!("error: cannot serialize trace: {e}"),
+                }
+            }
+
             let failed: Vec<_> = result
                 .node_states
                 .iter()

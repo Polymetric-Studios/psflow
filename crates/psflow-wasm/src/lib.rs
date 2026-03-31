@@ -177,7 +177,7 @@ pub fn parse_trace(json: &str) -> Result<TraceResult, JsError> {
         .iter()
         .map(|r| TraceEvent {
             node_id: r.node_id.clone(),
-            state: r.state.clone(),
+            state: r.state.to_lowercase(),
             order: r.order,
             elapsed_ms: r.elapsed.as_ref().map(|d| d.as_ms()),
             error: r.error.as_ref().map(|e| serde_json::to_string(e).unwrap_or_default()),
