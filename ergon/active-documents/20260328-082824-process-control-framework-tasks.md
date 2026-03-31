@@ -217,7 +217,7 @@ The integration test suite is defined as graph-plus-expected-output pairs, ensur
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
 | 2.T.1 | [x] | Control flow primitive tests | Each primitive (sequence, parallel, race, branch, loop, retry, fan-out/fan-in) tested in isolation with mock nodes; verify ordering, cancellation, fan-out collection distribution, and error semantics. Include concurrency limit tests: parallel with `max_concurrent` respects semaphore bound | P0 |
-| 2.T.2 | [ ] | Property-based tests for control flow | `proptest` — randomly compose control flow trees, verify invariants: no double-execution, all nodes reach terminal state, cancellation propagates | P1 |
+| 2.T.2 | [x] | Property-based tests for control flow | `proptest` — randomly compose control flow trees, verify invariants: no double-execution, all nodes reach terminal state, cancellation propagates | P1 |
 | 2.T.3 | [x] | Token flow tests | Type-checked delivery, fan-out duplication, missing input detection, type mismatch at runtime | P0 |
 | 2.T.4 | [x] | Blackboard scoping tests | Global vs subgraph-local vs node-local isolation; read/write permissions enforced; parent context inheritance | P0 |
 | 2.T.5 | [x] | Snapshot round-trip tests | Serialize mid-execution state, resume from snapshot, verify execution completes with correct results. Include case: snapshot with in-flight LLM call (pending adapter response) resumes correctly | P1 |

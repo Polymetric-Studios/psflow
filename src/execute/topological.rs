@@ -1634,4 +1634,240 @@ mod tests {
             max_seen.load(AtomicOrdering::SeqCst)
         );
     }
+
+    // -- 2.T.2: Property-based tests for control flow --
+
+    mod proptest_control_flow {
+        use super::*;
+        use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+        fn build_random_dag(n: usize, edges: &[(usize, usize)]) -> Graph {
+            let mut graph = Graph::new();
+            for i in 0..n {
+                graph
+                    .add_node(
+                        Node::new(format!("N{i}"), format!("Node {i}")).with_handler("h"),
+                    )
+                    .unwrap();
+            }
+            for (src, tgt) in edges {
+                if *src < *tgt && *src < n && *tgt < n {
+                    let src_id: NodeId = format!("N{src}").into();
+                    let tgt_id: NodeId = format!("N{tgt}").into();
+                    let _ = graph.add_edge(&src_id, "out", &tgt_id, "in", None);
+                }
+            }
+            graph
+        }
+
+        #[test]
+        fn prop_all_nodes_reach_terminal_state() {
+            use proptest::prelude::*;
+            use proptest::test_runner::TestRunner;
+
+            let mut runner = TestRunner::new(proptest::test_runner::Config {
+                cases: 50,
+                ..Default::default()
+            });
+
+            runner
+                .run(
+                    &(2..10usize, proptest::collection::vec((0..10usize, 0..10usize), 0..15)),
+                    |(n, edges)| {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async {
+                            let graph = build_random_dag(n, &edges);
+                            let mut handlers = HandlerRegistry::new();
+                            handlers.insert(
+                                "h".into(),
+                                crate::execute::sync_handler(|_, _| Ok(Outputs::new())),
+                            );
+
+                            let result = TopologicalExecutor::new()
+                                .execute(&graph, &handlers)
+                                .await
+                                .unwrap();
+
+                            for i in 0..n {
+                                let id = format!("N{i}");
+                                let state = result
+                                    .node_states
+                                    .get(&id)
+                                    .unwrap_or(&NodeState::Idle);
+                                prop_assert!(
+                                    state.is_terminal(),
+                                    "node {} in non-terminal state {:?}",
+                                    id,
+                                    state
+                                );
+                            }
+                            Ok(())
+                        })
+                    },
+                )
+                .unwrap();
+        }
+
+        #[test]
+        fn prop_no_double_execution() {
+            use proptest::prelude::*;
+            use proptest::test_runner::TestRunner;
+
+            let mut runner = TestRunner::new(proptest::test_runner::Config {
+                cases: 50,
+                ..Default::default()
+            });
+
+            runner
+                .run(
+                    &(2..8usize, proptest::collection::vec((0..8usize, 0..8usize), 0..12)),
+                    |(n, edges)| {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async {
+                            let call_count = Arc::new(AtomicUsize::new(0));
+                            let counter = call_count.clone();
+
+                            let graph = build_random_dag(n, &edges);
+                            let mut handlers = HandlerRegistry::new();
+                            handlers.insert(
+                                "h".into(),
+                                crate::execute::sync_handler(move |_, _| {
+                                    counter.fetch_add(1, AtomicOrdering::SeqCst);
+                                    Ok(Outputs::new())
+                                }),
+                            );
+
+                            let _ = TopologicalExecutor::new()
+                                .execute(&graph, &handlers)
+                                .await
+                                .unwrap();
+
+                            let total = call_count.load(AtomicOrdering::SeqCst);
+                            prop_assert_eq!(total, n, "double execution: {} calls for {} nodes", total, n);
+                            Ok(())
+                        })
+                    },
+                )
+                .unwrap();
+        }
+
+        #[test]
+        fn prop_cancellation_propagates() {
+            use proptest::prelude::*;
+            use proptest::test_runner::TestRunner;
+
+            let mut runner = TestRunner::new(proptest::test_runner::Config {
+                cases: 50,
+                ..Default::default()
+            });
+
+            runner
+                .run(
+                    &(3..8usize, proptest::collection::vec((0..8usize, 0..8usize), 0..10)),
+                    |(n, edges)| {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async {
+                            let cancel = CancellationToken::new();
+                            cancel.cancel();
+
+                            let graph = build_random_dag(n, &edges);
+                            let mut handlers = HandlerRegistry::new();
+                            handlers.insert(
+                                "h".into(),
+                                crate::execute::sync_handler(|_, _| Ok(Outputs::new())),
+                            );
+
+                            let result = TopologicalExecutor::with_cancel(cancel)
+                                .execute(&graph, &handlers)
+                                .await
+                                .unwrap();
+
+                            for i in 0..n {
+                                let id = format!("N{i}");
+                                let state = result
+                                    .node_states
+                                    .get(&id)
+                                    .copied()
+                                    .unwrap_or(NodeState::Idle);
+                                prop_assert!(
+                                    state == NodeState::Cancelled || state == NodeState::Idle,
+                                    "node {} should be cancelled/idle, got {:?}",
+                                    id,
+                                    state
+                                );
+                            }
+                            Ok(())
+                        })
+                    },
+                )
+                .unwrap();
+        }
+
+        #[test]
+        fn prop_dependency_order_respected() {
+            use proptest::prelude::*;
+            use proptest::test_runner::TestRunner;
+
+            let mut runner = TestRunner::new(proptest::test_runner::Config {
+                cases: 30,
+                ..Default::default()
+            });
+
+            runner
+                .run(&(2..6usize), |chain_len| {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        let execution_order = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+                        let mut graph = Graph::new();
+                        for i in 0..chain_len {
+                            graph
+                                .add_node(
+                                    Node::new(format!("N{i}"), format!("N{i}"))
+                                        .with_handler("record"),
+                                )
+                                .unwrap();
+                        }
+                        for i in 0..chain_len - 1 {
+                            graph
+                                .add_edge(
+                                    &format!("N{i}").into(),
+                                    "out",
+                                    &format!("N{}", i + 1).into(),
+                                    "in",
+                                    None,
+                                )
+                                .unwrap();
+                        }
+
+                        let order_clone = execution_order.clone();
+                        let mut handlers = HandlerRegistry::new();
+                        handlers.insert(
+                            "record".into(),
+                            crate::execute::sync_handler(move |node, _| {
+                                order_clone.lock().unwrap().push(node.id.0.clone());
+                                Ok(Outputs::new())
+                            }),
+                        );
+
+                        let _ = TopologicalExecutor::new()
+                            .execute(&graph, &handlers)
+                            .await
+                            .unwrap();
+
+                        let order = execution_order.lock().unwrap();
+                        prop_assert_eq!(order.len(), chain_len, "not all chain nodes executed");
+                        for i in 1..chain_len {
+                            let prev = order.iter().position(|id| *id == format!("N{}", i - 1));
+                            let curr = order.iter().position(|id| *id == format!("N{i}"));
+                            if let (Some(p), Some(c)) = (prev, curr) {
+                                prop_assert!(p < c, "N{} before N{}", i - 1, i);
+                            }
+                        }
+                        Ok(())
+                    })
+                })
+                .unwrap();
+        }
+    }
 }
