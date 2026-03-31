@@ -137,6 +137,15 @@ impl ExecutionContext {
             .push(event);
     }
 
+    /// Build a trace from events collected so far, without consuming them.
+    ///
+    /// This gives handlers with context access a view of execution history
+    /// up to this point — which nodes ran, in what order, with what outputs.
+    pub fn live_trace(&self) -> crate::execute::trace::ExecutionTrace {
+        let events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+        crate::execute::trace::ExecutionTrace::from_events(&events)
+    }
+
     pub fn take_events(&self) -> Vec<ExecutionEvent> {
         std::mem::take(
             &mut *self
@@ -331,6 +340,43 @@ mod tests {
         // After take, events are empty
         let events2 = ctx.take_events();
         assert!(events2.is_empty());
+    }
+
+    #[test]
+    fn live_trace_shows_history_so_far() {
+        let ctx = ExecutionContext::new();
+
+        // Simulate node A completing
+        ctx.set_state("A", NodeState::Pending).unwrap();
+        ctx.set_state("A", NodeState::Running).unwrap();
+        ctx.store_outputs("A", {
+            let mut o = Outputs::new();
+            o.insert("val".into(), crate::graph::types::Value::I64(1));
+            o
+        });
+        ctx.emit(ExecutionEvent::NodeCompleted {
+            node_id: "A".into(),
+            outputs: {
+                let mut o = Outputs::new();
+                o.insert("val".into(), crate::graph::types::Value::I64(1));
+                o
+            },
+        });
+        ctx.set_state("A", NodeState::Completed).unwrap();
+
+        // Mid-execution: node B is running
+        ctx.set_state("B", NodeState::Pending).unwrap();
+        ctx.set_state("B", NodeState::Running).unwrap();
+
+        // Live trace should show A completed, B not yet in trace (still running)
+        let trace = ctx.live_trace();
+        assert_eq!(trace.completed_nodes().len(), 1);
+        assert_eq!(trace.completed_nodes()[0].node_id, "A");
+        assert!(trace.node("A").unwrap().outputs.is_some());
+
+        // Events are NOT consumed — take_events still works after
+        let events = ctx.take_events();
+        assert!(!events.is_empty());
     }
 
     #[test]
