@@ -309,7 +309,7 @@ Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scr
 |----|---|------|-------------------------------|-----|
 | 4.1.1 | [x] | Execution event bus | Emit structured events for: node state changes, data flow, errors, timing. Subscribe/unsubscribe via `tokio::broadcast` | P0 |
 | 4.1.2 | [x] | Structured logging | Per-node log context (node ID, execution ID, timestamp) via `tracing` crate; configurable verbosity with span hierarchies | P1 |
-| 4.1.3 | [ ] | Execution trace / history | Record full execution trace (which nodes ran, in what order, with what data) for replay and debugging | P1 |
+| 4.1.3 | [x] | Execution trace / history | Record full execution trace (which nodes ran, in what order, with what data) for replay and debugging | P1 |
 | 4.1.4 | [ ] | Performance metrics | Per-node timing, total execution time, bottleneck identification | P2 |
 
 ### 4.2 Developer Tooling
@@ -327,7 +327,7 @@ Embedded scripting via [Rhai](https://rhai.rs/) — a lightweight, sandboxed scr
 |----|---|------|-------------------------------|-----|
 | 4.T.1 | [x] | Event bus tests | Subscribe, receive expected events for node state changes, unsubscribe stops delivery, no event loss under concurrent execution | P0 |
 | 4.T.2 | [ ] | CLI integration tests | Load `.mmd` file via CLI, execute, verify stdout/exit code; test validation mode, error reporting | P1 |
-| 4.T.3 | [ ] | Execution trace tests | Run known graph, verify trace records correct node order, timing, and data snapshots | P1 |
+| 4.T.3 | [x] | Execution trace tests | Run known graph, verify trace records correct node order, timing, and data snapshots | P1 |
 
 ---
 

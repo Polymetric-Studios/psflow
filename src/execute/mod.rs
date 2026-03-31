@@ -10,6 +10,7 @@ pub mod reactive;
 pub mod retry;
 pub mod stepped;
 pub mod topological;
+pub mod trace;
 
 pub use blackboard::{Blackboard, BlackboardScope, ContextInheritance};
 pub use concurrency::ConcurrencyLimits;
@@ -68,6 +69,13 @@ pub struct ExecutionResult {
     pub node_outputs: HashMap<String, Outputs>,
     pub events: Vec<ExecutionEvent>,
     pub elapsed: std::time::Duration,
+}
+
+impl ExecutionResult {
+    /// Build a structured execution trace from this result's events.
+    pub fn trace(&self) -> trace::ExecutionTrace {
+        trace::ExecutionTrace::from_events(&self.events)
+    }
 }
 
 /// Errors from graph execution.

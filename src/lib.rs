@@ -15,6 +15,7 @@ pub use adapter::{
 pub use error::{GraphError, NodeError, PortTypeMismatchInfo};
 pub use execute::blackboard::{Blackboard, BlackboardScope};
 pub use execute::control::{evaluate_guard, GuardResult, LoopConfig};
+pub use execute::trace::{ExecutionTrace, RetryRecord, TraceRecord};
 pub use execute::{
     sync_handler, BackoffStrategy, CancellationToken, ConcurrencyLimits, EventBus,
     EventBusError, EventSubscriber, ExecutionContext, ExecutionError, ExecutionEvent,
