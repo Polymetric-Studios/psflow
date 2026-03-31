@@ -1,0 +1,26 @@
+graph TD
+    A[Generate Data] --> B[Double It]
+    B --> C{Big Enough?}
+    C -->|yes| D[Format Output]
+    C -->|no| E[Too Small]
+
+    %% @A handler: rhai
+    %% @A config.script: "#{ value: 42, label: \"hello world\" }"
+    %% @A outputs.value: "I64"
+    %% @A outputs.label: "String"
+
+    %% @B handler: rhai
+    %% @B config.script: "let v = inputs.value * 2; #{ doubled: v }"
+    %% @B inputs.value: "I64"
+    %% @B outputs.doubled: "I64"
+
+    %% @C handler: branch
+    %% @C config.guard: "inputs.doubled > 50"
+
+    %% @D handler: rhai
+    %% @D config.script: "#{ message: \"Result is \" + inputs.doubled.to_string() }"
+    %% @D inputs.doubled: "I64"
+    %% @D outputs.message: "String"
+
+    %% @E handler: log
+    %% @E config.message: "Value was too small"

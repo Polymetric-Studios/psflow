@@ -82,7 +82,7 @@ function loadTrace(traceData: import("../pkg/psflow_wasm.js").TraceResult): void
   state.nodeStates = new Map();
   state.playing = false;
 
-  for (const id of ["btn-step-back", "btn-play", "btn-step-fwd", "speed-select"]) {
+  for (const id of ["btn-step-back", "btn-play", "btn-step-fwd", "btn-reset", "speed-select"]) {
     (document.getElementById(id) as HTMLButtonElement).disabled = false;
   }
 
@@ -91,6 +91,21 @@ function loadTrace(traceData: import("../pkg/psflow_wasm.js").TraceResult): void
 
 async function loadTraceFile(file: File): Promise<void> {
   loadTrace(parse_trace(await file.text()));
+}
+
+function resetTrace(): void {
+  playback.pause();
+  state.trace = null;
+  state.tracePosition = -1;
+  state.nodeStates = new Map();
+  state.selectedNodeId = null;
+
+  for (const id of ["btn-step-back", "btn-play", "btn-step-fwd", "btn-reset", "speed-select"]) {
+    (document.getElementById(id) as HTMLButtonElement).disabled = true;
+  }
+  document.getElementById("step-counter")!.textContent = "";
+
+  update();
 }
 
 // --- Run graph ---
@@ -239,6 +254,8 @@ async function main(): Promise<void> {
     playback.pause();
     playback.stepBack();
   });
+
+  document.getElementById("btn-reset")!.addEventListener("click", () => resetTrace());
 
   document.getElementById("speed-select")!.addEventListener("change", (e) => {
     playback.setSpeed(parseFloat((e.target as HTMLSelectElement).value));
