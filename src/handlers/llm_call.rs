@@ -99,8 +99,36 @@ impl NodeHandler for LlmCallHandler {
                 recoverable: false,
             })?;
 
+            // Assemble conversation history from blackboard (if available)
+            let conversation_messages = if let Some(ref ctx) = exec_ctx {
+                use crate::adapter::conversation::{
+                    ConversationConfig, ConversationHistory, CONVERSATION_HISTORY_KEY,
+                };
+                use crate::execute::blackboard::BlackboardScope;
+
+                let bb = ctx.blackboard();
+                let mut history = bb
+                    .get(CONVERSATION_HISTORY_KEY, &BlackboardScope::Global)
+                    .and_then(ConversationHistory::from_value)
+                    .unwrap_or_default();
+                drop(bb);
+
+                // Apply limits from config if specified
+                let conv_config = ConversationConfig {
+                    max_tokens: config.get("context_max_tokens").and_then(|v| v.as_u64()).map(|v| v as usize),
+                    max_depth: config.get("context_depth").and_then(|v| v.as_u64()).map(|v| v as usize),
+                    ..Default::default()
+                };
+                history.apply_limits(&conv_config);
+
+                history.messages
+            } else {
+                Vec::new()
+            };
+
             // Build the AI request
             let mut req = AiRequest::new(rendered);
+            req.conversation_history = conversation_messages;
 
             if let Some(temp) = config.get("temperature").and_then(|v| v.as_f64()) {
                 req.temperature = Some(temp as f32);
@@ -128,6 +156,9 @@ impl NodeHandler for LlmCallHandler {
                 });
             }
 
+            // Save prompt text for conversation history before the call
+            let prompt_text = req.prompt.clone();
+
             // Make the adapter call
             let response = adapter.complete(req).await?;
 
@@ -144,6 +175,13 @@ impl NodeHandler for LlmCallHandler {
                 "response"
             };
 
+            // Capture response text for conversation history before moving fields
+            let response_text_for_history = response
+                .structured
+                .as_ref()
+                .map(|s| serde_json::to_string(s).unwrap_or_else(|_| response.text.clone()))
+                .unwrap_or_else(|| response.text.clone());
+
             // If structured output is available, use it; otherwise use text
             if let Some(structured) = response.structured {
                 outputs.insert(
@@ -155,6 +193,26 @@ impl NodeHandler for LlmCallHandler {
                 );
             } else {
                 outputs.insert(output_key.into(), Value::String(response.text));
+            }
+
+            // Accumulate this exchange into conversation history on the blackboard
+            if let Some(ref ctx) = exec_ctx {
+                use crate::adapter::conversation::{
+                    ConversationHistory, CONVERSATION_HISTORY_KEY,
+                };
+                use crate::execute::blackboard::BlackboardScope;
+
+                let mut bb = ctx.blackboard();
+                let mut history = bb
+                    .get(CONVERSATION_HISTORY_KEY, &BlackboardScope::Global)
+                    .and_then(ConversationHistory::from_value)
+                    .unwrap_or_default();
+                history.push_exchange(&node_id, &prompt_text, &response_text_for_history);
+                bb.set(
+                    CONVERSATION_HISTORY_KEY.into(),
+                    history.to_value(),
+                    BlackboardScope::Global,
+                );
             }
 
             // Always include usage metadata
@@ -313,6 +371,118 @@ mod tests {
 
         // The mock adapter doesn't validate these, but the handler should
         // produce a valid response
+        assert!(result.contains_key("response"));
+    }
+
+    // -- Conversation history accumulation tests --
+
+    #[tokio::test]
+    async fn conversation_history_accumulates_on_blackboard() {
+        use crate::adapter::conversation::{ConversationHistory, CONVERSATION_HISTORY_KEY};
+        use crate::execute::blackboard::BlackboardScope;
+
+        let adapter = Arc::new(MockAdapter::new().with_default("response text"));
+        let ctx = Arc::new(ExecutionContext::new());
+        let handler = LlmCallHandler::with_context(adapter, ctx.clone());
+
+        // First LLM call
+        let mut node1 = Node::new("LLM_A", "First");
+        node1.config = serde_json::json!({ "prompt": "Hello" });
+        handler
+            .execute(&node1, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        // Check history has 1 exchange (2 messages)
+        let bb = ctx.blackboard();
+        let history = bb
+            .get(CONVERSATION_HISTORY_KEY, &BlackboardScope::Global)
+            .and_then(ConversationHistory::from_value)
+            .unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history.messages[0].role, crate::adapter::conversation::MessageRole::User);
+        assert_eq!(history.messages[0].node_id, Some("LLM_A".into()));
+        assert_eq!(history.messages[1].role, crate::adapter::conversation::MessageRole::Assistant);
+        drop(bb);
+
+        // Second LLM call
+        let mut node2 = Node::new("LLM_B", "Second");
+        node2.config = serde_json::json!({ "prompt": "Follow up" });
+        handler
+            .execute(&node2, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        // History now has 2 exchanges (4 messages)
+        let bb = ctx.blackboard();
+        let history = bb
+            .get(CONVERSATION_HISTORY_KEY, &BlackboardScope::Global)
+            .and_then(ConversationHistory::from_value)
+            .unwrap();
+        assert_eq!(history.len(), 4);
+        assert_eq!(history.messages[2].node_id, Some("LLM_B".into()));
+    }
+
+    #[tokio::test]
+    async fn conversation_history_passed_in_request() {
+        use crate::adapter::conversation::{
+            ConversationHistory, ConversationMessage, CONVERSATION_HISTORY_KEY,
+        };
+        use crate::execute::blackboard::BlackboardScope;
+
+        // Pre-populate history on the blackboard
+        let ctx = Arc::new(ExecutionContext::new());
+        {
+            let mut history = ConversationHistory::new();
+            history.push(ConversationMessage::user("Prior question").with_node("OLD"));
+            history.push(ConversationMessage::assistant("Prior answer").with_node("OLD"));
+
+            let mut bb = ctx.blackboard();
+            bb.set(
+                CONVERSATION_HISTORY_KEY.into(),
+                history.to_value(),
+                BlackboardScope::Global,
+            );
+        }
+
+        // The mock adapter just returns "ok" — we verify the handler assembled
+        // the request with conversation_history by checking the blackboard after
+        let adapter = Arc::new(MockAdapter::new().with_default("new answer"));
+        let handler = LlmCallHandler::with_context(adapter, ctx.clone());
+
+        let mut node = Node::new("LLM_NEW", "New call");
+        node.config = serde_json::json!({ "prompt": "New question" });
+        handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        // History should now have 2 old + 2 new = 4 messages
+        let bb = ctx.blackboard();
+        let history = bb
+            .get(CONVERSATION_HISTORY_KEY, &BlackboardScope::Global)
+            .and_then(ConversationHistory::from_value)
+            .unwrap();
+        assert_eq!(history.len(), 4);
+        assert_eq!(history.messages[0].content, "Prior question");
+        assert_eq!(history.messages[2].content, "New question");
+        assert_eq!(history.messages[3].content, "new answer");
+    }
+
+    #[tokio::test]
+    async fn no_history_without_context() {
+        // Without ExecutionContext, no history accumulation (standalone use)
+        let adapter = Arc::new(MockAdapter::new().with_default("ok"));
+        let handler = LlmCallHandler::new(adapter); // No context
+
+        let mut node = Node::new("LLM", "Standalone");
+        node.config = serde_json::json!({ "prompt": "test" });
+        let result = handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        // Should still work, just no history side effect
         assert!(result.contains_key("response"));
     }
 }

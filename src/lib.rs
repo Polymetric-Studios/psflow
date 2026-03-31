@@ -10,7 +10,9 @@ pub mod template;
 
 pub use adapter::{
     AdapterCapabilities, AdapterRegistry, AiAdapter, AiRequest, AiResponse, ClaudeCliAdapter,
-    MockAdapter, TokenUsage,
+    ConversationConfig, ConversationHistory, ConversationMessage, MessageRole, MockAdapter,
+    TokenUsage,
+    CONVERSATION_HISTORY_KEY,
 };
 pub use error::{GraphError, NodeError, PortTypeMismatchInfo};
 pub use execute::blackboard::{Blackboard, BlackboardScope};

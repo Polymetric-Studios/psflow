@@ -1,8 +1,13 @@
 pub mod claude_cli;
+pub mod conversation;
 pub mod mock;
 pub mod registry;
 
 pub use claude_cli::ClaudeCliAdapter;
+pub use conversation::{
+    ConversationConfig, ConversationHistory, ConversationMessage, MessageRole,
+    CONVERSATION_HISTORY_KEY,
+};
 pub use mock::MockAdapter;
 pub use registry::AdapterRegistry;
 
@@ -85,6 +90,11 @@ pub struct AiRequest {
     /// Optional model override (adapter-specific).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Conversation history for stateless adapters.
+    /// Assembled from prior LLM interactions on the ancestor path.
+    /// Stateful adapters (e.g., Claude CLI in `continue` mode) may ignore this.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conversation_history: Vec<conversation::ConversationMessage>,
 }
 
 impl AiRequest {
@@ -97,6 +107,7 @@ impl AiRequest {
             max_tokens: None,
             stop_sequences: Vec::new(),
             model: None,
+            conversation_history: Vec::new(),
         }
     }
 
