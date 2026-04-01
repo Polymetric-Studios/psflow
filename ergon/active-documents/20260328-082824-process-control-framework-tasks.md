@@ -355,7 +355,7 @@ The WASM-compiled Mermaid parser maps each node ID to its text ranges in the sou
 |----|---|------|-------------------------------|-----|
 | 5.2.1 | [x] | Node range mapping | On file load, call WASM `parse_mmd()` to get node-to-range map. Each entry: `{ nodeId, definitionRange: [from, to], annotationRange: [from, to] }`. Rebuild on file change. Handle parse errors gracefully (show error in editor, don't crash) | P0 |
 | 5.2.2 | [x] | State decoration extension | CodeMirror extension that applies `Decoration.mark()` to node ranges based on current execution state. CSS classes: `.node-idle` (no decoration), `.node-pending` (yellow left border), `.node-running` (blue background + left border, subtle pulse animation), `.node-completed` (green left border), `.node-failed` (red background + left border), `.node-cancelled` (orange left border, dimmed text). Decorations update via `StateEffect` when trace position changes | P0 |
-| 5.2.3 | [ ] | Gutter markers | CodeMirror gutter extension showing state icons/dots on the first line of each node's definition. Click a gutter marker to select that node (opens inspector). Color matches the state decoration. Shows timing badge (duration in ms) when trace data is loaded | P1 |
+| 5.2.3 | [x] | Gutter markers | CodeMirror gutter extension showing state icons/dots on the first line of each node's definition. Click a gutter marker to select that node (opens inspector). Color matches the state decoration. Shows timing badge (duration in ms) when trace data is loaded | P1 |
 | 5.2.4 | [x] | Node selection | Click anywhere in a node's text range to select it. Selected node gets a distinct highlight (stronger border/background). Selection drives the inspector panel. Keyboard navigation: up/down to move between nodes in execution order, left/right for dependency chain | P1 |
 
 ### 5.3 Trace Playback
@@ -373,7 +373,7 @@ The WASM-compiled Mermaid parser maps each node ID to its text ranges in the sou
 |----|---|------|-------------------------------|-----|
 | 5.4.1 | [x] | Node inspector panel | Side panel showing details for the selected node at the current trace position. Static info: handler, config, port types. Runtime info: current state, inputs received, outputs produced, error (if failed), duration. JSON viewer with syntax highlighting for data values. Collapsible sections | P0 |
 | 5.4.2 | [ ] | Blackboard inspector | Tab or section in the inspector showing blackboard state at the current trace position. Scoped view: global, subgraph-local, node-local. Searchable. Highlights values that changed in the current step | P1 |
-| 5.4.3 | [ ] | Hover tooltips | Hover over a node definition line to see a compact summary tooltip: state, duration, output type. Hover over an annotation value to see the resolved runtime value (e.g., template variables expanded). Uses CodeMirror `hoverTooltip` facet | P1 |
+| 5.4.3 | [x] | Hover tooltips | Hover over a node definition line to see a compact summary tooltip: state, duration, output type. Hover over an annotation value to see the resolved runtime value (e.g., template variables expanded). Uses CodeMirror `hoverTooltip` facet | P1 |
 
 ### 5.5 Live Connection
 
