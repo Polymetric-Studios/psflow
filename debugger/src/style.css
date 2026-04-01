@@ -154,6 +154,33 @@ select {
   background: rgba(137, 180, 250, 0.06);
 }
 
+/* Live connection controls */
+#live-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.ws-port-input {
+  width: 48px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+.ws-port-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+
+#btn-connect {
+  background: var(--state-running-border);
+  color: var(--bg);
+  font-weight: 600;
+}
+#btn-connect:hover:not(:disabled) { border-color: #fff; }
+
 /* Timeline */
 #timeline-pane {
   height: 40px;

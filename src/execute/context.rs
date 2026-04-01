@@ -159,6 +159,17 @@ impl ExecutionContext {
         self.live_trace().for_node(node_id, graph)
     }
 
+    /// Number of events collected so far.
+    pub fn event_count(&self) -> usize {
+        self.events.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    /// Return events emitted since the given index (non-consuming).
+    pub fn events_since(&self, start: usize) -> Vec<ExecutionEvent> {
+        let events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+        events[start..].to_vec()
+    }
+
     pub fn take_events(&self) -> Vec<ExecutionEvent> {
         std::mem::take(
             &mut *self

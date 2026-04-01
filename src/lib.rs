@@ -16,6 +16,8 @@ pub mod registry;
 pub mod scripting;
 #[cfg(feature = "runtime")]
 pub mod template;
+#[cfg(feature = "runtime")]
+pub mod debug_server;
 
 // Always-available re-exports
 pub use error::{GraphError, NodeError, PortTypeMismatchInfo};
@@ -48,7 +50,7 @@ pub use execute::{
     sync_handler, BackoffStrategy, CancellationToken, ConcurrencyLimits, EventBus,
     EventBusError, EventSubscriber, ExecutionContext, ExecutionError, ExecutionEvent,
     ExecutionResult, Executor, HandlerRegistry, NodeHandler, NodeState, Outputs,
-    RetryConfig, TopologicalExecutor,
+    RetryConfig, SteppedExecutor, TickResult, TopologicalExecutor,
 };
 #[cfg(feature = "runtime")]
 pub use handlers::{

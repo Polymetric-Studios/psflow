@@ -379,8 +379,8 @@ The WASM-compiled Mermaid parser maps each node ID to its text ranges in the sou
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 5.5.1 | [ ] | WebSocket event sink in engine | Add `tokio-tungstenite` WebSocket server to the psflow engine, configurable via CLI flag (`--debug-ws <port>`). Streams execution events from the event bus (4.1.1) as JSON. Accepts commands: pause, resume, step (execute one node then pause), cancel. Engine starts in paused mode when `--debug-ws` is set — waits for debugger to connect and send `resume` or `step` before executing | P1 |
-| 5.5.2 | [ ] | Live step-through in debugger | Connect to a running psflow process via WebSocket. The debugger controls execution: click Step to execute the next node, click Run to continue to completion (or next breakpoint). Each node completion streams as a real-time event — decorations and inspector update live as each node finishes. This is the "step through execution as it happens" mode, distinct from post-hoc trace replay. Auto-scroll editor to the currently running node. Reconnect on disconnect | P1 |
+| 5.5.1 | [x] | WebSocket event sink in engine | Add `tokio-tungstenite` WebSocket server to the psflow engine, configurable via CLI flag (`--debug-ws <port>`). Streams execution events from the event bus (4.1.1) as JSON. Accepts commands: pause, resume, step (execute one node then pause), cancel. Engine starts in paused mode when `--debug-ws` is set — waits for debugger to connect and send `resume` or `step` before executing | P1 |
+| 5.5.2 | [x] | Live step-through in debugger | Connect to a running psflow process via WebSocket. The debugger controls execution: click Step to execute the next node, click Run to continue to completion (or next breakpoint). Each node completion streams as a real-time event — decorations and inspector update live as each node finishes. This is the "step through execution as it happens" mode, distinct from post-hoc trace replay. Auto-scroll editor to the currently running node. Reconnect on disconnect | P1 |
 
 ### 5.6 Export
 

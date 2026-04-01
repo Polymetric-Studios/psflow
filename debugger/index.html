@@ -30,6 +30,13 @@
         <span id="step-counter" class="label"></span>
       </div>
       <div class="toolbar-right">
+        <div id="live-controls" style="display:none">
+          <button id="btn-live-step" title="Step one tick">Step</button>
+          <button id="btn-live-resume" title="Resume execution">Resume</button>
+          <button id="btn-live-pause" title="Pause execution" disabled>Pause</button>
+        </div>
+        <input id="ws-port" type="text" value="9001" title="WebSocket port" class="ws-port-input" />
+        <button id="btn-connect" title="Connect to debug server">Connect</button>
         <span id="status" class="label">No file loaded</span>
       </div>
     </header>

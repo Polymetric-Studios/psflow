@@ -25,6 +25,11 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     trace: Option<PathBuf>,
 
+    /// Start a WebSocket debug server on the given port.
+    /// The engine starts paused and waits for a debugger to connect.
+    #[arg(long, value_name = "PORT")]
+    debug_ws: Option<u16>,
+
     /// Log verbosity. Repeat for more detail: -v (info), -vv (debug), -vvv (trace).
     /// Can also be set via RUST_LOG env var (e.g. RUST_LOG=psflow=debug).
     #[arg(short, long, action = clap::ArgAction::Count)]
@@ -113,6 +118,23 @@ fn main() -> ExitCode {
     // Execute the graph
     let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
     let handlers = registry.into_handler_registry();
+
+    // Debug server mode: start WebSocket server instead of normal execution
+    if let Some(port) = cli.debug_ws {
+        return rt.block_on(async {
+            match psflow::debug_server::run_debug_server(port, content, &graph, &handlers).await {
+                Ok(()) => {
+                    eprintln!("debug session ended");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("debug server error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        });
+    }
+
     let result = rt.block_on(async {
         TopologicalExecutor::new()
             .execute(&graph, &handlers)

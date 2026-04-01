@@ -4,12 +4,14 @@ import { createState, saveBreakpoints, type DebuggerState } from "./state.js";
 import { renderInspector, setInspectorOnUpdate } from "./inspector.js";
 import { createPlayback, type PlaybackController } from "./playback.js";
 import { initTimeline, updateTimeline } from "./timeline.js";
+import { connectLive, applyDebugEvents, type LiveConnection, type LiveStatus } from "./live.js";
 
 // --- Global state ---
 
 const state: DebuggerState = createState();
 let editor: EditorHandle;
 let playback: PlaybackController;
+let liveConn: LiveConnection | null = null;
 
 // --- UI update ---
 
@@ -152,6 +154,98 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// --- Live connection ---
+
+function startLiveConnection(url: string): void {
+  if (liveConn) liveConn.disconnect();
+
+  // Reset state for live mode
+  state.trace = null;
+  state.tracePosition = -1;
+  state.nodeStates = new Map();
+  state.playing = false;
+
+  liveConn = connectLive(url, {
+    onGraph(source) {
+      setSource(source, "live");
+      updateLiveUI("paused");
+    },
+
+    onEvents(events) {
+      // Apply events to node states
+      state.nodeStates = applyDebugEvents(state.nodeStates, events);
+      update();
+
+      // Auto-scroll to the latest running node
+      const running = events.find(e => e.to_state === "running");
+      if (running) {
+        editor.scrollToNode(running.node_id);
+      }
+    },
+
+    onStatusChange(status) {
+      updateLiveUI(status);
+    },
+
+    onComplete(traceJson) {
+      // Load the final trace for replay
+      const trace = parse_trace(traceJson);
+      loadTrace(trace);
+      playback.seekTo(state.trace!.events.length - 1);
+      updateLiveUI("complete");
+    },
+
+    onError(message) {
+      document.getElementById("status")!.textContent = `Live error: ${message}`;
+    },
+  });
+}
+
+function updateLiveUI(liveStatus: LiveStatus): void {
+  const statusEl = document.getElementById("status")!;
+  const btnConnect = document.getElementById("btn-connect") as HTMLButtonElement;
+  const btnLiveStep = document.getElementById("btn-live-step") as HTMLButtonElement;
+  const btnLiveResume = document.getElementById("btn-live-resume") as HTMLButtonElement;
+  const btnLivePause = document.getElementById("btn-live-pause") as HTMLButtonElement;
+  const liveControls = document.getElementById("live-controls")!;
+
+  switch (liveStatus) {
+    case "connecting":
+      statusEl.textContent = "Connecting...";
+      btnConnect.textContent = "Disconnect";
+      liveControls.style.display = "none";
+      break;
+    case "paused":
+      statusEl.textContent = "Live: paused";
+      btnConnect.textContent = "Disconnect";
+      liveControls.style.display = "flex";
+      btnLiveStep.disabled = false;
+      btnLiveResume.disabled = false;
+      btnLivePause.disabled = true;
+      break;
+    case "running":
+      statusEl.textContent = "Live: running";
+      btnConnect.textContent = "Disconnect";
+      liveControls.style.display = "flex";
+      btnLiveStep.disabled = true;
+      btnLiveResume.disabled = true;
+      btnLivePause.disabled = false;
+      break;
+    case "complete":
+      statusEl.textContent = "Live: complete (trace loaded)";
+      btnConnect.textContent = "Connect";
+      liveControls.style.display = "none";
+      liveConn = null;
+      break;
+    case "disconnected":
+      statusEl.textContent = "Disconnected";
+      btnConnect.textContent = "Connect";
+      liveControls.style.display = "none";
+      liveConn = null;
+      break;
+  }
+}
+
 // --- Keyboard shortcuts ---
 
 function handleKeyboard(e: KeyboardEvent): void {
@@ -275,6 +369,24 @@ async function main(): Promise<void> {
   document.getElementById("speed-select")!.addEventListener("change", (e) => {
     playback.setSpeed(parseFloat((e.target as HTMLSelectElement).value));
   });
+
+  // Live connection controls
+  document.getElementById("btn-connect")!.addEventListener("click", () => {
+    if (liveConn) {
+      liveConn.disconnect();
+    } else {
+      const portStr = (document.getElementById("ws-port") as HTMLInputElement).value || "9001";
+      const port = parseInt(portStr, 10);
+      if (isNaN(port) || port < 1 || port > 65535) {
+        document.getElementById("status")!.textContent = "Invalid port";
+        return;
+      }
+      startLiveConnection(`ws://127.0.0.1:${port}`);
+    }
+  });
+  document.getElementById("btn-live-step")!.addEventListener("click", () => liveConn?.step());
+  document.getElementById("btn-live-resume")!.addEventListener("click", () => liveConn?.resume());
+  document.getElementById("btn-live-pause")!.addEventListener("click", () => liveConn?.pause());
 
   // Keyboard shortcuts
   document.addEventListener("keydown", handleKeyboard);
