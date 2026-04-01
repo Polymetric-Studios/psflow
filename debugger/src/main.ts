@@ -1,7 +1,7 @@
 import { initWasm, parse_mmd, parse_trace } from "./wasm.js";
 import { createEditor, type EditorHandle } from "./editor.js";
-import { createState, type DebuggerState } from "./state.js";
-import { renderInspector } from "./inspector.js";
+import { createState, saveBreakpoints, type DebuggerState } from "./state.js";
+import { renderInspector, setInspectorOnUpdate } from "./inspector.js";
 import { createPlayback, type PlaybackController } from "./playback.js";
 import { initTimeline, updateTimeline } from "./timeline.js";
 
@@ -17,6 +17,7 @@ function update(): void {
   editor.updateNodeStates(state.nodeStates);
   editor.updateTrace(state.trace, state.tracePosition);
   editor.selectNode(state.selectedNodeId);
+  editor.updateBreakpoints(state.breakpoints);
   renderInspector(state);
   updateTimeline(state);
   updateToolbar();
@@ -216,11 +217,24 @@ async function main(): Promise<void> {
     (nodeId) => {
       state.selectedNodeId = nodeId;
       update();
-    }
+    },
+    (nodeId) => {
+      // Toggle breakpoint
+      if (state.breakpoints.has(nodeId)) {
+        state.breakpoints.delete(nodeId);
+      } else {
+        state.breakpoints.add(nodeId);
+      }
+      saveBreakpoints(state.breakpoints);
+      update();
+    },
   );
 
   // Create playback controller
   playback = createPlayback(state, update);
+
+  // Inspector update callback (for breakpoint list click → re-render)
+  setInspectorOnUpdate(update);
 
   // Init timeline
   initTimeline(state, playback);

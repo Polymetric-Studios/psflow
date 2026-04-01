@@ -22,6 +22,9 @@ export const setTraceResult = StateEffect.define<TraceResult | null>();
 /** Effect to set the current trace position. */
 export const setTracePosition = StateEffect.define<number>();
 
+/** Effect to update the set of breakpointed node IDs. */
+export const setBreakpoints = StateEffect.define<Set<string>>();
+
 // --- Decoration classes ---
 
 const nodeDecorations: Record<string, Decoration> = {
@@ -96,6 +99,18 @@ const selectedNodeField = StateField.define<string | null>({
   update(value, tr) {
     for (const e of tr.effects) {
       if (e.is(setSelectedNode)) return e.value;
+    }
+    return value;
+  },
+});
+
+// --- Breakpoints field ---
+
+const breakpointsField = StateField.define<Set<string>>({
+  create: () => new Set(),
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setBreakpoints)) return e.value;
     }
     return value;
   },
@@ -183,12 +198,21 @@ function buildDecorationsFromState(
 // --- Gutter ---
 
 class StateDotMarker extends GutterMarker {
-  constructor(readonly nodeState: NodeState, readonly elapsedMs?: number) {
+  constructor(
+    readonly nodeState: NodeState,
+    readonly hasBreakpoint: boolean,
+    readonly elapsedMs?: number,
+  ) {
     super();
   }
   toDOM(): Node {
     const wrap = document.createElement("span");
     wrap.className = "cm-gutter-marker-wrap";
+    if (this.hasBreakpoint) {
+      const bp = document.createElement("span");
+      bp.className = "cm-breakpoint-dot";
+      wrap.appendChild(bp);
+    }
     const dot = document.createElement("span");
     dot.className = `cm-state-dot ${this.nodeState}`;
     wrap.appendChild(dot);
@@ -202,30 +226,65 @@ class StateDotMarker extends GutterMarker {
   }
 }
 
-const stateGutter = gutter({
-  class: "cm-gutter-state",
-  lineMarker(view, line) {
-    const parseResult = view.state.field(parseResultField);
-    const nodeStates = view.state.field(nodeStatesField);
-    const trace = view.state.field(traceResultField);
-    const tracePos = view.state.field(tracePositionField);
-    if (!parseResult) return null;
+/** Marker shown on lines with a breakpoint but no execution state yet. */
+class BreakpointOnlyMarker extends GutterMarker {
+  toDOM(): Node {
+    const wrap = document.createElement("span");
+    wrap.className = "cm-gutter-marker-wrap";
+    const bp = document.createElement("span");
+    bp.className = "cm-breakpoint-dot";
+    wrap.appendChild(bp);
+    return wrap;
+  }
+}
 
-    for (const node of parseResult.nodes) {
-      if (node.definition.from < view.state.doc.length) {
-        const defLine = view.state.doc.lineAt(node.definition.from);
-        if (defLine.from === line.from) {
-          const state = nodeStates.get(node.id);
-          if (state && state !== "idle") {
-            const event = trace ? getNodeEvent(trace, tracePos, node.id) : null;
-            return new StateDotMarker(state, event?.elapsed_ms ?? undefined);
+function createStateGutter(onBreakpointToggle: (nodeId: string) => void): ReturnType<typeof gutter> {
+  return gutter({
+    class: "cm-gutter-state",
+    lineMarker(view, line) {
+      const parseResult = view.state.field(parseResultField);
+      const nodeStates = view.state.field(nodeStatesField);
+      const breakpoints = view.state.field(breakpointsField);
+      const trace = view.state.field(traceResultField);
+      const tracePos = view.state.field(tracePositionField);
+      if (!parseResult) return null;
+
+      for (const node of parseResult.nodes) {
+        if (node.definition.from < view.state.doc.length) {
+          const defLine = view.state.doc.lineAt(node.definition.from);
+          if (defLine.from === line.from) {
+            const state = nodeStates.get(node.id);
+            const hasBp = breakpoints.has(node.id);
+            if (state && state !== "idle") {
+              const event = trace ? getNodeEvent(trace, tracePos, node.id) : null;
+              return new StateDotMarker(state, hasBp, event?.elapsed_ms ?? undefined);
+            }
+            if (hasBp) {
+              return new BreakpointOnlyMarker();
+            }
           }
         }
       }
-    }
-    return null;
-  },
-});
+      return null;
+    },
+    domEventHandlers: {
+      click(view, line) {
+        const parseResult = view.state.field(parseResultField);
+        if (!parseResult) return false;
+        for (const node of parseResult.nodes) {
+          if (node.definition.from < view.state.doc.length) {
+            const defLine = view.state.doc.lineAt(node.definition.from);
+            if (defLine.from === line.from) {
+              onBreakpointToggle(node.id);
+              return true;
+            }
+          }
+        }
+        return false;
+      },
+    },
+  });
+}
 
 // --- Hover tooltips ---
 
@@ -309,12 +368,14 @@ export interface EditorHandle {
   updateNodeStates(states: Map<string, NodeState>): void;
   updateTrace(trace: TraceResult | null, position: number): void;
   selectNode(nodeId: string | null): void;
+  updateBreakpoints(breakpoints: Set<string>): void;
   scrollToNode(nodeId: string): void;
 }
 
 export function createEditor(
   parent: HTMLElement,
-  onNodeSelect: (nodeId: string | null) => void
+  onNodeSelect: (nodeId: string | null) => void,
+  onBreakpointToggle: (nodeId: string) => void,
 ): EditorHandle {
   const view = new EditorView({
     state: EditorState.create({
@@ -327,8 +388,9 @@ export function createEditor(
         selectedNodeField,
         traceResultField,
         tracePositionField,
+        breakpointsField,
         decorationField,
-        stateGutter,
+        createStateGutter(onBreakpointToggle),
         nodeHoverTooltip,
         EditorView.domEventHandlers({
           click(event, view) {
@@ -407,6 +469,10 @@ export function createEditor(
 
     selectNode(nodeId: string | null) {
       view.dispatch({ effects: setSelectedNode.of(nodeId) });
+    },
+
+    updateBreakpoints(breakpoints: Set<string>) {
+      view.dispatch({ effects: setBreakpoints.of(breakpoints) });
     },
 
     scrollToNode(nodeId: string) {

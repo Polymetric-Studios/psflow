@@ -118,17 +118,6 @@ select {
   overflow: hidden;
 }
 
-#inspector-header {
-  padding: 8px 12px;
-  font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
 #inspector-content {
   flex: 1;
   overflow-y: auto;
@@ -140,13 +129,40 @@ select {
   font-style: italic;
 }
 
+/* Blackboard inspector */
+.bb-search {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+}
+.bb-search:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.bb-search::placeholder { color: var(--text-dim); }
+
+.bb-changed {
+  background: rgba(166, 227, 161, 0.08);
+  border-left: 2px solid var(--state-completed-border);
+  padding-left: 6px;
+  margin-left: -8px;
+}
+
+.bp-row:hover {
+  background: rgba(137, 180, 250, 0.06);
+}
+
 /* Timeline */
 #timeline-pane {
-  height: 32px;
+  height: 40px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
   position: relative;
+  display: flex;
+  align-items: center;
 }
 
 /* CodeMirror node state decorations */
@@ -216,6 +232,54 @@ select {
 .cm-state-dot.failed   { background: var(--state-failed-border); }
 .cm-state-dot.cancelled { background: var(--state-cancelled-border); }
 
+/* Breakpoint marker */
+.cm-breakpoint-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--state-failed-border);
+  margin: 3px 1px;
+  box-shadow: 0 0 4px rgba(243, 139, 168, 0.4);
+}
+
+.cm-breakpoint-dot.inline {
+  margin: 0 4px 0 0;
+  vertical-align: middle;
+}
+
+/* Inspector tabs */
+.inspector-tabs {
+  display: flex;
+  gap: 0;
+}
+
+.inspector-tabs .tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.inspector-tabs .tab:hover { color: var(--text); }
+
+.inspector-tabs .tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+#inspector-header {
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
 /* Inspector sections */
 .inspector-section {
   margin-bottom: 12px;
@@ -252,34 +316,70 @@ select {
   overflow-y: auto;
 }
 
+/* Timeline controls */
+#timeline-controls {
+  display: flex;
+  gap: 2px;
+  padding: 0 6px 0 8px;
+  flex-shrink: 0;
+}
+
+#timeline-controls button {
+  padding: 2px 6px;
+  font-size: 11px;
+  min-width: 24px;
+}
+
 /* Timeline scrubber */
 #timeline-bar {
-  position: absolute;
-  top: 4px;
-  left: 0;
-  right: 0;
-  bottom: 4px;
+  flex: 1;
+  height: 24px;
   background: var(--bg);
   border-radius: 4px;
-  margin: 0 12px;
+  margin: 0 8px 0 0;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
 }
 
 #timeline-progress {
-  height: 100%;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
   background: var(--accent);
   border-radius: 4px;
-  opacity: 0.3;
+  opacity: 0.15;
   width: 0%;
-  transition: width 0.1s;
+}
+
+#timeline-ticks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
 }
 
 .timeline-tick {
   position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  opacity: 0.7;
+}
+
+#timeline-playhead {
+  position: absolute;
   top: 0;
   bottom: 0;
   width: 2px;
+  background: var(--text);
   border-radius: 1px;
+  z-index: 1;
+  transform: translateX(-1px);
 }
 
 /* Node hover tooltip */
