@@ -11,6 +11,7 @@ use crate::graph::node::NodeId;
 use crate::graph::{Graph, SubgraphDirective};
 use petgraph::algo::toposort;
 use petgraph::stable_graph::NodeIndex;
+use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -604,13 +605,40 @@ fn parse_loop_config(graph: &Graph, node_ids: &[NodeId]) -> control::LoopConfig 
 }
 
 /// Group nodes into parallel waves based on dependency depth.
+///
+/// Handles cycles by identifying back-edges (edges that create cycles) and
+/// excluding them from the dependency ordering. Back-edges are typically
+/// feedback loops (retry, human-in-the-loop) where a downstream node routes
+/// back to an earlier node. These are valid workflow patterns — the executor
+/// handles them via subgraph loop directives.
 pub(crate) fn compute_waves(graph: &Graph) -> Result<Vec<Vec<NodeId>>, ExecutionError> {
-    let topo = toposort(&graph.inner, None).map_err(|cycle| {
-        ExecutionError::ValidationFailed(format!(
-            "cycle detected at node '{}'",
-            graph.inner[cycle.node_id()].id
-        ))
-    })?;
+    // Try direct toposort first (fast path for DAGs)
+    let topo = match toposort(&graph.inner, None) {
+        Ok(t) => t,
+        Err(_) => {
+            // Graph has cycles — find and remove DFS back-edges to make it a DAG.
+            // Back-edges are the edges that create cycles; removing them breaks all
+            // cycles while preserving the forward dependency structure.
+            let mut filtered = graph.inner.clone();
+            let back_edges = find_back_edges(&filtered);
+
+            let removed_count = back_edges.len();
+            // Remove in reverse index order to keep edge indices stable
+            let mut sorted_edges = back_edges;
+            sorted_edges.sort_unstable();
+            for e in sorted_edges.into_iter().rev() {
+                filtered.remove_edge(e);
+            }
+            debug!(removed_count, "removed back-edges to break cycles");
+
+            toposort(&filtered, None).map_err(|cycle| {
+                ExecutionError::ValidationFailed(format!(
+                    "unresolvable cycle at node '{}' (persists after removing back-edges)",
+                    graph.inner[cycle.node_id()].id
+                ))
+            })?
+        }
+    };
 
     let mut node_wave: HashMap<NodeIndex, usize> = HashMap::new();
     let mut waves: Vec<Vec<NodeId>> = Vec::new();
@@ -632,6 +660,49 @@ pub(crate) fn compute_waves(graph: &Graph) -> Result<Vec<Vec<NodeId>>, Execution
     }
 
     Ok(waves)
+}
+
+/// Find DFS back-edges in a directed graph. Back-edges are edges that point
+/// from a node to one of its ancestors in the DFS tree — these are exactly
+/// the edges whose removal breaks all cycles.
+fn find_back_edges(
+    graph: &petgraph::stable_graph::StableDiGraph<crate::graph::node::Node, crate::graph::edge::EdgeData>,
+) -> Vec<petgraph::graph::EdgeIndex> {
+    use petgraph::stable_graph::EdgeIndex;
+
+    let mut back_edges = Vec::new();
+    let mut visiting = HashSet::new(); // Currently on the DFS stack (grey nodes)
+    let mut visited = HashSet::new();  // Fully processed (black nodes)
+
+    fn dfs(
+        node: NodeIndex,
+        graph: &petgraph::stable_graph::StableDiGraph<crate::graph::node::Node, crate::graph::edge::EdgeData>,
+        visiting: &mut HashSet<NodeIndex>,
+        visited: &mut HashSet<NodeIndex>,
+        back_edges: &mut Vec<EdgeIndex>,
+    ) {
+        visiting.insert(node);
+        let neighbors: Vec<_> = graph.edges_directed(node, Direction::Outgoing)
+            .map(|e| (e.id(), e.target()))
+            .collect();
+        for (edge_id, target) in neighbors {
+            if visiting.contains(&target) {
+                back_edges.push(edge_id);
+            } else if !visited.contains(&target) {
+                dfs(target, graph, visiting, visited, back_edges);
+            }
+        }
+        visiting.remove(&node);
+        visited.insert(node);
+    }
+
+    for node in graph.node_indices() {
+        if !visited.contains(&node) {
+            dfs(node, graph, &mut visiting, &mut visited, &mut back_edges);
+        }
+    }
+
+    back_edges
 }
 
 /// Collect inputs for a node from upstream node outputs via edge port mapping.
