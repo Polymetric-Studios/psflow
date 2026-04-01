@@ -87,7 +87,6 @@ export interface GraphHandle {
 
 const NODE_WIDTH = 160;
 const NODE_HEIGHT = 40;
-const NODE_PADDING_X = 16;
 const SUBGRAPH_PADDING = 24;
 const LABEL_FONT_SIZE = 11;
 
@@ -166,34 +165,20 @@ async function computeLayout(parseResult: ParseResult, showPorts: boolean): Prom
 
     const nodeLabel = { text: node.label, width: node.label.length * 8, height: 14 };
 
-    // Compute node dimensions — account for port labels when ports are shown
-    let nodeWidth = Math.max(NODE_WIDTH, node.label.length * 8 + NODE_PADDING_X * 2);
-    let nodeHeight = NODE_HEIGHT;
-
-    if (showPorts && ports.length > 0) {
-      const inputs = ports.filter(p => p.direction === "input");
-      const outputs = ports.filter(p => p.direction === "output");
-      const longestIn = inputs.reduce((max, p) => Math.max(max, p.name.length), 0);
-      const longestOut = outputs.reduce((max, p) => Math.max(max, p.name.length), 0);
-      // Width: port dot + label padding on each side + gap between
-      nodeWidth = Math.max(nodeWidth, (longestIn + longestOut) * 7 + 48);
-      // Height: label area + port rows
-      const maxPorts = Math.max(inputs.length, outputs.length);
-      nodeHeight = NODE_HEIGHT + maxPorts * 16 + 8;
-    }
-
     const elkNode: ElkNode = {
       id: node.id,
       labels: [nodeLabel],
-      width: nodeWidth,
-      height: nodeHeight,
       ports: elkPorts.length > 0 ? elkPorts : undefined,
-      layoutOptions: elkPorts.length > 0 ? {
-        "portConstraints": "FIXED_SIDE",
-        "elk.nodeLabels.placement": "H_CENTER V_TOP INSIDE",
-        "elk.portLabels.placement": "INSIDE",
-        "elk.portLabels.nextToPortIfPossible": "true",
-      } : undefined,
+      layoutOptions: {
+        "nodeSize.constraints": "NODE_LABELS PORTS PORT_LABELS MINIMUM_SIZE",
+        "nodeSize.minimum": `(${NODE_WIDTH}, ${NODE_HEIGHT})`,
+        "nodeLabels.placement": elkPorts.length > 0 ? "H_CENTER V_TOP INSIDE" : "H_CENTER V_CENTER INSIDE",
+        ...(elkPorts.length > 0 ? {
+          "portConstraints": "FIXED_SIDE",
+          "portLabels.placement": "INSIDE",
+          "portLabels.nextToPortIfPossible": "true",
+        } : {}),
+      },
     };
 
     const sgId = nodeToSubgraph.get(node.id);
@@ -509,31 +494,25 @@ function renderGraph(
     });
     g.appendChild(rect);
 
-    // Node label at ELK-computed position
+    // Node label — ELK position, no offsets
     const text = createSvgElement("text", {
-      x: node.labelX + (node.label.length * 8) / 2,
-      y: node.labelY + 10,
-      "dominant-baseline": "central",
-      "text-anchor": "middle",
+      x: node.labelX,
+      y: node.labelY,
       class: "graph-node-label",
     });
     text.textContent = node.label;
     g.appendChild(text);
 
-    // Ports — all positions from ELK
+    // Ports — ELK positions, no offsets
     if (showPorts && node.layoutPorts.length > 0) {
       for (const lp of node.layoutPorts) {
         const dotClass = lp.direction === "input" ? "input" : "output";
-        // Dot at ELK port position
         g.appendChild(createSvgElement("circle", {
-          cx: lp.x + 3, cy: lp.y + 3, r: 3, class: `graph-port-dot ${dotClass}`,
+          cx: lp.x, cy: lp.y, r: 3, class: `graph-port-dot ${dotClass}`,
         }));
-        // Label at ELK-computed label position (relative to port)
         const pt = createSvgElement("text", {
           x: lp.x + lp.labelX,
-          y: lp.y + lp.labelY + 6,
-          "dominant-baseline": "central",
-          "text-anchor": lp.direction === "input" ? "start" : "end",
+          y: lp.y + lp.labelY,
           class: "graph-port-label",
         });
         pt.textContent = lp.name;
