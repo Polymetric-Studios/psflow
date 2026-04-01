@@ -27,6 +27,12 @@
           </button>
         </div>
         <span id="file-name" class="toolbar-filename"></span>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group view-toggle">
+          <button id="btn-view-text" class="btn-subtle btn-sm active" title="Text only">Text</button>
+          <button id="btn-view-split" class="btn-subtle btn-sm" title="Split view">Split</button>
+          <button id="btn-view-graph" class="btn-subtle btn-sm" title="Graph only">Graph</button>
+        </div>
       </div>
       <div class="toolbar-right">
         <div id="live-controls" style="display:none">
@@ -74,6 +80,8 @@
     <!-- Main content: editor + inspector -->
     <div id="main">
       <div id="editor-pane"></div>
+      <div id="graph-resize-handle" class="pane-resize-handle" style="display:none"></div>
+      <div id="graph-pane" style="display:none"></div>
       <div id="resize-handle"></div>
       <div id="inspector-pane">
         <div id="inspector-header"></div>

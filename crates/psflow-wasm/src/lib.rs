@@ -11,8 +11,17 @@ use wasm_bindgen::prelude::*;
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct ParseResult {
     pub nodes: Vec<NodeRange>,
+    pub edges: Vec<EdgeRange>,
     pub subgraphs: Vec<SubgraphRange>,
     pub errors: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct EdgeRange {
+    pub source: String,
+    pub target: String,
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tsify)]
@@ -61,6 +70,7 @@ fn parse_mmd_internal(source: &str) -> ParseResult {
         Err(e) => {
             return ParseResult {
                 nodes: vec![],
+                edges: vec![],
                 subgraphs: vec![],
                 errors: vec![e.to_string()],
             };
@@ -93,10 +103,21 @@ fn parse_mmd_internal(source: &str) -> ParseResult {
         .collect();
     nodes.sort_by_key(|n| n.definition.from);
 
+    let edges = parsed
+        .edges
+        .iter()
+        .map(|e| EdgeRange {
+            source: e.source.clone(),
+            target: e.target.clone(),
+            label: e.label.clone(),
+        })
+        .collect();
+
     let subgraphs = collect_subgraphs(&parsed.subgraphs);
 
     ParseResult {
         nodes,
+        edges,
         subgraphs,
         errors: vec![],
     }

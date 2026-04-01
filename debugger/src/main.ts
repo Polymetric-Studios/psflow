@@ -5,11 +5,15 @@ import { renderInspector, setInspectorOnUpdate } from "./inspector.js";
 import { createPlayback, type PlaybackController } from "./playback.js";
 import { initTimeline, updateTimeline } from "./timeline.js";
 import { connectLive, applyDebugEvents, type LiveConnection, type LiveStatus } from "./live.js";
+import { createGraph, type GraphHandle } from "./graph.js";
 
 // --- Global state ---
 
+type ViewMode = "text" | "split" | "graph";
+
 const state: DebuggerState = createState();
 let editor: EditorHandle;
+let graph: GraphHandle;
 let playback: PlaybackController;
 let liveConn: LiveConnection | null = null;
 
@@ -20,6 +24,8 @@ function update(): void {
   editor.updateTrace(state.trace, state.tracePosition);
   editor.selectNode(state.selectedNodeId);
   editor.updateBreakpoints(state.breakpoints);
+  graph.updateNodeStates(state.nodeStates);
+  graph.selectNode(state.selectedNodeId);
   renderInspector(state);
   updateTimeline(state);
   updateToolbar();
@@ -58,7 +64,7 @@ function updateToolbar(): void {
 
 // --- File loading ---
 
-function setSource(text: string, fileName: string): void {
+async function setSource(text: string, fileName: string): Promise<void> {
   state.source = text;
   state.parseResult = parse_mmd(text);
   state.trace = null;
@@ -69,6 +75,7 @@ function setSource(text: string, fileName: string): void {
 
   editor.setSource(text);
   editor.updateParseResult(state.parseResult);
+  await graph.setGraph(state.parseResult);
 
   document.getElementById("file-name")!.textContent = fileName;
   (document.getElementById("btn-load-trace") as HTMLButtonElement).disabled = false;
@@ -83,7 +90,7 @@ function setSource(text: string, fileName: string): void {
 }
 
 async function loadMmdFile(file: File): Promise<void> {
-  setSource(await file.text(), file.name);
+  await setSource(await file.text(), file.name);
 }
 
 function loadTrace(traceData: import("../pkg/psflow_wasm.js").TraceResult): void {
@@ -173,7 +180,7 @@ function startLiveConnection(url: string): void {
 
   liveConn = connectLive(url, {
     onGraph(source) {
-      setSource(source, "live");
+      setSource(source, "live").catch(showError);
       updateLiveUI("paused");
     },
 
@@ -300,6 +307,81 @@ function cycleSpeed(direction: number): void {
   }
 }
 
+// --- View mode ---
+
+function setViewMode(mode: ViewMode): void {
+  const editorPane = document.getElementById("editor-pane")!;
+  const graphPane = document.getElementById("graph-pane")!;
+  const graphHandle = document.getElementById("graph-resize-handle")!;
+
+  const btnText = document.getElementById("btn-view-text")!;
+  const btnSplit = document.getElementById("btn-view-split")!;
+  const btnGraph = document.getElementById("btn-view-graph")!;
+  btnText.classList.toggle("active", mode === "text");
+  btnSplit.classList.toggle("active", mode === "split");
+  btnGraph.classList.toggle("active", mode === "graph");
+
+  switch (mode) {
+    case "text":
+      editorPane.style.display = "";
+      graphPane.style.display = "none";
+      graphHandle.style.display = "none";
+      break;
+    case "graph":
+      editorPane.style.display = "none";
+      graphPane.style.display = "flex";
+      graphHandle.style.display = "none";
+      break;
+    case "split":
+      editorPane.style.display = "";
+      graphPane.style.display = "flex";
+      graphHandle.style.display = "";
+      break;
+  }
+
+  // Persist preference
+  localStorage.setItem("psflow-view-mode", mode);
+}
+
+// --- Graph pane resize handle ---
+
+function initGraphResizeHandle(): void {
+  const handle = document.getElementById("graph-resize-handle")!;
+  const editorPane = document.getElementById("editor-pane")!;
+  const mainEl = document.getElementById("main")!;
+  let startX = 0;
+  let startWidth = 0;
+
+  function onMouseDown(e: MouseEvent): void {
+    startX = e.clientX;
+    startWidth = editorPane.offsetWidth;
+    handle.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    e.preventDefault();
+  }
+
+  function onMouseMove(e: MouseEvent): void {
+    const delta = e.clientX - startX;
+    const mainWidth = mainEl.offsetWidth;
+    const newWidth = Math.max(200, Math.min(mainWidth - 400, startWidth + delta));
+    editorPane.style.flex = "none";
+    editorPane.style.width = `${newWidth}px`;
+  }
+
+  function onMouseUp(): void {
+    handle.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+  }
+
+  handle.addEventListener("mousedown", onMouseDown);
+}
+
 // --- Resize handle ---
 
 function initResizeHandle(): void {
@@ -363,6 +445,20 @@ async function main(): Promise<void> {
       }
       saveBreakpoints(state.breakpoints);
       update();
+    },
+  );
+
+  // Create graph view
+  graph = createGraph(
+    document.getElementById("graph-pane")!,
+    (nodeId) => {
+      state.selectedNodeId = nodeId;
+      update();
+    },
+    (nodeId) => {
+      // Double-click: switch to text view and scroll to node
+      setViewMode("text");
+      editor.scrollToNode(nodeId);
     },
   );
 
@@ -430,11 +526,23 @@ async function main(): Promise<void> {
   document.getElementById("btn-live-resume")!.addEventListener("click", () => liveConn?.resume());
   document.getElementById("btn-live-pause")!.addEventListener("click", () => liveConn?.pause());
 
+  // View toggle buttons
+  document.getElementById("btn-view-text")!.addEventListener("click", () => setViewMode("text"));
+  document.getElementById("btn-view-split")!.addEventListener("click", () => setViewMode("split"));
+  document.getElementById("btn-view-graph")!.addEventListener("click", () => setViewMode("graph"));
+
+  // Restore persisted view mode
+  const savedView = localStorage.getItem("psflow-view-mode") as ViewMode | null;
+  if (savedView && ["text", "split", "graph"].includes(savedView)) {
+    setViewMode(savedView);
+  }
+
   // Keyboard shortcuts
   document.addEventListener("keydown", handleKeyboard);
 
-  // Resize handle for inspector panel
+  // Resize handles
   initResizeHandle();
+  initGraphResizeHandle();
 
   document.getElementById("status")!.textContent = "Ready";
 }
