@@ -5,7 +5,8 @@
  * state styling that mirrors the CodeMirror decorations.
  */
 
-import ELK, { type ElkNode, type ElkExtendedEdge } from "elkjs";
+import ELK from "elkjs/lib/elk.bundled.js";
+import type { ElkNode, ElkExtendedEdge } from "elkjs";
 import type { ParseResult } from "../pkg/psflow_wasm.js";
 import type { NodeState } from "./state.js";
 
