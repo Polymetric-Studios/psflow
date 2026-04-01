@@ -72,6 +72,7 @@ export interface GraphHandle {
 const NODE_WIDTH = 160;
 const NODE_HEIGHT = 40;
 const NODE_PADDING_X = 16;
+const PORT_ROW_HEIGHT = 14;
 const SUBGRAPH_PADDING = 24;
 const LABEL_FONT_SIZE = 11;
 
@@ -79,7 +80,7 @@ const LABEL_FONT_SIZE = 11;
 
 const elk = new ELK();
 
-async function computeLayout(parseResult: ParseResult): Promise<Layout> {
+async function computeLayout(parseResult: ParseResult, showPorts: boolean): Promise<Layout> {
   // Determine which nodes belong to subgraphs
   const nodeToSubgraph = new Map<string, string>();
   for (const sg of parseResult.subgraphs) {
@@ -121,10 +122,18 @@ async function computeLayout(parseResult: ParseResult): Promise<Layout> {
 
     const estimatedWidth = Math.max(NODE_WIDTH, node.label.length * 8 + NODE_PADDING_X * 2);
 
+    // Grow node height when ports are shown
+    const maxPorts = Math.max(
+      ports.filter(p => p.direction === "input").length,
+      ports.filter(p => p.direction === "output").length,
+    );
+    const portRows = showPorts ? maxPorts : 0;
+    const nodeHeight = NODE_HEIGHT + portRows * PORT_ROW_HEIGHT;
+
     const elkNode: ElkNode = {
       id: node.id,
       width: estimatedWidth,
-      height: NODE_HEIGHT,
+      height: nodeHeight,
       labels: [{ text: node.label }],
     };
 
@@ -398,9 +407,14 @@ function renderGraph(
     });
     g.appendChild(rect);
 
+    // Node label — positioned higher when ports are shown
+    const labelY = showPorts && node.ports.length > 0
+      ? NODE_HEIGHT / 2
+      : node.height / 2;
+
     const text = createSvgElement("text", {
       x: node.width / 2,
-      y: node.height / 2,
+      y: labelY,
       "dominant-baseline": "central",
       "text-anchor": "middle",
       class: "graph-node-label",
@@ -408,39 +422,38 @@ function renderGraph(
     text.textContent = node.label;
     g.appendChild(text);
 
-    // Port labels (when enabled)
+    // Ports: dots on border, names inside the node
     if (showPorts && node.ports.length > 0) {
       const inputs = node.ports.filter(p => p.direction === "input");
       const outputs = node.ports.filter(p => p.direction === "output");
+      const portStartY = NODE_HEIGHT + 2;
 
-      // Input ports on left
+      // Input ports — dot on left border, name inside left-aligned
       for (let i = 0; i < inputs.length; i++) {
-        const py = (node.height / (inputs.length + 1)) * (i + 1);
-        // Port dot
+        const py = portStartY + i * PORT_ROW_HEIGHT;
         g.appendChild(createSvgElement("circle", {
           cx: 0, cy: py, r: 3, class: "graph-port-dot input",
         }));
-        // Port label
         const pt = createSvgElement("text", {
-          x: -6, y: py,
+          x: 8, y: py,
           "dominant-baseline": "central",
-          "text-anchor": "end",
+          "text-anchor": "start",
           class: "graph-port-label",
         });
         pt.textContent = inputs[i].name;
         g.appendChild(pt);
       }
 
-      // Output ports on right
+      // Output ports — dot on right border, name inside right-aligned
       for (let i = 0; i < outputs.length; i++) {
-        const py = (node.height / (outputs.length + 1)) * (i + 1);
+        const py = portStartY + i * PORT_ROW_HEIGHT;
         g.appendChild(createSvgElement("circle", {
           cx: node.width, cy: py, r: 3, class: "graph-port-dot output",
         }));
         const pt = createSvgElement("text", {
-          x: node.width + 6, y: py,
+          x: node.width - 8, y: py,
           "dominant-baseline": "central",
-          "text-anchor": "start",
+          "text-anchor": "end",
           class: "graph-port-label",
         });
         pt.textContent = outputs[i].name;
@@ -706,7 +719,7 @@ export function createGraph(
       }
 
       try {
-        const layout = await computeLayout(parseResult);
+        const layout = await computeLayout(parseResult, showPorts);
 
         // Discard result if a newer setGraph call started while we awaited
         if (gen !== layoutGeneration) return;

@@ -1,0 +1,45 @@
+graph TD
+    INPUT[Sensor Reading] --> TEMP[Classify Temp]
+    INPUT --> HUMID[Classify Humidity]
+    TEMP --> COMBINE[Risk Assessment]
+    HUMID --> COMBINE
+    COMBINE --> CHECK{Extreme?}
+    CHECK -->|yes| ALERT[Issue Alert]
+    CHECK -->|no| LOG[Log Normal]
+
+    %% @INPUT handler: rhai
+    %% @INPUT config.script: "#{ temperature: 38, humidity: 85, station: \"Alpha\" }"
+    %% @INPUT outputs.temperature: "I64"
+    %% @INPUT outputs.humidity: "I64"
+    %% @INPUT outputs.station: "String"
+
+    %% @TEMP handler: rhai
+    %% @TEMP config.script: "let t = inputs.temperature; let label = if t >= 35 { \"hot\" } else if t >= 20 { \"warm\" } else if t >= 5 { \"cool\" } else { \"cold\" }; #{ temp_label: label + \" (\" + t.to_string() + \"C)\" }"
+    %% @TEMP inputs.temperature: "I64"
+    %% @TEMP outputs.temp_label: "String"
+
+    %% @HUMID handler: rhai
+    %% @HUMID config.script: "let h = inputs.humidity; let label = if h >= 80 { \"humid\" } else if h >= 40 { \"moderate\" } else { \"dry\" }; #{ humid_label: label + \" (\" + h.to_string() + \"%)\" }"
+    %% @HUMID inputs.humidity: "I64"
+    %% @HUMID outputs.humid_label: "String"
+
+    %% @COMBINE handler: rhai
+    %% @COMBINE config.script: "let desc = inputs.temp_label + \", \" + inputs.humid_label; let is_extreme = desc.contains(\"hot\") && desc.contains(\"humid\"); #{ report: desc, extreme: is_extreme }"
+    %% @COMBINE inputs.temp_label: "String"
+    %% @COMBINE inputs.humid_label: "String"
+    %% @COMBINE outputs.report: "String"
+    %% @COMBINE outputs.extreme: "Bool"
+
+    %% @CHECK handler: branch
+    %% @CHECK config.guard: "inputs.extreme == true"
+
+    %% @ALERT handler: rhai
+    %% @ALERT config.script: "#{ message: \"ALERT: \" + inputs.report, severity: \"high\" }"
+    %% @ALERT inputs.report: "String"
+    %% @ALERT outputs.message: "String"
+    %% @ALERT outputs.severity: "String"
+
+    %% @LOG handler: rhai
+    %% @LOG config.script: "#{ message: \"Normal: \" + inputs.report }"
+    %% @LOG inputs.report: "String"
+    %% @LOG outputs.message: "String"

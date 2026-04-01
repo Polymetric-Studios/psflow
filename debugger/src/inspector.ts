@@ -4,7 +4,7 @@ const container = () => document.getElementById("inspector-content")!;
 
 let searchFilter = "";
 
-type InspectorTab = "node" | "blackboard" | "breakpoints";
+type InspectorTab = "node" | "blackboard" | "console" | "breakpoints";
 let activeTab: InspectorTab = "node";
 let onUpdateCallback: (() => void) | null = null;
 
@@ -30,6 +30,7 @@ export function renderInspector(state: DebuggerState): void {
       <div class="inspector-tabs">
         <button class="tab${activeTab === "node" ? " active" : ""}" data-tab="node">Node</button>
         <button class="tab${activeTab === "blackboard" ? " active" : ""}" data-tab="blackboard">Blackboard</button>
+        <button class="tab${activeTab === "console" ? " active" : ""}" data-tab="console">Console</button>
         <button class="tab${activeTab === "breakpoints" ? " active" : ""}" data-tab="breakpoints">Breakpoints${bpBadge}</button>
       </div>
     `;
@@ -44,6 +45,8 @@ export function renderInspector(state: DebuggerState): void {
 
   if (activeTab === "blackboard") {
     renderBlackboard(el, state);
+  } else if (activeTab === "console") {
+    renderConsole(el, state);
   } else if (activeTab === "breakpoints") {
     renderBreakpointList(el, state);
   } else {
@@ -273,6 +276,60 @@ function formatValue(v: unknown): string {
     return s.length > 80 ? s.slice(0, 77) + "..." : s;
   }
   return String(v);
+}
+
+// --- Console output ---
+
+function renderConsole(el: HTMLElement, state: DebuggerState): void {
+  if (!state.trace || state.tracePosition < 0) {
+    el.innerHTML = `<p class="placeholder">Run or load a trace to see output</p>`;
+    return;
+  }
+
+  let html = `<div class="console-output">`;
+
+  for (let i = 0; i <= state.tracePosition && i < state.trace.events.length; i++) {
+    const ev = state.trace.events[i];
+    const stateClass = ev.state;
+    const isCurrent = i === state.tracePosition;
+
+    html += `<div class="console-entry${isCurrent ? " console-current" : ""}">`;
+    html += `<div class="console-header">`;
+    html += `<span class="console-dot ${esc(stateClass)}"></span>`;
+    html += `<span class="console-node">${esc(ev.node_id)}</span>`;
+    html += `<span class="console-state">${esc(ev.state)}</span>`;
+    if (ev.elapsed_ms !== undefined) {
+      html += `<span class="console-time">${ev.elapsed_ms.toFixed(1)}ms</span>`;
+    }
+    html += `</div>`;
+
+    if (ev.error) {
+      html += `<div class="console-error">${esc(ev.error)}</div>`;
+    }
+
+    if (ev.outputs_json && ev.state === "completed") {
+      try {
+        const outputs = JSON.parse(ev.outputs_json) as Record<string, unknown>;
+        for (const [key, val] of Object.entries(outputs)) {
+          const valObj = val as { type?: string; value?: unknown };
+          if (valObj && valObj.value !== undefined && valObj.value !== null) {
+            html += `<div class="console-output-row">`;
+            html += `<span class="console-key">${esc(key)}</span>`;
+            html += `<span class="console-val">${esc(formatValue(valObj.value))}</span>`;
+            html += `</div>`;
+          }
+        }
+      } catch { /* skip malformed */ }
+    }
+
+    html += `</div>`;
+  }
+
+  html += `</div>`;
+  el.innerHTML = html;
+
+  // Auto-scroll to bottom
+  el.scrollTop = el.scrollHeight;
 }
 
 // --- Breakpoint list ---
