@@ -1,8 +1,9 @@
 import { EditorState, StateField, StateEffect } from "@codemirror/state";
-import { EditorView, Decoration, DecorationSet, keymap, gutter, GutterMarker } from "@codemirror/view";
+import { EditorView, Decoration, DecorationSet, keymap, gutter, GutterMarker, hoverTooltip, Tooltip } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
-import type { ParseResult } from "../pkg/psflow_wasm.js";
+import type { ParseResult, TraceResult } from "../pkg/psflow_wasm.js";
 import type { NodeState } from "./state.js";
+import { getNodeEvent } from "./state.js";
 
 // --- State effects ---
 
@@ -14,6 +15,12 @@ export const setSelectedNode = StateEffect.define<string | null>();
 
 /** Effect to set the parse result (node ranges). */
 export const setParseResult = StateEffect.define<ParseResult>();
+
+/** Effect to set the trace result (for tooltips/gutter timing). */
+export const setTraceResult = StateEffect.define<TraceResult | null>();
+
+/** Effect to set the current trace position. */
+export const setTracePosition = StateEffect.define<number>();
 
 // --- Decoration classes ---
 
@@ -43,6 +50,28 @@ const parseResultField = StateField.define<ParseResult | null>({
   update(value, tr) {
     for (const e of tr.effects) {
       if (e.is(setParseResult)) return e.value;
+    }
+    return value;
+  },
+});
+
+// --- Trace result field ---
+
+const traceResultField = StateField.define<TraceResult | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setTraceResult)) return e.value;
+    }
+    return value;
+  },
+});
+
+const tracePositionField = StateField.define<number>({
+  create: () => -1,
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setTracePosition)) return e.value;
     }
     return value;
   },
@@ -154,13 +183,22 @@ function buildDecorationsFromState(
 // --- Gutter ---
 
 class StateDotMarker extends GutterMarker {
-  constructor(readonly state: NodeState) {
+  constructor(readonly nodeState: NodeState, readonly elapsedMs?: number) {
     super();
   }
   toDOM(): Node {
+    const wrap = document.createElement("span");
+    wrap.className = "cm-gutter-marker-wrap";
     const dot = document.createElement("span");
-    dot.className = `cm-state-dot ${this.state}`;
-    return dot;
+    dot.className = `cm-state-dot ${this.nodeState}`;
+    wrap.appendChild(dot);
+    if (this.elapsedMs !== undefined) {
+      const time = document.createElement("span");
+      time.className = "cm-gutter-time";
+      time.textContent = this.elapsedMs < 1 ? "<1ms" : `${Math.round(this.elapsedMs)}ms`;
+      wrap.appendChild(time);
+    }
+    return wrap;
   }
 }
 
@@ -169,16 +207,18 @@ const stateGutter = gutter({
   lineMarker(view, line) {
     const parseResult = view.state.field(parseResultField);
     const nodeStates = view.state.field(nodeStatesField);
+    const trace = view.state.field(traceResultField);
+    const tracePos = view.state.field(tracePositionField);
     if (!parseResult) return null;
 
-    // Find if this line belongs to a node definition
     for (const node of parseResult.nodes) {
       if (node.definition.from < view.state.doc.length) {
         const defLine = view.state.doc.lineAt(node.definition.from);
         if (defLine.from === line.from) {
           const state = nodeStates.get(node.id);
           if (state && state !== "idle") {
-            return new StateDotMarker(state);
+            const event = trace ? getNodeEvent(trace, tracePos, node.id) : null;
+            return new StateDotMarker(state, event?.elapsed_ms ?? undefined);
           }
         }
       }
@@ -187,6 +227,79 @@ const stateGutter = gutter({
   },
 });
 
+// --- Hover tooltips ---
+
+function findNodeAtPos(
+  pos: number,
+  state: EditorState
+): { id: string; label: string } | null {
+  const parseResult = state.field(parseResultField);
+  if (!parseResult) return null;
+
+  const lineNum = state.doc.lineAt(pos).number;
+  for (const node of parseResult.nodes) {
+    const lines = new Set<number>();
+    if (node.definition.from < state.doc.length) {
+      lines.add(state.doc.lineAt(node.definition.from).number);
+    }
+    for (const ann of node.annotations) {
+      if (ann.span.from < state.doc.length) {
+        lines.add(state.doc.lineAt(ann.span.from).number);
+      }
+    }
+    if (lines.has(lineNum)) return { id: node.id, label: node.label };
+  }
+  return null;
+}
+
+const nodeHoverTooltip = hoverTooltip((view, pos): Tooltip | null => {
+  const node = findNodeAtPos(pos, view.state);
+  if (!node) return null;
+
+  const nodeStates = view.state.field(nodeStatesField);
+  const trace = view.state.field(traceResultField);
+  const tracePos = view.state.field(tracePositionField);
+  const state = nodeStates.get(node.id) ?? "idle";
+
+  const line = view.state.doc.lineAt(pos);
+
+  return {
+    pos: line.from,
+    end: line.to,
+    above: true,
+    create() {
+      const dom = document.createElement("div");
+      dom.className = "cm-node-tooltip";
+
+      let html = `<strong>${esc(node.id)}</strong> <span class="dim">${esc(node.label)}</span>`;
+      html += ` <span class="cm-tooltip-state ${state}">${state}</span>`;
+
+      if (trace) {
+        const event = getNodeEvent(trace, tracePos, node.id);
+        if (event?.elapsed_ms !== undefined) {
+          html += ` <span class="dim">${event.elapsed_ms.toFixed(1)}ms</span>`;
+        }
+        if (event?.outputs_json) {
+          try {
+            const outputs = JSON.parse(event.outputs_json);
+            const keys = Object.keys(outputs);
+            if (keys.length > 0) {
+              html += ` <span class="dim">→ ${keys.join(", ")}</span>`;
+            }
+          } catch {}
+        }
+      }
+
+      dom.innerHTML = html;
+      return { dom };
+    },
+  };
+});
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // --- Create editor ---
 
 export interface EditorHandle {
@@ -194,6 +307,7 @@ export interface EditorHandle {
   setSource(source: string): void;
   updateParseResult(result: ParseResult): void;
   updateNodeStates(states: Map<string, NodeState>): void;
+  updateTrace(trace: TraceResult | null, position: number): void;
   selectNode(nodeId: string | null): void;
   scrollToNode(nodeId: string): void;
 }
@@ -211,8 +325,11 @@ export function createEditor(
         parseResultField,
         nodeStatesField,
         selectedNodeField,
+        traceResultField,
+        tracePositionField,
         decorationField,
         stateGutter,
+        nodeHoverTooltip,
         EditorView.domEventHandlers({
           click(event, view) {
             const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
@@ -280,6 +397,12 @@ export function createEditor(
 
     updateNodeStates(states: Map<string, NodeState>) {
       view.dispatch({ effects: setNodeStates.of(states) });
+    },
+
+    updateTrace(trace: TraceResult | null, position: number) {
+      view.dispatch({
+        effects: [setTraceResult.of(trace), setTracePosition.of(position)],
+      });
     },
 
     selectNode(nodeId: string | null) {

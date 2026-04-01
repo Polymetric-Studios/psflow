@@ -15,6 +15,7 @@ let playback: PlaybackController;
 
 function update(): void {
   editor.updateNodeStates(state.nodeStates);
+  editor.updateTrace(state.trace, state.tracePosition);
   editor.selectNode(state.selectedNodeId);
   renderInspector(state);
   updateTimeline(state);

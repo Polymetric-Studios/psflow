@@ -183,9 +183,23 @@ select {
   outline-offset: -1px;
 }
 
-/* Gutter state dots */
+/* Gutter state markers */
 .cm-gutter-state {
-  width: 12px;
+  width: auto;
+  min-width: 12px;
+}
+
+.cm-gutter-marker-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 2px;
+}
+
+.cm-gutter-time {
+  font-size: 9px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .cm-state-dot {
@@ -267,3 +281,39 @@ select {
   width: 2px;
   border-radius: 1px;
 }
+
+/* Node hover tooltip */
+.cm-tooltip {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+}
+
+.cm-node-tooltip {
+  padding: 6px 10px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.cm-node-tooltip .dim {
+  color: var(--text-dim);
+}
+
+.cm-tooltip-state {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.cm-tooltip-state.completed { background: var(--state-completed-border); color: var(--bg); }
+.cm-tooltip-state.failed { background: var(--state-failed-border); color: var(--bg); }
+.cm-tooltip-state.running { background: var(--state-running-border); color: var(--bg); }
+.cm-tooltip-state.pending { background: var(--state-pending-border); color: var(--bg); }
+.cm-tooltip-state.cancelled { background: var(--state-cancelled-border); color: var(--bg); }
+.cm-tooltip-state.idle { background: var(--border); color: var(--text-dim); }
