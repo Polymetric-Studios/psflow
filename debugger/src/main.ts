@@ -300,6 +300,42 @@ function cycleSpeed(direction: number): void {
   }
 }
 
+// --- Resize handle ---
+
+function initResizeHandle(): void {
+  const handle = document.getElementById("resize-handle")!;
+  const inspector = document.getElementById("inspector-pane")!;
+  let startX = 0;
+  let startWidth = 0;
+
+  function onMouseDown(e: MouseEvent): void {
+    startX = e.clientX;
+    startWidth = inspector.offsetWidth;
+    handle.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    e.preventDefault();
+  }
+
+  function onMouseMove(e: MouseEvent): void {
+    const delta = startX - e.clientX;
+    const newWidth = Math.max(200, Math.min(600, startWidth + delta));
+    inspector.style.width = `${newWidth}px`;
+  }
+
+  function onMouseUp(): void {
+    handle.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+  }
+
+  handle.addEventListener("mousedown", onMouseDown);
+}
+
 function showError(err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   console.error("psflow-debugger:", err);
@@ -396,6 +432,9 @@ async function main(): Promise<void> {
 
   // Keyboard shortcuts
   document.addEventListener("keydown", handleKeyboard);
+
+  // Resize handle for inspector panel
+  initResizeHandle();
 
   document.getElementById("status")!.textContent = "Ready";
 }

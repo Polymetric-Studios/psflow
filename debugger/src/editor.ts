@@ -434,18 +434,24 @@ export function createEditor(
         }),
         EditorView.theme({
           "&": {
-            backgroundColor: "#1e1e2e",
-            color: "#cdd6f4",
+            backgroundColor: "#1e1e2e", // --base
+            color: "#cdd6f4",           // --text
           },
           ".cm-gutters": {
-            backgroundColor: "#24243a",
-            borderRight: "1px solid #3a3a5c",
+            backgroundColor: "#181825", // --mantle
+            borderRight: "1px solid #313244", // --surface0
           },
           ".cm-activeLineGutter": {
             backgroundColor: "transparent",
           },
           ".cm-cursor": {
-            borderLeftColor: "#89b4fa",
+            borderLeftColor: "#89b4fa", // --blue
+          },
+          ".cm-selectionBackground": {
+            backgroundColor: "rgba(137, 180, 250, 0.12) !important",
+          },
+          "&.cm-focused .cm-selectionBackground": {
+            backgroundColor: "rgba(137, 180, 250, 0.18) !important",
           },
         }),
       ],
