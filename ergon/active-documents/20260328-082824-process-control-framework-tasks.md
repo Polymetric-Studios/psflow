@@ -344,33 +344,34 @@ The WASM-compiled Mermaid parser maps each node ID to its text ranges in the sou
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 5.1.1 | [ ] | WASM build of parser + trace types | Compile Mermaid parser and execution trace types to WASM via `wasm-bindgen`. Expose: `parse_mmd(source) -> ParsedGraph` (node IDs, text byte ranges for node definition line + annotation block, subgraph membership) and `parse_trace(json) -> Vec<TraceEvent>`. Use `tsify` to generate TypeScript types from Rust structs. No executor, no adapters, no async runtime | P0 |
-| 5.1.2 | [ ] | Web app shell | Vite + TypeScript scaffold. Two-panel layout: CodeMirror editor (left/main), inspector panel (right/bottom). Toolbar with playback controls. Loads WASM module on init. No framework — vanilla DOM + CSS for layout. Responsive split pane | P0 |
-| 5.1.3 | [ ] | CodeMirror editor setup | CodeMirror 6 instance with read-only mode, Mermaid syntax highlighting (custom or basic keyword highlighting via `@lezer/highlight`), line numbers, code folding for annotation blocks. Load `.mmd` file via file input or drag-and-drop | P0 |
+| 5.1.1 | [x] | WASM build of parser + trace types | Compile Mermaid parser and execution trace types to WASM via `wasm-bindgen`. Expose: `parse_mmd(source) -> ParsedGraph` (node IDs, text byte ranges for node definition line + annotation block, subgraph membership) and `parse_trace(json) -> Vec<TraceEvent>`. Use `tsify` to generate TypeScript types from Rust structs. No executor, no adapters, no async runtime | P0 |
+| 5.1.2 | [x] | Web app shell | Vite + TypeScript scaffold. Two-panel layout: CodeMirror editor (left/main), inspector panel (right/bottom). Toolbar with playback controls. Loads WASM module on init. No framework — vanilla DOM + CSS for layout. Responsive split pane | P0 |
+| 5.1.3 | [x] | CodeMirror editor setup | CodeMirror 6 instance with read-only mode, Mermaid syntax highlighting (custom or basic keyword highlighting via `@lezer/highlight`), line numbers, code folding for annotation blocks. Load `.mmd` file via file input or drag-and-drop | P0 |
+| 5.1.4 | [x] | Integrated execution (Run button) | Vite middleware plugin spawns the `psflow` binary with `--trace`, captures the trace, and returns it to the browser. Load .mmd, click Run, see results — no separate CLI step. Reset button clears execution state for re-run | P0 |
 
 ### 5.2 Source Highlighting
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 5.2.1 | [ ] | Node range mapping | On file load, call WASM `parse_mmd()` to get node-to-range map. Each entry: `{ nodeId, definitionRange: [from, to], annotationRange: [from, to] }`. Rebuild on file change. Handle parse errors gracefully (show error in editor, don't crash) | P0 |
-| 5.2.2 | [ ] | State decoration extension | CodeMirror extension that applies `Decoration.mark()` to node ranges based on current execution state. CSS classes: `.node-idle` (no decoration), `.node-pending` (yellow left border), `.node-running` (blue background + left border, subtle pulse animation), `.node-completed` (green left border), `.node-failed` (red background + left border), `.node-cancelled` (orange left border, dimmed text). Decorations update via `StateEffect` when trace position changes | P0 |
+| 5.2.1 | [x] | Node range mapping | On file load, call WASM `parse_mmd()` to get node-to-range map. Each entry: `{ nodeId, definitionRange: [from, to], annotationRange: [from, to] }`. Rebuild on file change. Handle parse errors gracefully (show error in editor, don't crash) | P0 |
+| 5.2.2 | [x] | State decoration extension | CodeMirror extension that applies `Decoration.mark()` to node ranges based on current execution state. CSS classes: `.node-idle` (no decoration), `.node-pending` (yellow left border), `.node-running` (blue background + left border, subtle pulse animation), `.node-completed` (green left border), `.node-failed` (red background + left border), `.node-cancelled` (orange left border, dimmed text). Decorations update via `StateEffect` when trace position changes | P0 |
 | 5.2.3 | [ ] | Gutter markers | CodeMirror gutter extension showing state icons/dots on the first line of each node's definition. Click a gutter marker to select that node (opens inspector). Color matches the state decoration. Shows timing badge (duration in ms) when trace data is loaded | P1 |
-| 5.2.4 | [ ] | Node selection | Click anywhere in a node's text range to select it. Selected node gets a distinct highlight (stronger border/background). Selection drives the inspector panel. Keyboard navigation: up/down to move between nodes in execution order, left/right for dependency chain | P1 |
+| 5.2.4 | [x] | Node selection | Click anywhere in a node's text range to select it. Selected node gets a distinct highlight (stronger border/background). Selection drives the inspector panel. Keyboard navigation: up/down to move between nodes in execution order, left/right for dependency chain | P1 |
 
 ### 5.3 Trace Playback
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 5.3.1 | [ ] | Trace loader | Load serialized execution traces (from 4.1.3) via WASM `parse_trace()`. Build an indexed event list: each event has timestamp, node ID, state transition, and optional data snapshot. Support file upload and URL fetch. Validate trace matches loaded graph (node IDs must align) | P0 |
-| 5.3.2 | [ ] | Playback controls | Play, pause, step-forward (next event), step-backward (previous event). Speed control (0.5x, 1x, 2x, 5x, 10x). On each step, update node states via the decoration extension (5.2.2). Keyboard shortcuts: Space (play/pause), Right (step forward), Left (step back), +/- (speed) | P0 |
-| 5.3.3 | [ ] | Timeline scrubber | Horizontal bar below the editor showing all trace events as ticks. Drag to scrub to any point — derive node states by replaying events up to that position. Current position indicator. Zoom in/out for dense traces. Color-code ticks by event type (state change, error, data) | P1 |
+| 5.3.1 | [x] | Trace loader | Load serialized execution traces (from 4.1.3) via WASM `parse_trace()`. Build an indexed event list: each event has timestamp, node ID, state transition, and optional data snapshot. Support file upload and URL fetch. Validate trace matches loaded graph (node IDs must align) | P0 |
+| 5.3.2 | [x] | Playback controls | Play, pause, step-forward (next event), step-backward (previous event). Speed control (0.5x, 1x, 2x, 5x, 10x). On each step, update node states via the decoration extension (5.2.2). Keyboard shortcuts: Space (play/pause), Right (step forward), Left (step back), +/- (speed) | P0 |
+| 5.3.3 | [ ] | Timeline scrubber (enhanced) | Add tick marks for each event, color-coded by type (state change, error). Drag-to-scrub (currently click-to-seek only). Zoom in/out for dense traces. Basic progress bar and click-to-seek already implemented | P1 |
 | 5.3.4 | [ ] | Breakpoints | Click gutter to toggle breakpoint on a node. Playback pauses when that node enters `running` state. Visual indicator (red dot) in gutter. Breakpoint list in inspector. Breakpoints persist in localStorage | P1 |
 
 ### 5.4 Inspection
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 5.4.1 | [ ] | Node inspector panel | Side panel showing details for the selected node at the current trace position. Static info: handler, config, port types. Runtime info: current state, inputs received, outputs produced, error (if failed), duration. JSON viewer with syntax highlighting for data values. Collapsible sections | P0 |
+| 5.4.1 | [x] | Node inspector panel | Side panel showing details for the selected node at the current trace position. Static info: handler, config, port types. Runtime info: current state, inputs received, outputs produced, error (if failed), duration. JSON viewer with syntax highlighting for data values. Collapsible sections | P0 |
 | 5.4.2 | [ ] | Blackboard inspector | Tab or section in the inspector showing blackboard state at the current trace position. Scoped view: global, subgraph-local, node-local. Searchable. Highlights values that changed in the current step | P1 |
 | 5.4.3 | [ ] | Hover tooltips | Hover over a node definition line to see a compact summary tooltip: state, duration, output type. Hover over an annotation value to see the resolved runtime value (e.g., template variables expanded). Uses CodeMirror `hoverTooltip` facet | P1 |
 
