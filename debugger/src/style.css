@@ -1175,6 +1175,13 @@ select:disabled {
   filter: drop-shadow(0 0 4px rgba(137, 180, 250, 0.4));
 }
 
+/* Node label/port divider */
+.graph-node-divider {
+  stroke: var(--surface1);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
 /* Port dots and labels */
 .graph-port-dot {
   fill: var(--overlay0);
