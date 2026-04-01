@@ -504,4 +504,118 @@ mod tests {
         token.cancel();
         assert!(ctx.is_cancelled());
     }
+
+    #[test]
+    fn event_count_tracks_emitted_events() {
+        let ctx = ExecutionContext::new();
+        assert_eq!(ctx.event_count(), 0);
+
+        ctx.emit(ExecutionEvent::StateChanged {
+            node_id: "A".into(),
+            from: NodeState::Idle,
+            to: NodeState::Pending,
+            timestamp: Instant::now(),
+        });
+        ctx.emit(ExecutionEvent::StateChanged {
+            node_id: "A".into(),
+            from: NodeState::Pending,
+            to: NodeState::Running,
+            timestamp: Instant::now(),
+        });
+        ctx.emit(ExecutionEvent::StateChanged {
+            node_id: "A".into(),
+            from: NodeState::Running,
+            to: NodeState::Completed,
+            timestamp: Instant::now(),
+        });
+
+        assert_eq!(ctx.event_count(), 3);
+    }
+
+    #[test]
+    fn events_since_returns_slice() {
+        let ctx = ExecutionContext::new();
+
+        let node_ids = ["A", "B", "C", "D", "E"];
+        for id in &node_ids {
+            ctx.emit(ExecutionEvent::StateChanged {
+                node_id: (*id).into(),
+                from: NodeState::Idle,
+                to: NodeState::Pending,
+                timestamp: Instant::now(),
+            });
+        }
+
+        let since_3 = ctx.events_since(3);
+        assert_eq!(since_3.len(), 2);
+
+        // Verify the returned events have the correct node IDs
+        match &since_3[0] {
+            ExecutionEvent::StateChanged { node_id, .. } => assert_eq!(node_id, "D"),
+            other => panic!("expected StateChanged, got {other:?}"),
+        }
+        match &since_3[1] {
+            ExecutionEvent::StateChanged { node_id, .. } => assert_eq!(node_id, "E"),
+            other => panic!("expected StateChanged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn events_since_empty_when_at_end() {
+        let ctx = ExecutionContext::new();
+
+        ctx.emit(ExecutionEvent::StateChanged {
+            node_id: "A".into(),
+            from: NodeState::Idle,
+            to: NodeState::Pending,
+            timestamp: Instant::now(),
+        });
+        ctx.emit(ExecutionEvent::StateChanged {
+            node_id: "B".into(),
+            from: NodeState::Idle,
+            to: NodeState::Pending,
+            timestamp: Instant::now(),
+        });
+
+        let count = ctx.event_count();
+        let since_end = ctx.events_since(count);
+        assert!(since_end.is_empty());
+    }
+
+    #[test]
+    fn events_since_zero_returns_all() {
+        let ctx = ExecutionContext::new();
+
+        ctx.emit(ExecutionEvent::StateChanged {
+            node_id: "A".into(),
+            from: NodeState::Idle,
+            to: NodeState::Pending,
+            timestamp: Instant::now(),
+        });
+        ctx.emit(ExecutionEvent::StateChanged {
+            node_id: "B".into(),
+            from: NodeState::Pending,
+            to: NodeState::Running,
+            timestamp: Instant::now(),
+        });
+        ctx.emit(ExecutionEvent::StateChanged {
+            node_id: "C".into(),
+            from: NodeState::Running,
+            to: NodeState::Completed,
+            timestamp: Instant::now(),
+        });
+
+        let all = ctx.events_since(0);
+        assert_eq!(all.len(), 3);
+
+        // Verify ordering matches emission order
+        let ids: Vec<&str> = all
+            .iter()
+            .map(|e| match e {
+                ExecutionEvent::StateChanged { node_id, .. } => node_id.as_str(),
+                other => panic!("expected StateChanged, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(ids, vec!["A", "B", "C"]);
+    }
 }

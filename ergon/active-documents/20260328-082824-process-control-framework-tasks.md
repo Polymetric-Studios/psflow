@@ -392,10 +392,10 @@ The WASM-compiled Mermaid parser maps each node ID to its text ranges in the sou
 
 | ID | | Task | Details / Acceptance Criteria | Pri |
 |----|---|------|-------------------------------|-----|
-| 5.T.1 | [ ] | WASM parser parity tests | `parse_mmd()` in WASM produces identical node IDs, ranges, and subgraph structure as native Rust parser for a set of representative `.mmd` files. Trace deserialization round-trips correctly | P0 |
-| 5.T.2 | [ ] | Range mapping tests | Known `.mmd` files produce correct byte ranges for each node definition and annotation block. Verify ranges survive whitespace variations, empty annotation blocks, adjacent nodes | P1 |
+| 5.T.1 | [x] | WASM parser parity tests | `parse_mmd()` in WASM produces identical node IDs, ranges, and subgraph structure as native Rust parser for a set of representative `.mmd` files. Trace deserialization round-trips correctly | P0 |
+| 5.T.2 | [x] | Range mapping tests | Known `.mmd` files produce correct byte ranges for each node definition and annotation block. Verify ranges survive whitespace variations, empty annotation blocks, adjacent nodes | P1 |
 | 5.T.3 | [ ] | Decoration state tests | Unit test the state→decoration mapping: given a node-to-range map and a set of node states, verify correct CodeMirror `Decoration.mark()` ranges and CSS classes produced | P1 |
-| 5.T.4 | [ ] | Playback logic tests | Step-forward/backward through a known trace produces correct node states at each position. Breakpoints halt at the correct event. Speed control doesn't skip events. Scrubber position matches event index | P1 |
+| 5.T.4 | [x] | Playback logic tests | Step-forward/backward through a known trace produces correct node states at each position. Breakpoints halt at the correct event. Speed control doesn't skip events. Scrubber position matches event index | P1 |
 | 5.T.5 | [ ] | End-to-end smoke test | Load `.mmd` file, load trace, play through execution, verify no console errors, all nodes reach a terminal state decoration, inspector shows correct data for selected node | P1 |
 
 ### 5.7 Graph Visualization View

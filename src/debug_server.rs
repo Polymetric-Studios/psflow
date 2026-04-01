@@ -377,3 +377,178 @@ async fn send_complete(
     let trace_json = serde_json::to_string(&trace)?;
     send(ws_tx, &ServerMsg::Complete { trace_json }).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::NodeError;
+    use crate::execute::lifecycle::NodeState;
+    use crate::execute::Outputs;
+    use std::time::Instant;
+
+    // --- convert_event tests ---
+
+    #[test]
+    fn convert_state_changed() {
+        let event = ExecutionEvent::StateChanged {
+            node_id: "node_1".into(),
+            from: NodeState::Idle,
+            to: NodeState::Running,
+            timestamp: Instant::now(),
+        };
+
+        let debug_event = convert_event(event).expect("StateChanged should produce a DebugEvent");
+        assert_eq!(debug_event.node_id, "node_1");
+        assert_eq!(debug_event.from_state, "idle");
+        assert_eq!(debug_event.to_state, "running");
+        assert!(debug_event.elapsed_ms.is_none());
+        assert!(debug_event.outputs_json.is_none());
+        assert!(debug_event.error.is_none());
+    }
+
+    #[test]
+    fn convert_node_completed() {
+        let mut outputs = Outputs::new();
+        outputs.insert(
+            "result".into(),
+            crate::graph::types::Value::String("hello".into()),
+        );
+
+        let event = ExecutionEvent::NodeCompleted {
+            node_id: "node_2".into(),
+            outputs: outputs.clone(),
+        };
+
+        let debug_event = convert_event(event).expect("NodeCompleted should produce a DebugEvent");
+        assert_eq!(debug_event.node_id, "node_2");
+        assert_eq!(debug_event.from_state, "running");
+        assert_eq!(debug_event.to_state, "completed");
+        assert!(debug_event.outputs_json.is_some());
+        let json = debug_event.outputs_json.unwrap();
+        assert!(json.contains("result"));
+        assert!(json.contains("hello"));
+        assert!(debug_event.error.is_none());
+    }
+
+    #[test]
+    fn convert_node_failed() {
+        let error = NodeError::Failed {
+            source_message: None,
+            message: "something broke".into(),
+            recoverable: false,
+        };
+
+        let event = ExecutionEvent::NodeFailed {
+            node_id: "node_3".into(),
+            error: error.clone(),
+        };
+
+        let debug_event = convert_event(event).expect("NodeFailed should produce a DebugEvent");
+        assert_eq!(debug_event.node_id, "node_3");
+        assert_eq!(debug_event.from_state, "running");
+        assert_eq!(debug_event.to_state, "failed");
+        assert!(debug_event.outputs_json.is_none());
+        let err_str = debug_event.error.expect("should have error string");
+        assert!(
+            err_str.contains("something broke"),
+            "error string should contain the message, got: {err_str}"
+        );
+    }
+
+    #[test]
+    fn convert_execution_events_filtered() {
+        let started = ExecutionEvent::ExecutionStarted {
+            timestamp: Instant::now(),
+        };
+        assert!(
+            convert_event(started).is_none(),
+            "ExecutionStarted should be filtered out"
+        );
+
+        let completed = ExecutionEvent::ExecutionCompleted {
+            elapsed: std::time::Duration::from_millis(100),
+        };
+        assert!(
+            convert_event(completed).is_none(),
+            "ExecutionCompleted should be filtered out"
+        );
+    }
+
+    // --- Protocol serialization tests ---
+
+    #[test]
+    fn server_msg_serializes_as_tagged_json() {
+        // Paused
+        let paused_json = serde_json::to_string(&ServerMsg::Paused).unwrap();
+        let paused: serde_json::Value = serde_json::from_str(&paused_json).unwrap();
+        assert_eq!(paused["type"], "paused");
+
+        // Resumed
+        let resumed_json = serde_json::to_string(&ServerMsg::Resumed).unwrap();
+        let resumed: serde_json::Value = serde_json::from_str(&resumed_json).unwrap();
+        assert_eq!(resumed["type"], "resumed");
+
+        // Events
+        let events_msg = ServerMsg::Events {
+            events: vec![DebugEvent {
+                node_id: "n1".into(),
+                from_state: "idle".into(),
+                to_state: "running".into(),
+                elapsed_ms: None,
+                outputs_json: None,
+                error: None,
+            }],
+        };
+        let events_json = serde_json::to_string(&events_msg).unwrap();
+        let events: serde_json::Value = serde_json::from_str(&events_json).unwrap();
+        assert_eq!(events["type"], "events");
+        assert!(events["events"].is_array());
+        assert_eq!(events["events"][0]["node_id"], "n1");
+
+        // Complete
+        let complete_msg = ServerMsg::Complete {
+            trace_json: r#"{"nodes":[]}"#.into(),
+        };
+        let complete_json = serde_json::to_string(&complete_msg).unwrap();
+        let complete: serde_json::Value = serde_json::from_str(&complete_json).unwrap();
+        assert_eq!(complete["type"], "complete");
+        assert_eq!(complete["trace_json"], r#"{"nodes":[]}"#);
+
+        // Error
+        let error_msg = ServerMsg::Error {
+            message: "oops".into(),
+        };
+        let error_json = serde_json::to_string(&error_msg).unwrap();
+        let error: serde_json::Value = serde_json::from_str(&error_json).unwrap();
+        assert_eq!(error["type"], "error");
+        assert_eq!(error["message"], "oops");
+
+        // Graph
+        let graph_msg = ServerMsg::Graph {
+            source: "digraph {}".into(),
+        };
+        let graph_json = serde_json::to_string(&graph_msg).unwrap();
+        let graph: serde_json::Value = serde_json::from_str(&graph_json).unwrap();
+        assert_eq!(graph["type"], "graph");
+        assert_eq!(graph["source"], "digraph {}");
+    }
+
+    #[test]
+    fn client_msg_deserializes() {
+        let step: ClientMsg = serde_json::from_str(r#"{"command":"step"}"#).unwrap();
+        assert!(matches!(step, ClientMsg::Step));
+
+        let resume: ClientMsg = serde_json::from_str(r#"{"command":"resume"}"#).unwrap();
+        assert!(matches!(resume, ClientMsg::Resume));
+
+        let pause: ClientMsg = serde_json::from_str(r#"{"command":"pause"}"#).unwrap();
+        assert!(matches!(pause, ClientMsg::Pause));
+
+        let cancel: ClientMsg = serde_json::from_str(r#"{"command":"cancel"}"#).unwrap();
+        assert!(matches!(cancel, ClientMsg::Cancel));
+
+        // Invalid command should fail
+        let bad = serde_json::from_str::<ClientMsg>(r#"{"command":"explode"}"#);
+        assert!(bad.is_err());
+    }
+}
