@@ -241,6 +241,15 @@ class BreakpointOnlyMarker extends GutterMarker {
 function createStateGutter(onBreakpointToggle: (nodeId: string) => void): ReturnType<typeof gutter> {
   return gutter({
     class: "cm-gutter-state",
+    lineMarkerChange(update) {
+      return update.transactions.some(tr =>
+        tr.effects.some(e =>
+          e.is(setNodeStates) || e.is(setBreakpoints) ||
+          e.is(setTraceResult) || e.is(setTracePosition) ||
+          e.is(setParseResult)
+        )
+      );
+    },
     lineMarker(view, line) {
       const parseResult = view.state.field(parseResultField);
       const nodeStates = view.state.field(nodeStatesField);
@@ -252,7 +261,7 @@ function createStateGutter(onBreakpointToggle: (nodeId: string) => void): Return
       for (const node of parseResult.nodes) {
         if (node.definition.from < view.state.doc.length) {
           const defLine = view.state.doc.lineAt(node.definition.from);
-          if (defLine.from === line.from) {
+              if (defLine.from === line.from) {
             const state = nodeStates.get(node.id);
             const hasBp = breakpoints.has(node.id);
             if (state && state !== "idle") {
