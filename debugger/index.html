@@ -8,38 +8,70 @@
 </head>
 <body>
   <div id="app">
+    <!-- Top bar: file operations (left), status (right) -->
     <header id="toolbar">
       <div class="toolbar-left">
-        <button id="btn-load-mmd" title="Load .mmd file">Load .mmd</button>
-        <button id="btn-run" title="Execute graph (Ctrl+Enter)" disabled>Run</button>
-        <button id="btn-load-trace" title="Load trace JSON" disabled>Load Trace</button>
-        <span id="file-name" class="label"></span>
+        <div class="toolbar-group">
+          <button id="btn-load-mmd" class="btn-subtle" title="Load .mmd file">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h10a1 1 0 001-1V6l-4-4H3a1 1 0 00-1 1v10a1 1 0 001 1z"/><path d="M10 2v4h4"/></svg>
+            <span>Open</span>
+          </button>
+          <button id="btn-load-trace" class="btn-subtle" title="Load trace JSON" disabled>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12l4-4 3 3 5-5"/><rect x="1" y="2" width="14" height="12" rx="1"/></svg>
+            <span>Trace</span>
+          </button>
+          <div class="toolbar-divider"></div>
+          <button id="btn-run" title="Execute graph (Ctrl+Enter)" disabled>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2l10 6-10 6V2z"/></svg>
+            <span>Run</span>
+          </button>
+        </div>
+        <span id="file-name" class="toolbar-filename"></span>
       </div>
-      <div class="toolbar-center" id="playback-controls">
-        <button id="btn-step-back" title="Step back (Left)" disabled>&lt;</button>
-        <button id="btn-play" title="Play/Pause (Space)" disabled>Play</button>
-        <button id="btn-step-fwd" title="Step forward (Right)" disabled>&gt;</button>
-        <select id="speed-select" disabled>
+      <div class="toolbar-right">
+        <div id="live-controls" style="display:none">
+          <button id="btn-live-step" class="btn-subtle btn-sm" title="Step one tick">Step</button>
+          <button id="btn-live-resume" class="btn-subtle btn-sm" title="Resume execution">Resume</button>
+          <button id="btn-live-pause" class="btn-subtle btn-sm" title="Pause execution" disabled>Pause</button>
+          <div class="toolbar-divider"></div>
+        </div>
+        <div class="toolbar-group toolbar-connection">
+          <input id="ws-port" type="text" value="9001" title="WebSocket port" class="ws-port-input" />
+          <button id="btn-connect" class="btn-connect" title="Connect to debug server">Connect</button>
+        </div>
+        <span id="status" class="toolbar-status">No file loaded</span>
+      </div>
+    </header>
+
+    <!-- Transport bar: playback controls -->
+    <div id="transport-bar">
+      <div class="transport-controls" id="playback-controls">
+        <button id="btn-step-back" class="btn-transport" title="Step back (Left)" disabled>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="3" width="2" height="10"/><path d="M14 3L6 8l8 5V3z"/></svg>
+        </button>
+        <button id="btn-play" class="btn-transport btn-play-main" title="Play/Pause (Space)" disabled>
+          <svg class="play-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2l10 6-10 6V2z"/></svg>
+          <svg class="pause-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none"><rect x="3" y="2" width="3.5" height="12"/><rect x="9.5" y="2" width="3.5" height="12"/></svg>
+        </button>
+        <button id="btn-step-fwd" class="btn-transport" title="Step forward (Right)" disabled>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3l8 5-8 5V3z"/><rect x="12" y="3" width="2" height="10"/></svg>
+        </button>
+        <div class="transport-divider"></div>
+        <select id="speed-select" class="transport-speed" disabled>
           <option value="0.5">0.5x</option>
           <option value="1" selected>1x</option>
           <option value="2">2x</option>
           <option value="5">5x</option>
           <option value="10">10x</option>
         </select>
-        <button id="btn-reset" title="Reset to start" disabled>Reset</button>
-        <span id="step-counter" class="label"></span>
+        <button id="btn-reset" class="btn-transport" title="Reset to start" disabled>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a6 6 0 1111.5-2.5"/><path d="M2 3v5h5"/></svg>
+        </button>
       </div>
-      <div class="toolbar-right">
-        <div id="live-controls" style="display:none">
-          <button id="btn-live-step" title="Step one tick">Step</button>
-          <button id="btn-live-resume" title="Resume execution">Resume</button>
-          <button id="btn-live-pause" title="Pause execution" disabled>Pause</button>
-        </div>
-        <input id="ws-port" type="text" value="9001" title="WebSocket port" class="ws-port-input" />
-        <button id="btn-connect" title="Connect to debug server">Connect</button>
-        <span id="status" class="label">No file loaded</span>
-      </div>
-    </header>
+      <span id="step-counter" class="transport-counter"></span>
+    </div>
+
+    <!-- Main content: editor + inspector -->
     <div id="main">
       <div id="editor-pane"></div>
       <div id="inspector-pane">
@@ -49,6 +81,8 @@
         </div>
       </div>
     </div>
+
+    <!-- Timeline -->
     <div id="timeline-pane"></div>
   </div>
   <input type="file" id="file-input-mmd" accept=".mmd" hidden />

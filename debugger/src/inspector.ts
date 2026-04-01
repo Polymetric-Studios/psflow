@@ -25,11 +25,12 @@ export function renderInspector(state: DebuggerState): void {
     lastRenderedTab = activeTab;
     lastBpCount = bpCount;
 
+    const bpBadge = bpCount > 0 ? `<span class="tab-badge">${bpCount}</span>` : "";
     header.innerHTML = `
       <div class="inspector-tabs">
         <button class="tab${activeTab === "node" ? " active" : ""}" data-tab="node">Node</button>
         <button class="tab${activeTab === "blackboard" ? " active" : ""}" data-tab="blackboard">Blackboard</button>
-        <button class="tab${activeTab === "breakpoints" ? " active" : ""}" data-tab="breakpoints">Breakpoints${bpCount > 0 ? ` (${bpCount})` : ""}</button>
+        <button class="tab${activeTab === "breakpoints" ? " active" : ""}" data-tab="breakpoints">Breakpoints${bpBadge}</button>
       </div>
     `;
 

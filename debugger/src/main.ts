@@ -36,7 +36,13 @@ function updateToolbar(): void {
   const stepCounter = document.getElementById("step-counter")!;
   const status = document.getElementById("status")!;
 
-  btnPlay.textContent = state.playing ? "Pause" : "Play";
+  // Toggle play/pause icons
+  const playIcon = btnPlay.querySelector(".play-icon") as SVGElement | null;
+  const pauseIcon = btnPlay.querySelector(".pause-icon") as SVGElement | null;
+  if (playIcon && pauseIcon) {
+    playIcon.style.display = state.playing ? "none" : "";
+    pauseIcon.style.display = state.playing ? "" : "none";
+  }
 
   if (state.trace) {
     stepCounter.textContent = `${state.tracePosition + 1} / ${state.trace.events.length}`;
