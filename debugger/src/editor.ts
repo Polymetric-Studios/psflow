@@ -284,7 +284,7 @@ const nodeHoverTooltip = hoverTooltip((view, pos): Tooltip | null => {
             const outputs = JSON.parse(event.outputs_json);
             const keys = Object.keys(outputs);
             if (keys.length > 0) {
-              html += ` <span class="dim">→ ${keys.join(", ")}</span>`;
+              html += ` <span class="dim">→ ${keys.map(esc).join(", ")}</span>`;
             }
           } catch {}
         }

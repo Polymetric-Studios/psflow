@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import wasm from "vite-plugin-wasm";
 import { execFileSync } from "child_process";
-import { writeFileSync, readFileSync, mkdtempSync, unlinkSync } from "fs";
+import { writeFileSync, readFileSync, mkdtempSync, unlinkSync, rmdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tmpdir } from "os";
@@ -52,6 +52,7 @@ function psflowRunner(): Plugin {
           } finally {
             try { unlinkSync(mmdPath); } catch {}
             try { unlinkSync(tracePath); } catch {}
+            try { rmdirSync(tmp); } catch {}
           }
         });
       });
