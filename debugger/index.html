@@ -12,11 +12,11 @@
     <header id="toolbar">
       <div class="toolbar-left">
         <div class="toolbar-group">
-          <button id="btn-load-mmd" class="btn-subtle" title="Load .mmd file">
+          <button id="btn-load-mmd" class="btn-toolbar" title="Load .mmd file">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h10a1 1 0 001-1V6l-4-4H3a1 1 0 00-1 1v10a1 1 0 001 1z"/><path d="M10 2v4h4"/></svg>
             <span>Open</span>
           </button>
-          <button id="btn-load-trace" class="btn-subtle" title="Load trace JSON" disabled>
+          <button id="btn-load-trace" class="btn-toolbar" title="Load trace JSON" disabled>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12l4-4 3 3 5-5"/><rect x="1" y="2" width="14" height="12" rx="1"/></svg>
             <span>Trace</span>
           </button>
@@ -35,17 +35,20 @@
         </div>
       </div>
       <div class="toolbar-right">
-        <div id="live-controls" style="display:none">
-          <button id="btn-live-step" class="btn-subtle btn-sm" title="Step one tick">Step</button>
-          <button id="btn-live-resume" class="btn-subtle btn-sm" title="Resume execution">Resume</button>
-          <button id="btn-live-pause" class="btn-subtle btn-sm" title="Pause execution" disabled>Pause</button>
-          <div class="toolbar-divider"></div>
-        </div>
-        <div class="toolbar-group toolbar-connection">
-          <input id="ws-port" type="text" value="9001" title="WebSocket port" class="ws-port-input" />
-          <button id="btn-connect" class="btn-connect" title="Connect to debug server">Connect</button>
-        </div>
         <span id="status" class="toolbar-status">No file loaded</span>
+        <div class="toolbar-divider"></div>
+        <div class="live-section">
+          <div id="live-controls" class="live-controls" style="display:none">
+            <button id="btn-live-step" class="btn-sm" title="Execute next node">Step</button>
+            <button id="btn-live-resume" class="btn-sm" title="Run to completion">Resume</button>
+            <button id="btn-live-pause" class="btn-sm" title="Pause execution" disabled>Pause</button>
+            <div class="toolbar-divider"></div>
+          </div>
+          <span class="live-label">Debug server</span>
+          <input id="ws-port" type="text" value="9001" title="WebSocket port" class="ws-port-input" />
+          <button id="btn-connect" class="btn-connect" title="Connect to a running psflow --debug-ws process">Connect</button>
+          <span id="live-indicator" class="live-indicator"></span>
+        </div>
       </div>
     </header>
 

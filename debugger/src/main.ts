@@ -216,43 +216,60 @@ function startLiveConnection(url: string): void {
 
 function updateLiveUI(liveStatus: LiveStatus): void {
   const statusEl = document.getElementById("status")!;
+  const indicator = document.getElementById("live-indicator")!;
   const btnConnect = document.getElementById("btn-connect") as HTMLButtonElement;
   const btnLiveStep = document.getElementById("btn-live-step") as HTMLButtonElement;
   const btnLiveResume = document.getElementById("btn-live-resume") as HTMLButtonElement;
   const btnLivePause = document.getElementById("btn-live-pause") as HTMLButtonElement;
   const liveControls = document.getElementById("live-controls")!;
+  const portInput = document.getElementById("ws-port") as HTMLInputElement;
+
+  indicator.className = "live-indicator";
 
   switch (liveStatus) {
     case "connecting":
       statusEl.textContent = "Connecting...";
+      indicator.classList.add("connecting");
       btnConnect.textContent = "Disconnect";
+      btnConnect.classList.add("connected");
+      portInput.disabled = true;
       liveControls.style.display = "none";
       break;
     case "paused":
-      statusEl.textContent = "Live: paused";
+      statusEl.textContent = "Paused";
+      indicator.classList.add("connected");
       btnConnect.textContent = "Disconnect";
+      btnConnect.classList.add("connected");
+      portInput.disabled = true;
       liveControls.style.display = "flex";
       btnLiveStep.disabled = false;
       btnLiveResume.disabled = false;
       btnLivePause.disabled = true;
       break;
     case "running":
-      statusEl.textContent = "Live: running";
+      statusEl.textContent = "Running";
+      indicator.classList.add("connected");
       btnConnect.textContent = "Disconnect";
+      btnConnect.classList.add("connected");
+      portInput.disabled = true;
       liveControls.style.display = "flex";
       btnLiveStep.disabled = true;
       btnLiveResume.disabled = true;
       btnLivePause.disabled = false;
       break;
     case "complete":
-      statusEl.textContent = "Live: complete (trace loaded)";
+      statusEl.textContent = "Trace loaded";
       btnConnect.textContent = "Connect";
+      btnConnect.classList.remove("connected");
+      portInput.disabled = false;
       liveControls.style.display = "none";
       liveConn = null;
       break;
     case "disconnected":
-      statusEl.textContent = "Disconnected";
+      statusEl.textContent = "Connection failed";
       btnConnect.textContent = "Connect";
+      btnConnect.classList.remove("connected");
+      portInput.disabled = false;
       liveControls.style.display = "none";
       liveConn = null;
       break;
@@ -508,7 +525,7 @@ async function main(): Promise<void> {
     playback.setSpeed(parseFloat((e.target as HTMLSelectElement).value));
   });
 
-  // Live connection controls
+  // Live connection
   document.getElementById("btn-connect")!.addEventListener("click", () => {
     if (liveConn) {
       liveConn.disconnect();

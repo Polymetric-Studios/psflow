@@ -143,8 +143,11 @@ body, html { height: 100%; overflow: hidden; }
   white-space: nowrap;
 }
 
-.toolbar-connection {
+/* Live controls inline (step/resume/pause) */
+.live-controls {
+  display: flex;
   gap: var(--sp-1);
+  align-items: center;
 }
 
 /* ============================================================
@@ -189,14 +192,14 @@ button:focus-visible {
   outline-offset: 1px;
 }
 
-/* Subtle variant — lower contrast */
-.btn-subtle {
-  background: transparent;
-  color: var(--overlay2);
+/* Toolbar buttons — visible but quiet */
+.btn-toolbar {
+  background: var(--surface0);
+  color: var(--subtext0);
 }
 
-.btn-subtle:hover:not(:disabled) {
-  background: var(--surface0);
+.btn-toolbar:hover:not(:disabled) {
+  background: var(--surface1);
   color: var(--text);
 }
 
@@ -225,25 +228,69 @@ button:focus-visible {
 
 /* Connect button */
 .btn-connect {
-  background: var(--blue);
-  color: var(--crust);
-  font-weight: 600;
   padding: 4px 10px;
+  font-weight: 600;
+  font-size: 11px;
 }
 
-.btn-connect:hover:not(:disabled) {
-  background: #9ec4fb;
+.btn-connect.connected {
+  background: var(--surface0);
+  color: var(--overlay2);
+}
+
+.btn-connect.connected:hover:not(:disabled) {
+  background: var(--red);
   color: var(--crust);
-  border-color: transparent;
 }
 
-/* WebSocket port input */
+/* ============================================================
+   LIVE DEBUG CONNECTION — inline label + port + connect
+   ============================================================ */
+
+.live-section {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.live-label {
+  font-size: 11px;
+  color: var(--overlay0);
+  white-space: nowrap;
+}
+
+.live-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.live-indicator.connected {
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(166, 227, 161, 0.5);
+}
+
+.live-indicator.connecting {
+  background: var(--yellow);
+  animation: indicator-pulse 1s ease-in-out infinite;
+}
+
+@keyframes indicator-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Port input */
 .ws-port-input {
-  width: 44px;
+  width: 52px;
   background: var(--base);
   border: 1px solid var(--surface1);
   border-radius: var(--radius-sm);
-  padding: 4px 6px;
+  padding: 5px 6px;
   color: var(--subtext1);
   font-family: inherit;
   font-size: 11px;
@@ -312,7 +359,7 @@ select:disabled {
 
 /* Transport buttons — compact, icon-focused */
 .btn-transport {
-  background: transparent;
+  background: var(--surface0);
   color: var(--overlay2);
   padding: 5px 7px;
   border-radius: var(--radius-sm);
@@ -354,12 +401,7 @@ select:disabled {
   min-width: 60px;
 }
 
-/* Live connection controls */
-#live-controls {
-  display: flex;
-  gap: var(--sp-1);
-  align-items: center;
-}
+/* (Live controls moved to .live-section) */
 
 /* ============================================================
    MAIN PANELS — editor + inspector
@@ -749,7 +791,7 @@ select:disabled {
   padding: 3px 7px;
   font-size: 11px;
   min-width: 26px;
-  background: transparent;
+  background: var(--surface0);
   color: var(--overlay2);
   font-weight: 500;
 }
