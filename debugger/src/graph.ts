@@ -6,10 +6,16 @@
  */
 
 import ELK, { type ElkNode, type ElkExtendedEdge } from "elkjs";
-import type { ParseResult, EdgeRange } from "../pkg/psflow_wasm.js";
+import type { ParseResult } from "../pkg/psflow_wasm.js";
 import type { NodeState } from "./state.js";
 
 // --- Types ---
+
+interface PortInfo {
+  name: string;
+  type: string;
+  direction: "input" | "output";
+}
 
 interface LayoutNode {
   id: string;
@@ -20,6 +26,8 @@ interface LayoutNode {
   height: number;
   /** Subgraph this node belongs to, if any */
   parent?: string;
+  /** Port definitions extracted from annotations */
+  ports: PortInfo[];
 }
 
 interface LayoutEdge {
@@ -54,6 +62,7 @@ export interface GraphHandle {
   setGraph(parseResult: ParseResult): void;
   updateNodeStates(states: Map<string, NodeState>): void;
   selectNode(nodeId: string | null): void;
+  setShowPorts(show: boolean): void;
   destroy(): void;
 }
 
@@ -96,9 +105,19 @@ async function computeLayout(parseResult: ParseResult): Promise<Layout> {
     topLevelNodes.push(sgNode);
   }
 
-  // Create node elements
+  // Extract port info from annotations and create node elements
+  const nodePorts = new Map<string, PortInfo[]>();
   for (const node of parseResult.nodes) {
-    // Measure label to size the node
+    const ports: PortInfo[] = [];
+    for (const ann of node.annotations) {
+      if (ann.key.startsWith("inputs.")) {
+        ports.push({ name: ann.key.slice(7), type: ann.value.replace(/"/g, ""), direction: "input" });
+      } else if (ann.key.startsWith("outputs.")) {
+        ports.push({ name: ann.key.slice(8), type: ann.value.replace(/"/g, ""), direction: "output" });
+      }
+    }
+    nodePorts.set(node.id, ports);
+
     const estimatedWidth = Math.max(NODE_WIDTH, node.label.length * 8 + NODE_PADDING_X * 2);
 
     const elkNode: ElkNode = {
@@ -116,18 +135,33 @@ async function computeLayout(parseResult: ParseResult): Promise<Layout> {
     }
   }
 
-  // Create edges
-  const elkEdges: ElkExtendedEdge[] = parseResult.edges.map((e, i) => ({
-    id: `e${i}`,
-    sources: [e.source],
-    targets: [e.target],
-    labels: e.label ? [{ text: e.label, width: e.label.length * 7, height: 14 }] : [],
-  }));
+  // Place edges at lowest common ancestor (intra-subgraph edges go on the subgraph)
+  const rootEdges: ElkExtendedEdge[] = [];
+  for (let i = 0; i < parseResult.edges.length; i++) {
+    const e = parseResult.edges[i];
+    const elkEdge: ElkExtendedEdge = {
+      id: `e${i}`,
+      sources: [e.source],
+      targets: [e.target],
+      labels: e.label ? [{ text: e.label, width: e.label.length * 7, height: 14 }] : [],
+    };
+
+    const srcSg = nodeToSubgraph.get(e.source);
+    const tgtSg = nodeToSubgraph.get(e.target);
+    if (srcSg && srcSg === tgtSg && subgraphElkNodes.has(srcSg)) {
+      // Both endpoints in same subgraph — place edge there
+      const sgNode = subgraphElkNodes.get(srcSg)!;
+      if (!sgNode.edges) sgNode.edges = [];
+      sgNode.edges.push(elkEdge);
+    } else {
+      rootEdges.push(elkEdge);
+    }
+  }
 
   const graph: ElkNode = {
     id: "root",
     children: topLevelNodes,
-    edges: elkEdges,
+    edges: rootEdges,
     layoutOptions: {
       "elk.algorithm": "layered",
       "elk.direction": "DOWN",
@@ -172,6 +206,7 @@ async function computeLayout(parseResult: ParseResult): Promise<Layout> {
           width: child.width || NODE_WIDTH,
           height: child.height || NODE_HEIGHT,
           parent: parentSgId,
+          ports: nodePorts.get(child.id) || [],
         });
       }
     }
@@ -179,37 +214,47 @@ async function computeLayout(parseResult: ParseResult): Promise<Layout> {
 
   extractNodes(laid);
 
-  // Extract positioned edges
+  // Extract positioned edges (from root and subgraphs)
   const edges: LayoutEdge[] = [];
-  for (const edge of laid.edges || []) {
-    const e = edge as ElkExtendedEdge & { sections?: any[] };
-    if (!e.sections?.length) continue;
 
-    const section = e.sections[0];
-    const points = [
-      section.startPoint,
-      ...(section.bendPoints || []),
-      section.endPoint,
-    ];
+  function extractEdges(parent: ElkNode, offsetX = 0, offsetY = 0) {
+    for (const edge of parent.edges || []) {
+      const e = edge as ElkExtendedEdge & { sections?: any[] };
+      if (!e.sections?.length) continue;
 
-    // Build SVG path
-    let path = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 1; i < points.length; i++) {
-      path += ` L ${points[i].x} ${points[i].y}`;
+      const section = e.sections[0];
+      const points = [
+        section.startPoint,
+        ...(section.bendPoints || []),
+        section.endPoint,
+      ].map(p => ({ x: p.x + offsetX, y: p.y + offsetY }));
+
+      let path = `M ${points[0].x} ${points[0].y}`;
+      for (let i = 1; i < points.length; i++) {
+        path += ` L ${points[i].x} ${points[i].y}`;
+      }
+
+      const label = e.labels?.[0];
+
+      edges.push({
+        source: e.sources[0],
+        target: e.targets[0],
+        label: label?.text,
+        path,
+        labelX: label ? (label.x || 0) + offsetX : undefined,
+        labelY: label ? (label.y || 0) + offsetY : undefined,
+      });
     }
 
-    const srcEdge = parseResult.edges[parseInt(e.id.slice(1))] as EdgeRange | undefined;
-    const label = e.labels?.[0];
-
-    edges.push({
-      source: e.sources[0],
-      target: e.targets[0],
-      label: srcEdge?.label ?? undefined,
-      path,
-      labelX: label?.x,
-      labelY: label?.y,
-    });
+    // Recurse into subgraph children
+    for (const child of parent.children || []) {
+      if (child.id.startsWith("sg_")) {
+        extractEdges(child, offsetX + (child.x || 0), offsetY + (child.y || 0));
+      }
+    }
   }
+
+  extractEdges(laid);
 
   return {
     nodes,
@@ -240,6 +285,7 @@ function renderGraph(
   layout: Layout,
   onSelect: (nodeId: string | null) => void,
   onDoubleClick: (nodeId: string) => void,
+  showPorts: boolean,
 ): { svg: SVGSVGElement; nodeEls: Map<string, SVGGElement> } {
   // Clear previous
   container.innerHTML = "";
@@ -331,11 +377,16 @@ function renderGraph(
 
   // Render nodes
   const nodeEls = new Map<string, SVGGElement>();
+  const nodeOrder: string[] = [];
   for (const node of layout.nodes) {
+    nodeOrder.push(node.id);
     const g = createSvgElement("g", {
       class: "graph-node node-idle",
       "data-node-id": node.id,
       transform: `translate(${node.x}, ${node.y})`,
+      tabindex: "0",
+      role: "button",
+      "aria-label": `Node: ${node.label}`,
     });
 
     const rect = createSvgElement("rect", {
@@ -356,6 +407,46 @@ function renderGraph(
     text.textContent = node.label;
     g.appendChild(text);
 
+    // Port labels (when enabled)
+    if (showPorts && node.ports.length > 0) {
+      const inputs = node.ports.filter(p => p.direction === "input");
+      const outputs = node.ports.filter(p => p.direction === "output");
+
+      // Input ports on left
+      for (let i = 0; i < inputs.length; i++) {
+        const py = (node.height / (inputs.length + 1)) * (i + 1);
+        // Port dot
+        g.appendChild(createSvgElement("circle", {
+          cx: 0, cy: py, r: 3, class: "graph-port-dot input",
+        }));
+        // Port label
+        const pt = createSvgElement("text", {
+          x: -6, y: py,
+          "dominant-baseline": "central",
+          "text-anchor": "end",
+          class: "graph-port-label",
+        });
+        pt.textContent = inputs[i].name;
+        g.appendChild(pt);
+      }
+
+      // Output ports on right
+      for (let i = 0; i < outputs.length; i++) {
+        const py = (node.height / (outputs.length + 1)) * (i + 1);
+        g.appendChild(createSvgElement("circle", {
+          cx: node.width, cy: py, r: 3, class: "graph-port-dot output",
+        }));
+        const pt = createSvgElement("text", {
+          x: node.width + 6, y: py,
+          "dominant-baseline": "central",
+          "text-anchor": "start",
+          class: "graph-port-label",
+        });
+        pt.textContent = outputs[i].name;
+        g.appendChild(pt);
+      }
+    }
+
     g.addEventListener("click", (e) => {
       e.stopPropagation();
       onSelect(node.id);
@@ -364,10 +455,44 @@ function renderGraph(
       e.stopPropagation();
       onDoubleClick(node.id);
     });
+    // Keyboard: Enter/Space to select (stopPropagation prevents global playback shortcuts)
+    g.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(node.id);
+      }
+    });
 
     contentGroup.appendChild(g);
     nodeEls.set(node.id, g);
   }
+
+  // Keyboard navigation between nodes (arrow keys on focused node)
+  svg.addEventListener("keydown", (e) => {
+    const focused = document.activeElement as Element | null;
+    if (!focused?.classList.contains("graph-node")) return;
+    const currentId = focused.getAttribute("data-node-id");
+    if (!currentId) return;
+
+    let idx = nodeOrder.indexOf(currentId);
+    if (idx < 0) return;
+
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+      idx = Math.min(idx + 1, nodeOrder.length - 1);
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+      idx = Math.max(idx - 1, 0);
+    } else {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    const nextEl = nodeEls.get(nodeOrder[idx]);
+    if (nextEl) {
+      (nextEl as unknown as HTMLElement).focus();
+      onSelect(nodeOrder[idx]);
+    }
+  });
 
   // Click background to deselect
   svg.addEventListener("click", () => onSelect(null));
@@ -521,6 +646,8 @@ export function createGraph(
   let zoomControls: ZoomPanControls | null = null;
   let currentSelected: string | null = null;
   let layoutGeneration = 0;
+  let showPorts = localStorage.getItem("psflow-show-ports") === "true";
+  let lastParseResult: ParseResult | null = null;
 
   // Zoom control bar
   const zoomBar = document.createElement("div");
@@ -529,16 +656,28 @@ export function createGraph(
     <button class="btn-transport" title="Zoom in (+)" data-action="zoom-in">+</button>
     <button class="btn-transport" title="Zoom out (-)" data-action="zoom-out">&minus;</button>
     <button class="btn-transport" title="Fit to view (0)" data-action="fit">Fit</button>
+    <span class="graph-zoom-divider"></span>
+    <button class="btn-transport" title="Toggle port names" data-action="ports">Ports</button>
   `;
   container.appendChild(zoomBar);
 
+  // Update port toggle button state
+  function updatePortButton() {
+    const btn = zoomBar.querySelector('[data-action="ports"]') as HTMLElement | null;
+    if (btn) btn.classList.toggle("active", showPorts);
+  }
+  updatePortButton();
+
   zoomBar.addEventListener("click", (e) => {
     const btn = (e.target as Element).closest("[data-action]") as HTMLElement | null;
-    if (!btn || !zoomControls) return;
+    if (!btn) return;
     const action = btn.dataset.action;
-    if (action === "zoom-in") zoomControls.zoomIn();
-    else if (action === "zoom-out") zoomControls.zoomOut();
-    else if (action === "fit") zoomControls.fitToView();
+    if (action === "zoom-in" && zoomControls) zoomControls.zoomIn();
+    else if (action === "zoom-out" && zoomControls) zoomControls.zoomOut();
+    else if (action === "fit" && zoomControls) zoomControls.fitToView();
+    else if (action === "ports") {
+      handle.setShowPorts(!showPorts);
+    }
   });
 
   // SVG container
@@ -554,8 +693,9 @@ export function createGraph(
     zoomControls = null;
   }
 
-  return {
+  const handle: GraphHandle = {
     async setGraph(parseResult: ParseResult) {
+      lastParseResult = parseResult;
       const gen = ++layoutGeneration;
 
       if (parseResult.nodes.length === 0) {
@@ -571,7 +711,7 @@ export function createGraph(
         if (gen !== layoutGeneration) return;
 
         cleanup();
-        const result = renderGraph(svgContainer, layout, onSelect, onDoubleClick);
+        const result = renderGraph(svgContainer, layout, onSelect, onDoubleClick, showPorts);
         svg = result.svg;
         nodeEls = result.nodeEls;
         zoomControls = initZoomPan(svg);
@@ -618,9 +758,20 @@ export function createGraph(
       currentSelected = nodeId;
     },
 
+    setShowPorts(show: boolean) {
+      if (show === showPorts) return;
+      showPorts = show;
+      localStorage.setItem("psflow-show-ports", String(show));
+      updatePortButton();
+      // Re-render — setGraph's generation counter handles concurrent calls
+      if (lastParseResult) handle.setGraph(lastParseResult);
+    },
+
     destroy() {
       cleanup();
       container.innerHTML = "";
     },
   };
+
+  return handle;
 }

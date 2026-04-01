@@ -1049,6 +1049,50 @@ select:disabled {
   filter: drop-shadow(0 0 4px rgba(137, 180, 250, 0.4));
 }
 
+/* Port dots and labels */
+.graph-port-dot {
+  fill: var(--overlay0);
+  stroke: var(--surface0);
+  stroke-width: 1;
+}
+
+.graph-port-dot.input { fill: var(--sapphire); }
+.graph-port-dot.output { fill: var(--peach); }
+
+.graph-port-label {
+  fill: var(--overlay1);
+  font-size: 9px;
+  font-family: inherit;
+  pointer-events: none;
+}
+
+/* Graph toolbar divider */
+.graph-zoom-divider {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: var(--surface1);
+  margin: 0 var(--sp-1);
+  vertical-align: middle;
+}
+
+/* Active toggle button */
+.graph-zoom-controls button.active {
+  background: var(--surface1);
+  color: var(--text);
+}
+
+/* Graph node focus ring (keyboard nav only) */
+.graph-node:focus-visible {
+  outline: none;
+}
+
+.graph-node:focus-visible .graph-node-rect {
+  stroke: var(--lavender);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px rgba(180, 190, 254, 0.4));
+}
+
 /* View toggle buttons */
 .view-toggle {
   gap: 0 !important;

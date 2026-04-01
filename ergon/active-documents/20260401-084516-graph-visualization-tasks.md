@@ -27,7 +27,7 @@ An interactive SVG graph view alongside the existing CodeMirror text editor. ELK
 | 5.7.4 | [x] | Node interaction | Click node in SVG to select it — highlights in both SVG and CodeMirror editor. Hover shows tooltip (same data as CodeMirror hover tooltip 5.4.3). Double-click scrolls CodeMirror to that node's source. Selected node state shared with existing `DebuggerState` | P1 |
 | 5.7.5 | [x] | Execution state styling | Apply CSS classes to SVG node elements matching the existing state classes (`.node-running`, `.node-completed`, `.node-failed`, etc.). Reuse the same color palette. Animate running state (subtle pulse). Update on trace position change via the same `StateEffect` pipeline | P1 |
 | 5.7.6 | [x] | Panel layout integration | Split-pane layout: CodeMirror (left) + SVG graph (right), with draggable divider. Toggle between text-only, graph-only, and split views. Persist layout preference in localStorage | P1 |
-| 5.7.7 | [ ] | Edge labels and port display | Show edge labels on paths. Optionally show port names on node borders (input ports left/top, output ports right/bottom). Toggle port visibility via toolbar | P2 |
+| 5.7.7 | [x] | Edge labels and port display | Show edge labels on paths. Optionally show port names on node borders (input ports left/top, output ports right/bottom). Toggle port visibility via toolbar | P2 |
 
 ---
 
