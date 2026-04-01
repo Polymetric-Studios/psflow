@@ -1,0 +1,349 @@
+{
+  "records": [
+    {
+      "node_id": "CLI_TRIGGER",
+      "order": 0,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 4000
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "SEED",
+      "order": 1,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 1292
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "WEBHOOK",
+      "order": 2,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 1250
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "WATCH",
+      "order": 3,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 2250
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "R_THEME",
+      "order": 4,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 79542
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "MST_LAYOUT",
+      "order": 5,
+      "state": "Cancelled",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 71042
+      },
+      "outputs": null,
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "GRID_LAYOUT",
+      "order": 6,
+      "state": "Cancelled",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 84167
+      },
+      "outputs": null,
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "ORGANIC_LAYOUT",
+      "order": 7,
+      "state": "Cancelled",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 80625
+      },
+      "outputs": null,
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "LAYOUT_PICK",
+      "order": 8,
+      "state": "Cancelled",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 70250
+      },
+      "outputs": null,
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "SNAPSHOT_INIT",
+      "order": 9,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 26333
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "ROOMS",
+      "order": 10,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 68500
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "R_ACCUM",
+      "order": 11,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 71625
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "R_DETAIL",
+      "order": 12,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 56500
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "POPULATE_GATE",
+      "order": 13,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 34084
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "KEYS",
+      "order": 14,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 30875
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "MONSTERS",
+      "order": 15,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 22000
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "LOOT",
+      "order": 16,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 25417
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "TRAPS",
+      "order": 17,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 54125
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "SECRETS",
+      "order": 18,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 56292
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "EXPORT_GATE",
+      "order": 19,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 1792
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "FT_ROOMS",
+      "order": 20,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 1292
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "FT_ITEMS",
+      "order": 21,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 1167
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "FT_LORE",
+      "order": 22,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 1208
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "FT_MERGE",
+      "order": 23,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 4583
+      },
+      "outputs": {
+        "merged": {
+          "type": "Map",
+          "value": {}
+        }
+      },
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "ASCII",
+      "order": 24,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 50500
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "MMD",
+      "order": 25,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 35416
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "JSON",
+      "order": 26,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 17666
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    },
+    {
+      "node_id": "HISTORY",
+      "order": 27,
+      "state": "Completed",
+      "elapsed": {
+        "secs": 0,
+        "nanos": 36500
+      },
+      "outputs": {},
+      "error": null,
+      "retries": []
+    }
+  ],
+  "elapsed": {
+    "secs": 0,
+    "nanos": 1211792
+  }
+}

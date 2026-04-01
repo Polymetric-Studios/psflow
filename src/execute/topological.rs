@@ -289,10 +289,14 @@ async fn execute_core(
                     .await?;
                 }
                 SubgraphDirective::Event => {
-                    // Event subgraphs require the EventDrivenExecutor
-                    return Err(ExecutionError::ValidationFailed(
-                        format!("subgraph '{}' uses Event directive — use EventDrivenExecutor instead", sg.id)
-                    ));
+                    // In topological mode, treat event subgraphs as a sequence.
+                    // The trigger nodes passthrough — the graph continues from
+                    // whichever node they feed into.
+                    debug!(subgraph = %sg.id, "event subgraph — running as sequence in CLI mode");
+                    control::execute_sequence(
+                        &sg_nodes, graph, handlers, &ctx, &passthrough, true,
+                    )
+                    .await?;
                 }
                 _ => {
                     // Named or None with nodes — execute as sequence
