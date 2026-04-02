@@ -1,0 +1,162 @@
+graph TD
+    subgraph Intake ["intake"]
+        RECEIVE[Receive Order] --> VALIDATE[Validate Order]
+        VALIDATE --> FRAUD{Fraud Check}
+        FRAUD -->|pass| ENRICH[Enrich Customer]
+        FRAUD -->|fail| REJECT[Reject Order]
+    end
+
+    subgraph Payment
+        ENRICH --> CALC_TAX[Calculate Tax]
+        ENRICH --> CALC_SHIP[Calculate Shipping]
+        CALC_TAX --> TOTAL[Compute Total]
+        CALC_SHIP --> TOTAL
+        TOTAL --> CHARGE[Charge Payment]
+        CHARGE --> PAY_OK{Payment OK?}
+        PAY_OK -->|yes| RESERVE[Reserve Inventory]
+        PAY_OK -->|no| RETRY{Retries Left?}
+        RETRY -->|yes| CHARGE
+        RETRY -->|no| CANCEL[Cancel Order]
+    end
+
+    subgraph Fulfill
+        RESERVE --> PICK[Pick Items]
+        PICK --> PACK[Pack Shipment]
+        PACK --> LABEL[Generate Label]
+        LABEL --> SHIP[Ship Package]
+    end
+
+    subgraph Notify ["notifications"]
+        SHIP --> CONFIRM[Send Confirmation]
+        CONFIRM --> TRACK[Tracking Email]
+        REJECT --> DECLINE[Send Decline Notice]
+        CANCEL --> REFUND[Process Refund]
+        REFUND --> DECLINE
+    end
+
+    %% --- Intake ---
+
+    %% @RECEIVE handler: rhai
+    %% @RECEIVE config.script: "#{ order_id: inputs.order_id, items: inputs.items, customer_id: inputs.customer_id, timestamp: inputs.timestamp }"
+    %% @RECEIVE inputs.order_id: "String"
+    %% @RECEIVE inputs.items: "Item[]"
+    %% @RECEIVE inputs.customer_id: "String"
+    %% @RECEIVE inputs.timestamp: "DateTime"
+    %% @RECEIVE outputs.order: "Order"
+
+    %% @VALIDATE handler: rhai
+    %% @VALIDATE config.script: "let valid = inputs.order.items.len() > 0; #{ order: inputs.order, valid: valid }"
+    %% @VALIDATE inputs.order: "Order"
+    %% @VALIDATE outputs.order: "Order"
+    %% @VALIDATE outputs.valid: "Bool"
+
+    %% @FRAUD handler: rhai
+    %% @FRAUD config.script: "let score = if inputs.order.total > 500 { 0.7 } else { 0.2 }; #{ risk_score: score, pass: score < 0.5 }"
+    %% @FRAUD inputs.order: "Order"
+    %% @FRAUD outputs.risk_score: "F64"
+
+    %% @ENRICH handler: rhai
+    %% @ENRICH config.script: "#{ customer: inputs.customer_id, tier: \"gold\", order: inputs.order }"
+    %% @ENRICH inputs.order: "Order"
+    %% @ENRICH inputs.customer_id: "String"
+    %% @ENRICH outputs.customer: "Customer"
+    %% @ENRICH outputs.order: "Order"
+
+    %% @REJECT handler: rhai
+    %% @REJECT config.script: "#{ reason: \"fraud_detected\", order_id: inputs.order.id }"
+    %% @REJECT inputs.order: "Order"
+    %% @REJECT outputs.reason: "String"
+
+    %% --- Payment ---
+
+    %% @CALC_TAX handler: rhai
+    %% @CALC_TAX config.script: "let tax = inputs.order.subtotal * 0.08; #{ tax: tax }"
+    %% @CALC_TAX inputs.order: "Order"
+    %% @CALC_TAX outputs.tax: "F64"
+
+    %% @CALC_SHIP handler: rhai
+    %% @CALC_SHIP config.script: "let rate = if inputs.customer.tier == \"gold\" { 0.0 } else { 9.99 }; #{ shipping: rate }"
+    %% @CALC_SHIP inputs.order: "Order"
+    %% @CALC_SHIP inputs.customer: "Customer"
+    %% @CALC_SHIP outputs.shipping: "F64"
+
+    %% @TOTAL handler: rhai
+    %% @TOTAL config.script: "#{ total: inputs.subtotal + inputs.tax + inputs.shipping }"
+    %% @TOTAL inputs.tax: "F64"
+    %% @TOTAL inputs.shipping: "F64"
+    %% @TOTAL outputs.total: "F64"
+
+    %% @CHARGE handler: rhai
+    %% @CHARGE config.script: "#{ charged: true, transaction_id: \"txn_\" + inputs.order.id }"
+    %% @CHARGE inputs.order: "Order"
+    %% @CHARGE inputs.total: "F64"
+    %% @CHARGE outputs.charged: "Bool"
+    %% @CHARGE outputs.transaction_id: "String"
+
+    %% @PAY_OK handler: branch
+    %% @PAY_OK config.guard: "inputs.charged == true"
+
+    %% @RETRY handler: branch
+    %% @RETRY config.guard: "inputs.attempt < 3"
+
+    %% @RESERVE handler: rhai
+    %% @RESERVE config.script: "#{ reserved: true, items: inputs.order.items }"
+    %% @RESERVE inputs.order: "Order"
+    %% @RESERVE outputs.reserved: "Bool"
+
+    %% @CANCEL handler: rhai
+    %% @CANCEL config.script: "#{ cancelled: true, reason: \"payment_failed\" }"
+    %% @CANCEL inputs.order: "Order"
+    %% @CANCEL outputs.reason: "String"
+
+    %% --- Fulfill ---
+
+    %% @PICK handler: rhai
+    %% @PICK config.script: "#{ picked: inputs.items, warehouse: \"WH-01\" }"
+    %% @PICK inputs.items: "Item[]"
+    %% @PICK outputs.picked: "Item[]"
+    %% @PICK outputs.warehouse: "String"
+
+    %% @PACK handler: rhai
+    %% @PACK config.script: "#{ package_id: \"PKG-\" + inputs.warehouse, weight: 2.5 }"
+    %% @PACK inputs.picked: "Item[]"
+    %% @PACK inputs.warehouse: "String"
+    %% @PACK outputs.package_id: "String"
+    %% @PACK outputs.weight: "F64"
+
+    %% @LABEL handler: rhai
+    %% @LABEL config.script: "#{ tracking: \"TRK-\" + inputs.package_id, carrier: \"express\" }"
+    %% @LABEL inputs.package_id: "String"
+    %% @LABEL outputs.tracking: "String"
+    %% @LABEL outputs.carrier: "String"
+
+    %% @SHIP handler: rhai
+    %% @SHIP config.script: "#{ shipped: true, eta: \"2 days\" }"
+    %% @SHIP inputs.tracking: "String"
+    %% @SHIP inputs.carrier: "String"
+    %% @SHIP outputs.shipped: "Bool"
+    %% @SHIP outputs.eta: "String"
+
+    %% --- Notify ---
+
+    %% @CONFIRM handler: rhai
+    %% @CONFIRM config.script: "#{ sent: true, type: \"confirmation\" }"
+    %% @CONFIRM inputs.tracking: "String"
+    %% @CONFIRM inputs.eta: "String"
+    %% @CONFIRM outputs.sent: "Bool"
+
+    %% @TRACK handler: rhai
+    %% @TRACK config.script: "#{ sent: true, type: \"tracking\" }"
+    %% @TRACK inputs.tracking: "String"
+    %% @TRACK outputs.sent: "Bool"
+
+    %% @DECLINE handler: rhai
+    %% @DECLINE config.script: "#{ sent: true, type: \"decline\" }"
+    %% @DECLINE inputs.reason: "String"
+    %% @DECLINE outputs.sent: "Bool"
+
+    %% @REFUND handler: rhai
+    %% @REFUND config.script: "#{ refunded: true, amount: inputs.total }"
+    %% @REFUND inputs.total: "F64"
+    %% @REFUND inputs.reason: "String"
+    %% @REFUND outputs.refunded: "Bool"

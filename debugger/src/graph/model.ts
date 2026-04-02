@@ -179,7 +179,7 @@ export function buildSprottyModel(
     } as SNode & { children: SModelElement[] });
   }
 
-  // Create edges
+  // Create edges — place inside subgraph when both endpoints share one
   for (let i = 0; i < parseResult.edges.length; i++) {
     const e = parseResult.edges[i];
     let sourceId = e.source;
@@ -212,13 +212,22 @@ export function buildSprottyModel(
       } as SLabel);
     }
 
-    children.push({
+    const edge = {
       type: EDGE,
       id: `e${i}`,
       sourceId,
       targetId,
       children: edgeChildren,
-    } as SEdge & { children: SModelElement[] });
+    } as SEdge & { children: SModelElement[] };
+
+    // Place edge inside its subgraph if both endpoints are in the same one
+    const srcSg = nodeToSubgraph.get(e.source);
+    const tgtSg = nodeToSubgraph.get(e.target);
+    if (srcSg && srcSg === tgtSg && subgraphChildren.has(srcSg)) {
+      subgraphChildren.get(srcSg)!.push(edge);
+    } else {
+      children.push(edge);
+    }
   }
 
   return {
