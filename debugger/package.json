@@ -26,6 +26,11 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.40.0",
     "@lezer/highlight": "^1.2.3",
-    "elkjs": "^0.11.1"
+    "elkjs": "^0.11.1",
+    "inversify": "^6.2.2",
+    "reflect-metadata": "^0.2.2",
+    "sprotty": "^1.4.0",
+    "sprotty-elk": "^1.4.0",
+    "sprotty-protocol": "^1.4.0"
   }
 }

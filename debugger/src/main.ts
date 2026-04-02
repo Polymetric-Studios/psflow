@@ -5,7 +5,7 @@ import { renderInspector, setInspectorOnUpdate } from "./inspector.js";
 import { createPlayback, type PlaybackController } from "./playback.js";
 import { initTimeline, updateTimeline } from "./timeline.js";
 import { connectLive, applyDebugEvents, type LiveConnection, type LiveStatus } from "./live.js";
-import { createGraph, type GraphHandle } from "./graph.js";
+import { createGraph, type GraphHandle } from "./graph/index.js";
 
 // --- Global state ---
 

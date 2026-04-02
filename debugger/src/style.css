@@ -1063,15 +1063,26 @@ select:disabled {
   flex: 1;
   overflow: hidden;
   min-height: 0;
+  position: relative;
 }
 
 .graph-svg-container .placeholder {
   padding: var(--sp-4);
 }
 
-.graph-svg {
+.graph-svg-container .sprotty-graph {
+  width: 100%;
+  height: 100%;
   user-select: none;
   cursor: grab;
+}
+
+.graph-svg-container .sprotty-hidden {
+  display: block;
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 /* Subgraphs */
@@ -1089,6 +1100,7 @@ select:disabled {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  dominant-baseline: hanging;
 }
 
 /* Edges */
@@ -1107,6 +1119,11 @@ select:disabled {
   font-size: 11px;
   font-family: inherit;
   font-weight: 500;
+  dominant-baseline: hanging;
+}
+
+.graph-junction-dot {
+  fill: var(--surface2);
 }
 
 /* Nodes — base */
@@ -1127,6 +1144,7 @@ select:disabled {
   font-family: inherit;
   font-weight: 500;
   pointer-events: none;
+  dominant-baseline: hanging;
 }
 
 .graph-node:hover .graph-node-rect {
@@ -1197,6 +1215,7 @@ select:disabled {
   font-size: 9px;
   font-family: inherit;
   pointer-events: none;
+  dominant-baseline: hanging;
 }
 
 /* Graph toolbar divider */
