@@ -134,18 +134,27 @@ export function createGraph(
       lastStates = states;
       if (!lastPositionedModel) return;
 
-      // Patch cssClasses on the cached positioned model (preserves all ELK data)
-      function patchStates(children: any[]) {
-        for (const c of children || []) {
+      // Deep clone the positioned model with updated cssClasses.
+      // Must be a new object — Sprotty's diff compares by reference.
+      function cloneWithStates(children: any[]): any[] {
+        return children.map(c => {
+          const clone = { ...c };
           if (c.type === NODE) {
             const state = states.get(c.id) || "idle";
-            c.cssClasses = [`node-${state}`];
+            clone.cssClasses = [`node-${state}`];
           }
-          if (c.children) patchStates(c.children);
-        }
+          if (c.children) {
+            clone.children = cloneWithStates(c.children);
+          }
+          return clone;
+        });
       }
-      patchStates(lastPositionedModel.children || []);
-      actionDispatcher.dispatch(UpdateModelAction.create(lastPositionedModel, { animate: false }));
+
+      const updated = {
+        ...lastPositionedModel,
+        children: cloneWithStates(lastPositionedModel.children || []),
+      };
+      actionDispatcher.dispatch(UpdateModelAction.create(updated, { animate: false }));
     },
 
     selectNode(nodeId: string | null) {
