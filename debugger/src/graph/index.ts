@@ -7,7 +7,7 @@
 
 import { LocalModelSource, TYPES } from "sprotty";
 import type { IActionDispatcher } from "sprotty";
-import { SelectAction, CenterAction, FitToScreenAction, UpdateModelAction } from "sprotty-protocol";
+import { SelectAction, CenterAction, FitToScreenAction, UpdateModelAction, SetViewportAction } from "sprotty-protocol";
 import type { SModelIndex } from "sprotty-protocol";
 import { ElkLayoutEngine } from "sprotty-elk";
 import type { ElkFactory } from "sprotty-elk";
@@ -83,10 +83,14 @@ export function createGraph(
     const btn = (e.target as Element).closest("[data-action]") as HTMLElement | null;
     if (!btn) return;
     const action = btn.dataset.action;
-    if (action === "zoom-in") {
-      actionDispatcher.dispatch(FitToScreenAction.create([], { maxZoom: 999, animate: true }));
-    } else if (action === "zoom-out") {
-      actionDispatcher.dispatch(FitToScreenAction.create([], { maxZoom: 0.5, animate: true }));
+    if (action === "zoom-in" || action === "zoom-out") {
+      modelSource.getViewport().then(vp => {
+        const factor = action === "zoom-in" ? 1.25 : 0.8;
+        actionDispatcher.dispatch(SetViewportAction.create("root", {
+          scroll: vp.scroll,
+          zoom: vp.zoom * factor,
+        }, { animate: true }));
+      });
     } else if (action === "fit") {
       actionDispatcher.dispatch(FitToScreenAction.create([], { animate: true }));
     } else if (action === "ports") {
