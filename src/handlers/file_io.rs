@@ -3,7 +3,6 @@ use crate::execute::{CancellationToken, NodeHandler, Outputs};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use crate::handlers::common::{interpolate, validate_path_containment};
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 

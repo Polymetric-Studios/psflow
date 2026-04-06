@@ -1,5 +1,5 @@
 use crate::error::NodeError;
-use crate::execute::blackboard::{Blackboard, BlackboardScope};
+use crate::execute::blackboard::BlackboardScope;
 use crate::execute::{CancellationToken, ExecutionContext, NodeHandler, Outputs};
 use crate::graph::node::Node;
 use crate::graph::types::Value;

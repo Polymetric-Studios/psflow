@@ -1,7 +1,6 @@
 use crate::error::NodeError;
 use crate::execute::{CancellationToken, NodeHandler, Outputs};
 use crate::graph::node::Node;
-use crate::graph::types::Value;
 use std::future::Future;
 use std::pin::Pin;
 use tokio::sync::mpsc;
@@ -156,6 +155,7 @@ impl NodeHandler for HumanInputHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::types::Value;
 
     #[tokio::test]
     async fn human_input_round_trip() {
