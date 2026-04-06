@@ -1,0 +1,2 @@
+[  156110ms] [ERROR] psflow-debugger: TypeError: Cannot read properties of null (reading 'addEventListener')
+    at main (http://localhost:3001/src/main.ts?t=1775069077160:408:45) @ http://localhost:3001/src/main.ts?t=1775069077160:343

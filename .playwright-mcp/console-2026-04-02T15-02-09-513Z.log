@@ -1,0 +1,24 @@
+[      72ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775142119100:32
+[   32681ms] [LOG] [psflow-graph] Model children: 14 types: [node:psflow, edge:psflow] @ http://localhost:3333/src/graph/index.ts?t=1775142119100:57
+[   32712ms] [LOG] [psflow-graph] Node TEMP: pos=(324, 129) size=(252, 40) @ http://localhost:3333/src/graph/index.ts?t=1775142119100:63
+[   32712ms] [LOG] [psflow-graph] Node INPUT: pos=(12, 12) size=(260, 67) @ http://localhost:3333/src/graph/index.ts?t=1775142119100:63
+[   32712ms] [LOG] [psflow-graph] Node HUMID: pos=(643, 129) size=(284, 40) @ http://localhost:3333/src/graph/index.ts?t=1775142119100:63
+[   32712ms] [LOG] [psflow-graph] Node COMBINE: pos=(979, 219) size=(268, 48) @ http://localhost:3333/src/graph/index.ts?t=1775142119100:63
+[   32712ms] [LOG] [psflow-graph] Node CHECK: pos=(1033, 317) size=(160, 40) @ http://localhost:3333/src/graph/index.ts?t=1775142119100:63
+[   32712ms] [LOG] [psflow-graph] Node ALERT: pos=(773.5, 468) size=(205, 48) @ http://localhost:3333/src/graph/index.ts?t=1775142119100:63
+[   32712ms] [LOG] [psflow-graph] Node LOG: pos=(1020.5, 468) size=(185, 40) @ http://localhost:3333/src/graph/index.ts?t=1775142119100:63
+[   32712ms] [LOG] [view] Node TEMP: pos=(324, 129) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32713ms] [LOG] [view] Node INPUT: pos=(12, 12) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32713ms] [LOG] [view] Node HUMID: pos=(643, 129) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32713ms] [LOG] [view] Node COMBINE: pos=(979, 219) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32713ms] [LOG] [view] Node CHECK: pos=(1033, 317) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32713ms] [LOG] [view] Node ALERT: pos=(773.5, 468) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32713ms] [LOG] [view] Node LOG: pos=(1020.5, 468) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32720ms] [LOG] [view] Node TEMP: pos=(0, 0) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32721ms] [LOG] [view] Node INPUT: pos=(0, 0) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32721ms] [LOG] [view] Node HUMID: pos=(0, 0) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32721ms] [LOG] [view] Node COMBINE: pos=(0, 0) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32721ms] [LOG] [view] Node CHECK: pos=(0, 0) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32721ms] [LOG] [view] Node ALERT: pos=(0, 0) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   32721ms] [LOG] [view] Node LOG: pos=(0, 0) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[  111212ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775142240568:32

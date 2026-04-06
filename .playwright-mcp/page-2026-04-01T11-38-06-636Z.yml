@@ -1,0 +1,89 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - button "Load .mmd" [ref=e5] [cursor=pointer]
+      - button "Run" [ref=e6] [cursor=pointer]
+      - button "Load Trace" [ref=e7] [cursor=pointer]
+      - generic [ref=e37]: demo.mmd
+    - generic [ref=e8]:
+      - button "<" [active] [ref=e9] [cursor=pointer]
+      - button "Play" [ref=e10] [cursor=pointer]
+      - button ">" [ref=e11] [cursor=pointer]
+      - combobox [ref=e12]:
+        - option "0.5x"
+        - option "1x" [selected]
+        - option "2x"
+        - option "5x"
+        - option "10x"
+      - button "Reset" [ref=e13] [cursor=pointer]
+      - generic [ref=e69]: 3 / 5
+    - generic [ref=e14]:
+      - textbox "WebSocket port" [ref=e15]: "9001"
+      - button "Connect" [ref=e16] [cursor=pointer]
+      - generic [ref=e17]: 5 nodes | trace loaded
+  - generic [ref=e18]:
+    - textbox [ref=e24]:
+      - generic [ref=e25]: graph TD
+      - generic [ref=e38]: A[Generate Data] --> B[Double It]
+      - generic [ref=e39]: "B --> C{Big Enough?}"
+      - generic [ref=e40]: C -->|yes| D[Format Output]
+      - generic [ref=e41]: C -->|no| E[Too Small]
+      - generic [ref=e43]: "%% @A handler: rhai"
+      - generic [ref=e44]: "%% @A config.script: \"#{ value: 42, label: \\\"hello world\\\" }\""
+      - generic [ref=e45]: "%% @A outputs.value: \"I64\""
+      - generic [ref=e46]: "%% @A outputs.label: \"String\""
+      - generic [ref=e48]: "%% @B handler: rhai"
+      - generic [ref=e49]: "%% @B config.script: \"let v = inputs.value * 2; #{ doubled: v }\""
+      - generic [ref=e50]: "%% @B inputs.value: \"I64\""
+      - generic [ref=e51]: "%% @B outputs.doubled: \"I64\""
+      - generic [ref=e53]: "%% @C handler: branch"
+      - generic [ref=e54]: "%% @C config.guard: \"inputs.doubled > 50\""
+      - generic [ref=e56]: "%% @D handler: rhai"
+      - generic [ref=e57]: "%% @D config.script: \"#{ message: \\\"Result is \\\" + inputs.doubled.to_string() }\""
+      - generic [ref=e58]: "%% @D inputs.doubled: \"I64\""
+      - generic [ref=e59]: "%% @D outputs.message: \"String\""
+      - generic [ref=e61]: "%% @E handler: log"
+      - generic [ref=e62]: "%% @E config.message: \"Value was too small\""
+    - generic [ref=e26]:
+      - generic [ref=e108]:
+        - button "Node" [ref=e109] [cursor=pointer]
+        - button "Blackboard" [ref=e110] [cursor=pointer]
+        - button "Breakpoints" [ref=e111] [cursor=pointer]
+      - generic [ref=e28]:
+        - textbox "Search keys..." [ref=e189]
+        - generic [ref=e190]:
+          - heading "Global" [level=3] [ref=e191]
+          - generic [ref=e192]:
+            - generic [ref=e193]: A.label
+            - generic [ref=e194]: "{\"type\":\"String\",\"value\":\"hello world\"}"
+          - generic [ref=e195]:
+            - generic [ref=e196]: A.value
+            - generic [ref=e197]: "{\"type\":\"I64\",\"value\":42}"
+          - generic [ref=e198]:
+            - generic [ref=e199]: B.doubled
+            - generic [ref=e200]: "{\"type\":\"I64\",\"value\":84}"
+          - generic [ref=e201]:
+            - generic [ref=e202]: C.doubled
+            - generic [ref=e203]: "{\"type\":\"I64\",\"value\":84}"
+        - generic [ref=e204]:
+          - heading "A" [level=3] [ref=e205]
+          - generic [ref=e206]:
+            - generic [ref=e207]: label
+            - generic [ref=e208]: "{\"type\":\"String\",\"value\":\"hello world\"}"
+          - generic [ref=e209]:
+            - generic [ref=e210]: value
+            - generic [ref=e211]: "{\"type\":\"I64\",\"value\":42}"
+        - generic [ref=e212]:
+          - heading "B" [level=3] [ref=e213]
+          - generic [ref=e214]:
+            - generic [ref=e215]: doubled
+            - generic [ref=e216]: "{\"type\":\"I64\",\"value\":84}"
+        - generic [ref=e217]:
+          - heading "C" [level=3] [ref=e218]
+          - generic [ref=e219]:
+            - generic [ref=e220]: doubled
+            - generic [ref=e221]: "{\"type\":\"I64\",\"value\":84}"
+  - generic [ref=e31]:
+    - button "+" [ref=e32] [cursor=pointer]
+    - button "-" [ref=e33] [cursor=pointer]
+    - button "Fit" [ref=e34] [cursor=pointer]

@@ -370,6 +370,16 @@ pub enum LoopConfig {
         llm_config: serde_json::Value,
         max_iterations: usize,
     },
+    /// Iterate over a collection from the blackboard.
+    /// Each iteration writes the current item and index to the blackboard.
+    ForEach {
+        /// Blackboard key containing the collection (must resolve to a JSON array).
+        collection: String,
+        /// Blackboard key to write the current item to each iteration (default: "loop.item").
+        item_key: String,
+        /// Blackboard key to write the current index to each iteration (default: "loop.index").
+        index_key: String,
+    },
 }
 
 /// Execute subgraph nodes in declaration order (sequence).
@@ -675,6 +685,49 @@ pub async fn execute_loop_with_adapter(
 
                 if !should_continue {
                     break;
+                }
+
+                reset_node_states(node_ids, ctx);
+                execute_sequence(node_ids, graph, handlers, ctx, passthrough, true).await?;
+            }
+        }
+        LoopConfig::ForEach {
+            collection,
+            item_key,
+            index_key,
+        } => {
+            // Read the collection from the blackboard
+            use crate::graph::types::Value as PsValue;
+
+            let items: Vec<PsValue> = {
+                let bb = ctx.blackboard();
+                match bb.get(collection, &BlackboardScope::Global) {
+                    Some(PsValue::Vec(arr)) => arr.clone(),
+                    Some(_other) => {
+                        debug!(
+                            collection = collection.as_str(),
+                            "ForEach collection key exists but is not a Vec; running 0 iterations"
+                        );
+                        Vec::new()
+                    }
+                    None => Vec::new(),
+                }
+            };
+
+            for (index, item) in items.into_iter().enumerate() {
+                if ctx.is_cancelled() {
+                    break;
+                }
+
+                // Write current item and index to blackboard
+                {
+                    let mut bb = ctx.blackboard();
+                    bb.set(item_key.clone(), item, BlackboardScope::Global);
+                    bb.set(
+                        index_key.clone(),
+                        PsValue::I64(index as i64),
+                        BlackboardScope::Global,
+                    );
                 }
 
                 reset_node_states(node_ids, ctx);
@@ -1676,6 +1729,168 @@ mod tests {
         ).await.unwrap();
 
         // Fallback guard is false → 0 iterations → node stays idle
+        let state = ctx.get_state("L");
+        assert_eq!(state, NodeState::Idle);
+    }
+
+    #[tokio::test]
+    async fn foreach_iterates_over_collection() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| Ok(Outputs::new()));
+
+        // Seed blackboard with a collection
+        {
+            let mut bb = ctx.blackboard();
+            bb.set(
+                "items".to_string(),
+                Value::Vec(vec![
+                    Value::String("alpha".into()),
+                    Value::String("beta".into()),
+                    Value::String("gamma".into()),
+                ]),
+                BlackboardScope::Global,
+            );
+        }
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("L", "Loop body")).unwrap();
+
+        let node_ids = vec![NodeId::new("L")];
+        let config = LoopConfig::ForEach {
+            collection: "items".to_string(),
+            item_key: "loop.item".to_string(),
+            index_key: "loop.index".to_string(),
+        };
+
+        let handlers = HandlerRegistry::new();
+        execute_loop(&node_ids, &config, &graph, &handlers, &ctx, &passthrough)
+            .await
+            .unwrap();
+
+        // After iteration, blackboard should have the last item/index
+        let bb = ctx.blackboard();
+        assert_eq!(
+            bb.get("loop.item", &BlackboardScope::Global),
+            Some(&Value::String("gamma".into()))
+        );
+        assert_eq!(
+            bb.get("loop.index", &BlackboardScope::Global),
+            Some(&Value::I64(2))
+        );
+    }
+
+    #[tokio::test]
+    async fn foreach_empty_collection_runs_zero_iterations() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| Ok(Outputs::new()));
+
+        // Seed blackboard with an empty collection
+        {
+            let mut bb = ctx.blackboard();
+            bb.set(
+                "items".to_string(),
+                Value::Vec(vec![]),
+                BlackboardScope::Global,
+            );
+        }
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("L", "Loop body")).unwrap();
+
+        let node_ids = vec![NodeId::new("L")];
+        let config = LoopConfig::ForEach {
+            collection: "items".to_string(),
+            item_key: "loop.item".to_string(),
+            index_key: "loop.index".to_string(),
+        };
+
+        let handlers = HandlerRegistry::new();
+        execute_loop(&node_ids, &config, &graph, &handlers, &ctx, &passthrough)
+            .await
+            .unwrap();
+
+        // No iterations → node stays idle, no loop vars written
+        let state = ctx.get_state("L");
+        assert_eq!(state, NodeState::Idle);
+        let bb = ctx.blackboard();
+        assert!(bb.get("loop.item", &BlackboardScope::Global).is_none());
+    }
+
+    #[tokio::test]
+    async fn foreach_missing_collection_runs_zero_iterations() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| Ok(Outputs::new()));
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("L", "Loop body")).unwrap();
+
+        let node_ids = vec![NodeId::new("L")];
+        let config = LoopConfig::ForEach {
+            collection: "nonexistent".to_string(),
+            item_key: "loop.item".to_string(),
+            index_key: "loop.index".to_string(),
+        };
+
+        let handlers = HandlerRegistry::new();
+        execute_loop(&node_ids, &config, &graph, &handlers, &ctx, &passthrough)
+            .await
+            .unwrap();
+
+        let state = ctx.get_state("L");
+        assert_eq!(state, NodeState::Idle);
+    }
+
+    #[tokio::test]
+    async fn foreach_wrong_type_collection_runs_zero_iterations() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| Ok(Outputs::new()));
+
+        // Seed blackboard with a String, not a Vec
+        {
+            let mut bb = ctx.blackboard();
+            bb.set(
+                "items".to_string(),
+                Value::String("not an array".into()),
+                BlackboardScope::Global,
+            );
+        }
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("L", "Loop body")).unwrap();
+
+        let node_ids = vec![NodeId::new("L")];
+        let config = LoopConfig::ForEach {
+            collection: "items".to_string(),
+            item_key: "loop.item".to_string(),
+            index_key: "loop.index".to_string(),
+        };
+
+        let handlers = HandlerRegistry::new();
+        execute_loop(&node_ids, &config, &graph, &handlers, &ctx, &passthrough)
+            .await
+            .unwrap();
+
+        // Wrong type → zero iterations
         let state = ctx.get_state("L");
         assert_eq!(state, NodeState::Idle);
     }

@@ -1,0 +1,5 @@
+[      97ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775141325064:32
+[   22233ms] [LOG] [psflow-graph] Model children: 14 types: [node:psflow, edge:psflow] @ http://localhost:3333/src/graph/index.ts?t=1775141325064:57
+[   22260ms] [LOG] [psflow-graph] setModel complete @ http://localhost:3333/src/graph/index.ts?t=1775141325064:60
+[   61221ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775141396813:32
+[   91987ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775141427588:32

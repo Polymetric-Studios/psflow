@@ -1,0 +1,75 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "Open" [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+          - generic [ref=e10]: Open
+        - button "Trace" [ref=e11] [cursor=pointer]:
+          - img [ref=e12]
+          - generic [ref=e15]: Trace
+        - button "Run" [ref=e17] [cursor=pointer]:
+          - img [ref=e18]
+          - generic [ref=e20]: Run
+      - generic [ref=e72]: weather_advisor.mmd
+      - generic [ref=e22]:
+        - button "Text" [ref=e23] [cursor=pointer]
+        - button "Split" [ref=e24] [cursor=pointer]
+        - button "Graph" [ref=e25] [cursor=pointer]
+    - generic [ref=e26]:
+      - generic [ref=e27]: 7 nodes
+      - generic [ref=e29]:
+        - generic [ref=e30]: Debug server
+        - textbox "WebSocket port" [ref=e31]: "9001"
+        - button "Connect" [ref=e32] [cursor=pointer]
+  - generic [ref=e35]:
+    - button "Step back (Left)" [disabled] [ref=e36]:
+      - img [ref=e37]
+    - button "Play/Pause (Space)" [disabled] [ref=e40]:
+      - img [ref=e41]
+    - button "Step forward (Right)" [disabled] [ref=e43]:
+      - img [ref=e44]
+    - combobox [disabled] [ref=e48] [cursor=pointer]:
+      - option "0.5x"
+      - option "1x" [selected]
+      - option "2x"
+      - option "5x"
+      - option "10x"
+    - button "Reset to start" [disabled] [ref=e49]:
+      - img [ref=e50]
+  - generic [ref=e53]:
+    - generic [ref=e125]:
+      - generic [ref=e126]:
+        - button "+" [ref=e127] [cursor=pointer]
+        - button "−" [ref=e128] [cursor=pointer]
+        - button "Fit" [ref=e129] [cursor=pointer]
+        - button "Ports" [ref=e131] [cursor=pointer]
+      - img [ref=e133]:
+        - generic [ref=e134]:
+          - generic [ref=e142]: "yes"
+          - generic [ref=e145]: "no"
+          - 'button "Node: Classify Temp" [ref=e147] [cursor=pointer]':
+            - generic: Classify Temp
+          - 'button "Node: Sensor Reading" [ref=e149] [cursor=pointer]':
+            - generic: Sensor Reading
+          - 'button "Node: Classify Humidity" [ref=e151] [cursor=pointer]':
+            - generic: Classify Humidity
+          - 'button "Node: Risk Assessment" [ref=e153] [cursor=pointer]':
+            - generic: Risk Assessment
+          - 'button "Node: Extreme?" [ref=e155] [cursor=pointer]':
+            - generic: Extreme?
+          - 'button "Node: Issue Alert" [ref=e157] [cursor=pointer]':
+            - generic: Issue Alert
+          - 'button "Node: Log Normal" [ref=e159] [cursor=pointer]':
+            - generic: Log Normal
+    - generic [ref=e62]:
+      - generic [ref=e119]:
+        - button "Node" [ref=e120] [cursor=pointer]
+        - button "Blackboard" [ref=e121] [cursor=pointer]
+        - button "Console" [ref=e122] [cursor=pointer]
+        - button "Breakpoints" [ref=e123] [cursor=pointer]
+      - paragraph [ref=e124]: Select a node to inspect
+  - generic [ref=e66]:
+    - button "+" [ref=e67] [cursor=pointer]
+    - button "-" [ref=e68] [cursor=pointer]
+    - button "Fit" [active] [ref=e69] [cursor=pointer]

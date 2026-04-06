@@ -1,0 +1,14 @@
+[   25428ms] [LOG] [view] Node TEMP: pos=(324, 129) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25428ms] [LOG] [view] Node INPUT: pos=(12, 12) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25428ms] [LOG] [view] Node HUMID: pos=(643, 129) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25428ms] [LOG] [view] Node COMBINE: pos=(979, 219) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25428ms] [LOG] [view] Node CHECK: pos=(1033, 317) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25428ms] [LOG] [view] Node ALERT: pos=(773.5, 468) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25428ms] [LOG] [view] Node LOG: pos=(1020.5, 468) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25436ms] [LOG] [view] Node TEMP: pos=(324, 129) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25436ms] [LOG] [view] Node INPUT: pos=(12, 12) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25436ms] [LOG] [view] Node HUMID: pos=(643, 129) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25436ms] [LOG] [view] Node COMBINE: pos=(979, 219) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25436ms] [LOG] [view] Node CHECK: pos=(1033, 317) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25436ms] [LOG] [view] Node ALERT: pos=(773.5, 468) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53
+[   25436ms] [LOG] [view] Node LOG: pos=(1020.5, 468) @ http://localhost:3333/src/graph/views.ts?t=1775142119100:53

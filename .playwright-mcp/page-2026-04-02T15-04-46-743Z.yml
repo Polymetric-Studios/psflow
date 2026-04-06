@@ -1,0 +1,158 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - button "Open" [ref=e6] [cursor=pointer]:
+            - img [ref=e7]
+            - generic [ref=e10]: Open
+          - button "Trace" [ref=e11] [cursor=pointer]:
+            - img [ref=e12]
+            - generic [ref=e15]: Trace
+          - button "Run" [ref=e17] [cursor=pointer]:
+            - img [ref=e18]
+            - generic [ref=e20]: Run
+        - generic [ref=e73]: weather_advisor.mmd
+        - generic [ref=e22]:
+          - button "Text" [ref=e23] [cursor=pointer]
+          - button "Split" [ref=e24] [cursor=pointer]
+          - button "Graph" [active] [ref=e25] [cursor=pointer]
+      - generic [ref=e26]:
+        - generic [ref=e27]: 7 nodes
+        - generic [ref=e29]:
+          - generic [ref=e30]: Debug server
+          - textbox "WebSocket port" [ref=e31]: "9001"
+          - button "Connect" [ref=e32] [cursor=pointer]
+    - generic [ref=e35]:
+      - button "Step back (Left)" [disabled] [ref=e36]:
+        - img [ref=e37]
+      - button "Play/Pause (Space)" [disabled] [ref=e40]:
+        - img [ref=e41]
+      - button "Step forward (Right)" [disabled] [ref=e43]:
+        - img [ref=e44]
+      - combobox [disabled] [ref=e48] [cursor=pointer]:
+        - option "0.5x"
+        - option "1x" [selected]
+        - option "2x"
+        - option "5x"
+        - option "10x"
+      - button "Reset to start" [disabled] [ref=e49]:
+        - img [ref=e50]
+    - generic [ref=e53]:
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - button "+" [ref=e56] [cursor=pointer]
+          - button "−" [ref=e57] [cursor=pointer]
+          - button "Fit" [ref=e58] [cursor=pointer]
+          - button "Ports" [ref=e60] [cursor=pointer]
+        - img [ref=e75]:
+          - generic [ref=e76]:
+            - 'button "Node: TEMP" [ref=e77] [cursor=pointer]':
+              - generic: Classify Temp
+              - generic [ref=e79]:
+                - generic: temperature
+              - generic [ref=e81]:
+                - generic: temp_label
+            - 'button "Node: INPUT" [ref=e83] [cursor=pointer]':
+              - generic: Sensor Reading
+              - generic [ref=e85]:
+                - generic: temperature
+              - generic [ref=e87]:
+                - generic: humidity
+              - generic [ref=e89]:
+                - generic: station
+            - 'button "Node: HUMID" [ref=e91] [cursor=pointer]':
+              - generic: Classify Humidity
+              - generic [ref=e93]:
+                - generic: humidity
+              - generic [ref=e95]:
+                - generic: humid_label
+            - 'button "Node: COMBINE" [ref=e97] [cursor=pointer]':
+              - generic: Risk Assessment
+              - generic [ref=e99]:
+                - generic: temp_label
+              - generic [ref=e101]:
+                - generic: humid_label
+              - generic [ref=e103]:
+                - generic: report
+              - generic [ref=e105]:
+                - generic: extreme
+            - 'button "Node: CHECK" [ref=e107] [cursor=pointer]':
+              - generic: Extreme?
+            - 'button "Node: ALERT" [ref=e109] [cursor=pointer]':
+              - generic: Issue Alert
+              - generic [ref=e111]:
+                - generic: report
+              - generic [ref=e113]:
+                - generic: message
+              - generic [ref=e115]:
+                - generic: severity
+            - 'button "Node: LOG" [ref=e117] [cursor=pointer]':
+              - generic: Log Normal
+              - generic [ref=e119]:
+                - generic: report
+              - generic [ref=e121]:
+                - generic: message
+            - generic [ref=e124]: "yes"
+            - generic [ref=e126]: "no"
+      - generic [ref=e63]:
+        - generic [ref=e128]:
+          - button "Node" [ref=e129] [cursor=pointer]
+          - button "Blackboard" [ref=e130] [cursor=pointer]
+          - button "Console" [ref=e131] [cursor=pointer]
+          - button "Breakpoints" [ref=e132] [cursor=pointer]
+        - paragraph [ref=e133]: Select a node to inspect
+    - generic [ref=e67]:
+      - button "+" [ref=e68] [cursor=pointer]
+      - button "-" [ref=e69] [cursor=pointer]
+      - button "Fit" [ref=e70] [cursor=pointer]
+  - img [ref=e135]:
+    - generic [ref=e136]:
+      - 'button "Node: TEMP" [ref=e137] [cursor=pointer]':
+        - generic: Classify Temp
+        - generic [ref=e139]:
+          - generic: temperature
+        - generic [ref=e141]:
+          - generic: temp_label
+      - 'button "Node: INPUT" [ref=e143] [cursor=pointer]':
+        - generic: Sensor Reading
+        - generic [ref=e145]:
+          - generic: temperature
+        - generic [ref=e147]:
+          - generic: humidity
+        - generic [ref=e149]:
+          - generic: station
+      - 'button "Node: HUMID" [ref=e151] [cursor=pointer]':
+        - generic: Classify Humidity
+        - generic [ref=e153]:
+          - generic: humidity
+        - generic [ref=e155]:
+          - generic: humid_label
+      - 'button "Node: COMBINE" [ref=e157] [cursor=pointer]':
+        - generic: Risk Assessment
+        - generic [ref=e159]:
+          - generic: temp_label
+        - generic [ref=e161]:
+          - generic: humid_label
+        - generic [ref=e163]:
+          - generic: report
+        - generic [ref=e165]:
+          - generic: extreme
+      - 'button "Node: CHECK" [ref=e167] [cursor=pointer]':
+        - generic: Extreme?
+      - 'button "Node: ALERT" [ref=e169] [cursor=pointer]':
+        - generic: Issue Alert
+        - generic [ref=e171]:
+          - generic: report
+        - generic [ref=e173]:
+          - generic: message
+        - generic [ref=e175]:
+          - generic: severity
+      - 'button "Node: LOG" [ref=e177] [cursor=pointer]':
+        - generic: Log Normal
+        - generic [ref=e179]:
+          - generic: report
+        - generic [ref=e181]:
+          - generic: message
+      - generic [ref=e184]: "yes"
+      - generic [ref=e186]: "no"

@@ -1,0 +1,109 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "Open" [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+          - generic [ref=e10]: Open
+        - button "Trace" [ref=e11] [cursor=pointer]:
+          - img [ref=e12]
+          - generic [ref=e15]: Trace
+        - button "Run" [ref=e17] [cursor=pointer]:
+          - img [ref=e18]
+          - generic [ref=e20]: Run
+      - generic [ref=e73]: weather_advisor.mmd
+      - generic [ref=e22]:
+        - button "Text" [ref=e23] [cursor=pointer]
+        - button "Split" [ref=e24] [cursor=pointer]
+        - button "Graph" [ref=e25] [cursor=pointer]
+    - generic [ref=e26]:
+      - generic [ref=e27]: 7 nodes
+      - generic [ref=e29]:
+        - generic [ref=e30]: Debug server
+        - textbox "WebSocket port" [ref=e31]: "9001"
+        - button "Connect" [ref=e32] [cursor=pointer]
+  - generic [ref=e35]:
+    - button "Step back (Left)" [disabled] [ref=e36]:
+      - img [ref=e37]
+    - button "Play/Pause (Space)" [disabled] [ref=e40]:
+      - img [ref=e41]
+    - button "Step forward (Right)" [disabled] [ref=e43]:
+      - img [ref=e44]
+    - combobox [disabled] [ref=e48] [cursor=pointer]:
+      - option "0.5x"
+      - option "1x" [selected]
+      - option "2x"
+      - option "5x"
+      - option "10x"
+    - button "Reset to start" [disabled] [ref=e49]:
+      - img [ref=e50]
+  - generic [ref=e53]:
+    - textbox [ref=e186]:
+      - generic [ref=e187]: graph TD
+      - generic [ref=e188]: INPUT[Sensor Reading] --> TEMP[Classify Temp]
+      - generic [ref=e189]: INPUT --> HUMID[Classify Humidity]
+      - generic [ref=e190]: TEMP --> COMBINE[Risk Assessment]
+      - generic [ref=e191]: HUMID --> COMBINE
+      - generic [ref=e192]: "COMBINE --> CHECK{Extreme?}"
+      - generic [ref=e193]: CHECK -->|yes| ALERT[Issue Alert]
+      - generic [ref=e194]: CHECK -->|no| LOG[Log Normal]
+      - generic [ref=e196]: "%% @INPUT handler: rhai"
+      - generic [ref=e197]: "%% @INPUT config.script: \"#{ temperature: 38, humidity: 85, station: \\\"Alpha\\\" }\""
+      - generic [ref=e198]: "%% @INPUT outputs.temperature: \"I64\""
+      - generic [ref=e199]: "%% @INPUT outputs.humidity: \"I64\""
+      - generic [ref=e200]: "%% @INPUT outputs.station: \"String\""
+      - generic [ref=e202]: "%% @TEMP handler: rhai"
+      - generic [ref=e203]: "%% @TEMP config.script: \"let t = inputs.temperature; let label = if t >= 35 { \\\"hot\\\" } else if t >= 20 { \\\"warm\\\" } else if t >= 5 { \\\"cool\\\" } else { \\\"cold\\\" }; #{ temp_label: label + \\\" (\\\" + t.to_string() + \\\"C)\\\" }\""
+      - generic [ref=e204]: "%% @TEMP inputs.temperature: \"I64\""
+      - generic [ref=e205]: "%% @TEMP outputs.temp_label: \"String\""
+      - generic [ref=e207]: "%% @HUMID handler: rhai"
+      - generic [ref=e208]: "%% @HUMID config.script: \"let h = inputs.humidity; let label = if h >= 80 { \\\"humid\\\" } else if h >= 40 { \\\"moderate\\\" } else { \\\"dry\\\" }; #{ humid_label: label + \\\" (\\\" + h.to_string() + \\\"%)\\\" }\""
+      - generic [ref=e209]: "%% @HUMID inputs.humidity: \"I64\""
+      - generic [ref=e210]: "%% @HUMID outputs.humid_label: \"String\""
+      - generic [ref=e212]: "%% @COMBINE handler: rhai"
+      - generic [ref=e213]: "%% @COMBINE config.script: \"let desc = inputs.temp_label + \\\", \\\" + inputs.humid_label; let is_extreme = desc.contains(\\\"hot\\\") && desc.contains(\\\"humid\\\"); #{ report: desc, extreme: is_extreme }\""
+      - generic [ref=e214]: "%% @COMBINE inputs.temp_label: \"String\""
+      - generic [ref=e215]: "%% @COMBINE inputs.humid_label: \"String\""
+      - generic [ref=e216]: "%% @COMBINE outputs.report: \"String\""
+      - generic [ref=e217]: "%% @COMBINE outputs.extreme: \"Bool\""
+      - generic [ref=e219]: "%% @CHECK handler: branch"
+      - generic [ref=e220]: "%% @CHECK config.guard: \"inputs.extreme == true\""
+      - generic [ref=e222]: "%% @ALERT handler: rhai"
+      - generic [ref=e223]: "%% @ALERT config.script: \"#{ message: \\\"ALERT: \\\" + inputs.report, severity: \\\"high\\\" }\""
+      - generic [ref=e224]: "%% @ALERT inputs.report: \"String\""
+      - generic [ref=e225]: "%% @ALERT outputs.message: \"String\""
+      - generic [ref=e226]: "%% @ALERT outputs.severity: \"String\""
+      - generic [ref=e228]: "%% @LOG handler: rhai"
+      - generic [ref=e229]: "%% @LOG config.script: \"#{ message: \\\"Normal: \\\" + inputs.report }\""
+      - generic [ref=e230]: "%% @LOG inputs.report: \"String\""
+      - generic [ref=e231]: "%% @LOG outputs.message: \"String\""
+    - generic [ref=e63]:
+      - generic [ref=e137]:
+        - button "Node" [ref=e138] [cursor=pointer]
+        - button "Blackboard" [ref=e139] [cursor=pointer]
+        - button "Console" [ref=e140] [cursor=pointer]
+        - button "Breakpoints" [ref=e141] [cursor=pointer]
+      - generic [ref=e64]:
+        - generic [ref=e233]:
+          - heading "Node" [level=3] [ref=e234]
+          - generic [ref=e235]:
+            - generic [ref=e236]: ID
+            - generic [ref=e237]: CHECK
+          - generic [ref=e238]:
+            - generic [ref=e239]: Label
+            - generic [ref=e240]: Extreme?
+          - generic [ref=e241]:
+            - generic [ref=e242]: State
+            - generic [ref=e243]: idle
+        - generic [ref=e244]:
+          - heading "Config" [level=3] [ref=e245]
+          - generic [ref=e246]:
+            - generic [ref=e247]: handler
+            - generic [ref=e248]: branch
+          - generic [ref=e249]:
+            - generic [ref=e250]: config.guard
+            - generic [ref=e251]: "\"inputs.extreme == true\""
+  - generic [ref=e67]:
+    - button "+" [ref=e68] [cursor=pointer]
+    - button "-" [ref=e69] [cursor=pointer]
+    - button "Fit" [ref=e70] [cursor=pointer]

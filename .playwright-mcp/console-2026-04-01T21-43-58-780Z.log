@@ -1,0 +1,11 @@
+[   22954ms] [ERROR] Graph layout failed: TypeError: Cannot read properties of null (reading 'pe')
+    at CAd (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:14315:29)
+    at cCd (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:28690:21)
+    at $Bd (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:29187:15)
+    at cBd (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:24213:26)
+    at UBd (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:16051:20)
+    at $Bd (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:29194:15)
+    at SGd (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:45922:160)
+    at h.dispatch (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:56270:23)
+    at h.saveDispatch (http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:56277:25)
+    at http://localhost:3001/node_modules/.vite/deps/elkjs_lib_elk__bundled__js.js?v=c1c1361b:56290:34 @ http://localhost:3001/src/graph.ts?t=1775079806653:576

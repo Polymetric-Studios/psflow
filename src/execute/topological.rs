@@ -602,6 +602,32 @@ fn parse_loop_config(graph: &Graph, node_ids: &[NodeId]) -> control::LoopConfig 
                     max_iterations: max,
                 };
             }
+            // ForEach: iterate over a blackboard collection
+            // Accepts both `loop_foreach` and `loop_over` (legacy alias from examples)
+            if let Some(collection) = node
+                .exec
+                .get("loop_foreach")
+                .or_else(|| node.exec.get("loop_over"))
+                .and_then(|v| v.as_str())
+            {
+                let item_key = node
+                    .exec
+                    .get("loop_item_key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("loop.item")
+                    .to_string();
+                let index_key = node
+                    .exec
+                    .get("loop_index_key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("loop.index")
+                    .to_string();
+                return control::LoopConfig::ForEach {
+                    collection: collection.to_string(),
+                    item_key,
+                    index_key,
+                };
+            }
         }
     }
     // Default: single execution (same as sequence)
@@ -1708,6 +1734,74 @@ mod tests {
             "expected at least 3 concurrent, got {}",
             max_seen.load(AtomicOrdering::SeqCst)
         );
+    }
+
+    #[test]
+    fn parse_loop_config_foreach() {
+        let mut graph = Graph::new();
+        let mut node = Node::new("L", "Loop body");
+        node.exec = serde_json::json!({
+            "loop_foreach": "wf:inputs.files",
+            "loop_item_key": "loop.file",
+            "loop_index_key": "loop.idx"
+        });
+        graph.add_node(node).unwrap();
+
+        let config = parse_loop_config(&graph, &[NodeId::new("L")]);
+        match config {
+            control::LoopConfig::ForEach {
+                collection,
+                item_key,
+                index_key,
+            } => {
+                assert_eq!(collection, "wf:inputs.files");
+                assert_eq!(item_key, "loop.file");
+                assert_eq!(index_key, "loop.idx");
+            }
+            other => panic!("expected ForEach, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_loop_config_foreach_defaults() {
+        let mut graph = Graph::new();
+        let mut node = Node::new("L", "Loop body");
+        node.exec = serde_json::json!({
+            "loop_foreach": "items"
+        });
+        graph.add_node(node).unwrap();
+
+        let config = parse_loop_config(&graph, &[NodeId::new("L")]);
+        match config {
+            control::LoopConfig::ForEach {
+                collection,
+                item_key,
+                index_key,
+            } => {
+                assert_eq!(collection, "items");
+                assert_eq!(item_key, "loop.item");
+                assert_eq!(index_key, "loop.index");
+            }
+            other => panic!("expected ForEach, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_loop_config_loop_over_alias() {
+        let mut graph = Graph::new();
+        let mut node = Node::new("L", "Loop body");
+        node.exec = serde_json::json!({
+            "loop_over": "form.sections"
+        });
+        graph.add_node(node).unwrap();
+
+        let config = parse_loop_config(&graph, &[NodeId::new("L")]);
+        match config {
+            control::LoopConfig::ForEach { collection, .. } => {
+                assert_eq!(collection, "form.sections");
+            }
+            other => panic!("expected ForEach via loop_over alias, got {other:?}"),
+        }
     }
 
     // -- 2.T.2: Property-based tests for control flow --

@@ -1,0 +1,14 @@
+[      67ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775141427588:32
+[   21988ms] [LOG] [psflow-graph] Model children: 14 types: [node:psflow, edge:psflow] @ http://localhost:3333/src/graph/index.ts?t=1775141427588:57
+[   22016ms] [LOG] [psflow-graph] Node TEMP: pos=(324, 129) size=(252, 40) @ http://localhost:3333/src/graph/index.ts?t=1775141427588:63
+[   22016ms] [LOG] [psflow-graph] Node INPUT: pos=(12, 12) size=(260, 67) @ http://localhost:3333/src/graph/index.ts?t=1775141427588:63
+[   22016ms] [LOG] [psflow-graph] Node HUMID: pos=(643, 129) size=(284, 40) @ http://localhost:3333/src/graph/index.ts?t=1775141427588:63
+[   22016ms] [LOG] [psflow-graph] Node COMBINE: pos=(979, 219) size=(268, 48) @ http://localhost:3333/src/graph/index.ts?t=1775141427588:63
+[   22016ms] [LOG] [psflow-graph] Node CHECK: pos=(1033, 317) size=(160, 40) @ http://localhost:3333/src/graph/index.ts?t=1775141427588:63
+[   22016ms] [LOG] [psflow-graph] Node ALERT: pos=(773.5, 468) size=(205, 48) @ http://localhost:3333/src/graph/index.ts?t=1775141427588:63
+[   22016ms] [LOG] [psflow-graph] Node LOG: pos=(1020.5, 468) size=(185, 40) @ http://localhost:3333/src/graph/index.ts?t=1775141427588:63
+[  493998ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775141932399:32
+[  513480ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775141951900:32
+[  532322ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775141970714:32
+[  551707ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775141990138:32
+[  582050ms] [LOG] [psflow-graph] Layout engine bound: true @ http://localhost:3333/src/graph/index.ts?t=1775142020434:32

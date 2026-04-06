@@ -110,6 +110,10 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
     let mut sg_stack: Vec<ParsedSubgraph> = Vec::new();
     let mut byte_offset: usize = 0;
 
+    // State for multi-line annotation accumulation (>>> / <<<)
+    let mut multiline_ann: Option<ParsedAnnotation> = None;
+    let mut multiline_lines: Vec<String> = Vec::new();
+
     for (idx, raw_line) in input.lines().enumerate() {
         let line = raw_line.trim();
         let line_byte_start = byte_offset;
@@ -122,6 +126,33 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
         }
         let line_num = idx + 1;
         let line_span = Span::new(line_byte_start, line_byte_end);
+
+        // Inside a multi-line annotation block: accumulate until <<<
+        if let Some(ref mut ann) = multiline_ann {
+            if let Some(body) = line.strip_prefix("%%") {
+                let body = body.strip_prefix(' ').unwrap_or(body);
+                if body.trim() == "<<<" {
+                    // Close the block: join accumulated lines, push annotation
+                    let mut ann = multiline_ann.take().unwrap();
+                    ann.raw_value = multiline_lines.join("\n");
+                    ann.span.extend(line_span);
+                    result.annotations.push(ann);
+                    multiline_lines.clear();
+                } else {
+                    multiline_lines.push(body.to_string());
+                }
+            } else if !line.is_empty() {
+                // Non-comment line inside a >>> block is an error
+                return Err(super::MermaidError::Parse {
+                    line: line_num,
+                    message: format!(
+                        "non-comment line inside >>> block for @{} {}: {:?}",
+                        ann.target_id, ann.key, line
+                    ),
+                });
+            }
+            continue;
+        }
 
         // Graph/flowchart direction
         if let Some(dir_str) = line
@@ -165,8 +196,16 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
         // Annotation: %% @NodeID key: value
         if let Some(rest) = line.strip_prefix("%% @") {
             if let Some(mut ann) = parse_annotation(rest) {
-                ann.span = line_span;
-                result.annotations.push(ann);
+                // Check if this annotation opens a multi-line block
+                if ann.raw_value == ">>>" {
+                    ann.span = line_span;
+                    ann.raw_value.clear();
+                    multiline_ann = Some(ann);
+                    multiline_lines.clear();
+                } else {
+                    ann.span = line_span;
+                    result.annotations.push(ann);
+                }
             }
             continue;
         }
@@ -191,6 +230,17 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
             node.span = line_span;
             register_node(&mut result.nodes, &mut sg_stack, node);
         }
+    }
+
+    // Error on unclosed multi-line annotation blocks
+    if let Some(ann) = multiline_ann {
+        return Err(super::MermaidError::Parse {
+            line: input[..ann.span.from].lines().count() + 1,
+            message: format!(
+                "unclosed >>> block for @{} {} (missing <<<)",
+                ann.target_id, ann.key
+            ),
+        });
     }
 
     // Auto-close unclosed subgraphs — span extends to end of input
@@ -597,6 +647,165 @@ mod tests {
         assert!(text.ends_with("end"));
         assert_eq!(sg.span.from, 9); // "graph TD\n" = 9 bytes
         assert_eq!(sg.span.to, input.len());
+    }
+
+    #[test]
+    fn multiline_annotation_basic() {
+        let input = "\
+graph TD
+    A[Plan] --> B[Build]
+
+    %% @A config.prompt: >>>
+    %%   Plan the feature: {inputs.description}
+    %%
+    %%   Consider architecture.
+    %% <<<
+";
+        let parsed = parse(input).unwrap();
+        assert_eq!(parsed.annotations.len(), 1);
+        let ann = &parsed.annotations[0];
+        assert_eq!(ann.target_id, "A");
+        assert_eq!(ann.key, "config.prompt");
+        assert_eq!(
+            ann.raw_value,
+            "  Plan the feature: {inputs.description}\n\n  Consider architecture."
+        );
+    }
+
+    #[test]
+    fn multiline_annotation_single_line_body() {
+        let input = "\
+graph TD
+    A --> B
+    %% @A config.prompt: >>>
+    %% Just one line.
+    %% <<<
+";
+        let parsed = parse(input).unwrap();
+        assert_eq!(parsed.annotations.len(), 1);
+        assert_eq!(parsed.annotations[0].raw_value, "Just one line.");
+    }
+
+    #[test]
+    fn multiline_annotation_empty_block() {
+        let input = "\
+graph TD
+    A --> B
+    %% @A config.prompt: >>>
+    %% <<<
+";
+        let parsed = parse(input).unwrap();
+        assert_eq!(parsed.annotations.len(), 1);
+        assert_eq!(parsed.annotations[0].raw_value, "");
+    }
+
+    #[test]
+    fn multiline_annotation_mixed_with_single_line() {
+        let input = "\
+graph TD
+    A --> B
+
+    %% @A handler: agentic
+    %% @A config.prompt: >>>
+    %%   Multi-line prompt
+    %%   with two lines.
+    %% <<<
+    %% @A config.agent: athena
+";
+        let parsed = parse(input).unwrap();
+        assert_eq!(parsed.annotations.len(), 3);
+        assert_eq!(parsed.annotations[0].key, "handler");
+        assert_eq!(parsed.annotations[0].raw_value, "agentic");
+        assert_eq!(parsed.annotations[1].key, "config.prompt");
+        assert_eq!(
+            parsed.annotations[1].raw_value,
+            "  Multi-line prompt\n  with two lines."
+        );
+        assert_eq!(parsed.annotations[2].key, "config.agent");
+        assert_eq!(parsed.annotations[2].raw_value, "athena");
+    }
+
+    #[test]
+    fn multiline_annotation_span_covers_block() {
+        let input = "\
+graph TD
+    A --> B
+
+    %% @A config.prompt: >>>
+    %% Line one.
+    %% Line two.
+    %% <<<
+";
+        let parsed = parse(input).unwrap();
+        let ann = &parsed.annotations[0];
+        let text = &input[ann.span.from..ann.span.to];
+        assert!(text.contains(">>>"));
+        assert!(text.contains("<<<"));
+    }
+
+    #[test]
+    fn unclosed_multiline_block_is_error() {
+        let input = "\
+graph TD
+    A --> B
+    %% @A config.prompt: >>>
+    %% Some content
+    %% More content
+";
+        let err = parse(input).unwrap_err();
+        match err {
+            super::super::MermaidError::Parse { message, .. } => {
+                assert!(message.contains("unclosed >>>"), "got: {message}");
+            }
+            other => panic!("expected Parse error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_comment_line_inside_multiline_block_is_error() {
+        let input = "\
+graph TD
+    A --> B
+    %% @A config.prompt: >>>
+    %% Line one
+    C[Oops] --> D
+    %% <<<
+";
+        let err = parse(input).unwrap_err();
+        match err {
+            super::super::MermaidError::Parse { message, .. } => {
+                assert!(
+                    message.contains("non-comment line"),
+                    "got: {message}"
+                );
+            }
+            other => panic!("expected Parse error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_sequential_multiline_blocks() {
+        let input = "\
+graph TD
+    A --> B
+
+    %% @A config.prompt: >>>
+    %% Prompt for A
+    %% <<<
+    %% @B config.prompt: >>>
+    %% Prompt for B
+    %% with two lines
+    %% <<<
+";
+        let parsed = parse(input).unwrap();
+        assert_eq!(parsed.annotations.len(), 2);
+        assert_eq!(parsed.annotations[0].target_id, "A");
+        assert_eq!(parsed.annotations[0].raw_value, "Prompt for A");
+        assert_eq!(parsed.annotations[1].target_id, "B");
+        assert_eq!(
+            parsed.annotations[1].raw_value,
+            "Prompt for B\nwith two lines"
+        );
     }
 }
 

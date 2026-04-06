@@ -1,0 +1,28 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - button "Load .mmd" [ref=e5] [cursor=pointer]
+      - button "Run" [disabled] [ref=e6]
+      - button "Load Trace" [disabled] [ref=e7]
+    - generic [ref=e8]:
+      - button "<" [disabled] [ref=e9]
+      - button "Play" [disabled] [ref=e10]
+      - button ">" [disabled] [ref=e11]
+      - combobox [disabled] [ref=e12]:
+        - option "0.5x"
+        - option "1x" [selected]
+        - option "2x"
+        - option "5x"
+        - option "10x"
+      - button "Reset" [disabled] [ref=e13]
+    - generic [ref=e14]:
+      - textbox "WebSocket port" [ref=e15]: "9001"
+      - button "Connect" [ref=e16] [cursor=pointer]
+      - generic [ref=e17]: Ready
+  - generic [ref=e18]:
+    - textbox [ref=e24]
+    - paragraph [ref=e29]: Select a node to inspect
+  - generic [ref=e31]:
+    - button "+" [ref=e32] [cursor=pointer]
+    - button "-" [ref=e33] [cursor=pointer]
+    - button "Fit" [ref=e34] [cursor=pointer]

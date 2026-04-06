@@ -1,0 +1,53 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - button "Load .mmd" [ref=e5] [cursor=pointer]
+      - button "Run" [ref=e6] [cursor=pointer]
+      - button "Load Trace" [ref=e7] [cursor=pointer]
+      - generic [ref=e30]: demo.mmd
+    - generic [ref=e8]:
+      - button "<" [ref=e9] [cursor=pointer]
+      - button "Play" [ref=e10] [cursor=pointer]
+      - button ">" [ref=e11] [cursor=pointer]
+      - combobox [ref=e12]:
+        - option "0.5x"
+        - option "1x" [selected]
+        - option "2x"
+        - option "5x"
+        - option "10x"
+      - button "Reset" [ref=e13] [cursor=pointer]
+      - generic [ref=e31]: 5 / 5
+    - generic [ref=e15]: 5 nodes | executed in 7ms
+  - generic [ref=e16]:
+    - generic [ref=e18]:
+      - textbox [ref=e22]:
+        - generic [ref=e57]: graph TD
+        - generic [ref=e23]: A[Generate Data] --> B[Double It]
+        - generic [ref=e60]: "B --> C{Big Enough?}"
+        - generic [ref=e61]: C -->|yes| D[Format Output]
+        - generic [ref=e62]: C -->|no| E[Too Small]
+        - generic [ref=e64]: "%% @A handler: rhai"
+        - generic [ref=e65]: "%% @A config.script: \"#{ value: 42, label: \\\"hello world\\\" }\""
+        - generic [ref=e66]: "%% @A outputs.value: \"I64\""
+        - generic [ref=e67]: "%% @A outputs.label: \"String\""
+        - generic [ref=e69]: "%% @B handler: rhai"
+        - generic [ref=e70]: "%% @B config.script: \"let v = inputs.value * 2; #{ doubled: v }\""
+        - generic [ref=e71]: "%% @B inputs.value: \"I64\""
+        - generic [ref=e72]: "%% @B outputs.doubled: \"I64\""
+        - generic [ref=e74]: "%% @C handler: branch"
+        - generic [ref=e75]: "%% @C config.guard: \"inputs.doubled > 50\""
+        - generic [ref=e77]: "%% @D handler: rhai"
+        - generic [ref=e78]: "%% @D config.script: \"#{ message: \\\"Result is \\\" + inputs.doubled.to_string() }\""
+        - generic [ref=e79]: "%% @D inputs.doubled: \"I64\""
+        - generic [ref=e80]: "%% @D outputs.message: \"String\""
+        - generic [ref=e82]: "%% @E handler: log"
+        - generic [ref=e83]: "%% @E config.message: \"Value was too small\""
+      - generic [ref=e86]:
+        - strong [ref=e87]: B
+        - generic [ref=e88]: Double It
+        - generic [ref=e89]: completed
+        - generic [ref=e90]: 1.5ms
+        - generic [ref=e91]: → doubled
+    - generic [ref=e24]:
+      - generic [ref=e25]: Inspector
+      - paragraph [ref=e92]: Select a node to inspect

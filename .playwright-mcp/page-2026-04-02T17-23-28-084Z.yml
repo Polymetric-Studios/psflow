@@ -1,0 +1,398 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "Open" [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+          - generic [ref=e10]: Open
+        - button "Trace" [ref=e11] [cursor=pointer]:
+          - img [ref=e12]
+          - generic [ref=e15]: Trace
+        - button "Run" [ref=e17] [cursor=pointer]:
+          - img [ref=e18]
+          - generic [ref=e20]: Run
+      - generic [ref=e73]: dungeon_generator.mmd
+      - generic [ref=e22]:
+        - button "Text" [ref=e23] [cursor=pointer]
+        - button "Split" [ref=e24] [cursor=pointer]
+        - button "Graph" [active] [ref=e25] [cursor=pointer]
+    - generic [ref=e26]:
+      - generic [ref=e27]: 42 nodes
+      - generic [ref=e29]:
+        - generic [ref=e30]: Debug server
+        - textbox "WebSocket port" [ref=e31]: "9001"
+        - button "Connect" [ref=e32] [cursor=pointer]
+  - generic [ref=e34]:
+    - generic [ref=e35]:
+      - button "Step back (Left)" [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+      - button "Play/Pause (Space)" [ref=e40] [cursor=pointer]:
+        - img [ref=e41]
+      - button "Step forward (Right)" [ref=e43] [cursor=pointer]:
+        - img [ref=e44]
+      - combobox [ref=e48] [cursor=pointer]:
+        - option "0.5x"
+        - option "1x" [selected]
+        - option "2x"
+        - option "5x"
+        - option "10x"
+      - button "Reset to start" [ref=e49] [cursor=pointer]:
+        - img [ref=e50]
+    - generic [ref=e143]: 7 / 7
+  - generic [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - button "+" [ref=e56] [cursor=pointer]
+        - button "−" [ref=e57] [cursor=pointer]
+        - button "Fit" [ref=e58] [cursor=pointer]
+        - button "Ports" [ref=e60] [cursor=pointer]
+      - img [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e150]:
+            - generic [ref=e152]: "event: triggers"
+            - 'button "Node: CLI_TRIGGER" [ref=e153] [cursor=pointer]':
+              - generic: CLI Invoke
+              - generic [ref=e155]:
+                - generic: request
+            - 'button "Node: WEBHOOK" [ref=e157] [cursor=pointer]':
+              - generic: Webhook Trigger
+              - generic [ref=e159]:
+                - generic: request
+            - 'button "Node: WATCH" [ref=e161] [cursor=pointer]':
+              - generic: File Watch Trigger
+              - generic [ref=e163]:
+                - generic: request
+          - generic [ref=e165]:
+            - 'button "Node: CONFIG" [ref=e167] [cursor=pointer]':
+              - generic: Load Config
+              - generic [ref=e169]:
+                - generic: rng
+              - generic [ref=e171]:
+                - generic: request
+              - generic [ref=e173]:
+                - generic: dungeon_config
+            - 'button "Node: SEED" [ref=e175] [cursor=pointer]':
+              - generic: Seed RNG
+              - generic [ref=e177]:
+                - generic: request
+              - generic [ref=e179]:
+                - generic: rng
+          - generic [ref=e183]:
+            - generic [ref=e185]: "parallel: rooms"
+            - 'button "Node: SNAPSHOT_INIT" [ref=e186] [cursor=pointer]':
+              - generic: "Checkpoint: Init"
+              - generic [ref=e188]:
+                - generic: dungeon_config
+              - generic [ref=e190]:
+                - generic: rng
+              - generic [ref=e192]:
+                - generic: dungeon_config
+              - generic [ref=e194]:
+                - generic: rng
+            - 'button "Node: R_ACCUM" [ref=e196] [cursor=pointer]':
+              - generic: Accumulate Room List
+              - generic [ref=e198]:
+                - generic: rooms
+              - generic [ref=e200]:
+                - generic: rooms
+              - generic [ref=e202]:
+                - generic: count
+            - 'button "Node: R_DETAIL" [ref=e204] [cursor=pointer]':
+              - generic: Room Details
+              - generic [ref=e206]:
+                - generic: rooms
+              - generic [ref=e208]:
+                - generic: rng
+              - generic [ref=e210]:
+                - generic: rooms
+          - generic [ref=e214]:
+            - generic [ref=e216]: "race: layout strategies"
+            - 'button "Node: R_THEME" [ref=e217] [cursor=pointer]':
+              - generic: Apply Theme
+              - generic [ref=e219]:
+                - generic: rooms
+              - generic [ref=e221]:
+                - generic: dungeon_config
+              - generic [ref=e223]:
+                - generic: rooms
+            - 'button "Node: MST_LAYOUT" [ref=e225] [cursor=pointer]':
+              - generic: MST + Loops
+              - generic [ref=e227]:
+                - generic: rooms
+              - generic [ref=e229]:
+                - generic: rng
+              - generic [ref=e231]:
+                - generic: layout
+            - 'button "Node: GRID_LAYOUT" [ref=e233] [cursor=pointer]':
+              - generic: Grid Snap
+              - generic [ref=e235]:
+                - generic: rooms
+              - generic [ref=e237]:
+                - generic: rng
+              - generic [ref=e239]:
+                - generic: layout
+            - 'button "Node: ORGANIC_LAYOUT" [ref=e241] [cursor=pointer]':
+              - generic: Organic Growth
+              - generic [ref=e243]:
+                - generic: rooms
+              - generic [ref=e245]:
+                - generic: rng
+              - generic [ref=e247]:
+                - generic: layout
+          - generic [ref=e255]:
+            - 'button "Node: LAYOUT_PICK" [ref=e257] [cursor=pointer]':
+              - generic: First Valid?
+              - generic [ref=e259]:
+                - generic: layout
+              - generic [ref=e261]:
+                - generic: layout
+            - 'button "Node: CORR" [ref=e263] [cursor=pointer]':
+              - generic: Place Corridors
+              - generic [ref=e265]:
+                - generic: layout
+              - generic [ref=e267]:
+                - generic: rng
+              - generic [ref=e269]:
+                - generic: layout
+            - 'button "Node: DOORS" [ref=e271] [cursor=pointer]':
+              - generic: Place Doors
+              - generic [ref=e273]:
+                - generic: layout
+              - generic [ref=e275]:
+                - generic: rng
+              - generic [ref=e277]:
+                - generic: layout
+          - generic [ref=e283]:
+            - 'button "Node: SNAPSHOT_LAYOUT" [ref=e285] [cursor=pointer]':
+              - generic: "Checkpoint: Layout"
+              - generic [ref=e287]:
+                - generic: layout
+              - generic [ref=e289]:
+                - generic: layout
+            - 'button "Node: PREVIEW_MAP" [ref=e291] [cursor=pointer]':
+              - generic: Render Preview Map
+              - generic [ref=e293]:
+                - generic: layout
+              - generic [ref=e295]:
+                - generic: preview
+            - 'button "Node: HUMAN_LAYOUT" [ref=e297] [cursor=pointer]':
+              - generic: Approve Layout?
+              - generic [ref=e299]:
+                - generic: preview
+              - generic [ref=e301]:
+                - generic: layout
+              - generic [ref=e303]:
+                - generic: decision
+              - generic [ref=e305]:
+                - generic: feedback
+            - 'button "Node: TWEAK" [ref=e307] [cursor=pointer]':
+              - generic: Apply Feedback
+              - generic [ref=e309]:
+                - generic: feedback
+              - generic [ref=e311]:
+                - generic: dungeon_config
+              - generic [ref=e313]:
+                - generic: dungeon_config
+            - generic [ref=e321]: rejected
+          - generic [ref=e322]:
+            - generic [ref=e324]: "parallel: content"
+            - 'button "Node: POPULATE_GATE" [ref=e325] [cursor=pointer]':
+              - generic: Begin Population
+              - generic [ref=e327]:
+                - generic: layout
+              - generic [ref=e329]:
+                - generic: layout
+          - generic [ref=e331]:
+            - 'button "Node: KEYS" [ref=e333] [cursor=pointer]':
+              - generic: Distribute Keys
+              - generic [ref=e335]:
+                - generic: layout
+              - generic [ref=e337]:
+                - generic: rng
+              - generic [ref=e339]:
+                - generic: placements
+            - 'button "Node: LOOT" [ref=e341] [cursor=pointer]':
+              - generic: Place Loot
+              - generic [ref=e343]:
+                - generic: layout
+              - generic [ref=e345]:
+                - generic: dungeon_config
+              - generic [ref=e347]:
+                - generic: rng
+              - generic [ref=e349]:
+                - generic: placements
+            - 'button "Node: TRAPS" [ref=e351] [cursor=pointer]':
+              - generic: Place Traps
+              - generic [ref=e353]:
+                - generic: layout
+              - generic [ref=e355]:
+                - generic: dungeon_config
+              - generic [ref=e357]:
+                - generic: rng
+              - generic [ref=e359]:
+                - generic: placements
+            - 'button "Node: SECRETS" [ref=e361] [cursor=pointer]':
+              - generic: Hide Secrets
+              - generic [ref=e363]:
+                - generic: layout
+              - generic [ref=e365]:
+                - generic: rng
+              - generic [ref=e367]:
+                - generic: placements
+            - 'button "Node: CONTENT_ACCUM" [ref=e369] [cursor=pointer]':
+              - generic: Accumulate Content
+              - generic [ref=e371]:
+                - generic: placements
+              - generic [ref=e373]:
+                - generic: all_placements
+          - generic [ref=e383]:
+            - 'button "Node: ROOMS" [ref=e385] [cursor=pointer]':
+              - generic: Generate Rooms
+              - generic [ref=e387]:
+                - generic: dungeon_config
+              - generic [ref=e389]:
+                - generic: rng
+              - generic [ref=e391]:
+                - generic: rooms
+            - 'button "Node: MONSTERS" [ref=e393] [cursor=pointer]':
+              - generic: Place Monsters
+              - generic [ref=e395]:
+                - generic: layout
+              - generic [ref=e397]:
+                - generic: dungeon_config
+              - generic [ref=e399]:
+                - generic: rng
+              - generic [ref=e401]:
+                - generic: placements
+            - 'button "Node: MERGE" [ref=e403] [cursor=pointer]':
+              - generic: Merge Dungeon
+              - generic [ref=e405]:
+                - generic: layout
+              - generic [ref=e407]:
+                - generic: all_placements
+              - generic [ref=e409]:
+                - generic: dungeon
+            - 'button "Node: SNAPSHOT_POPULATED" [ref=e411] [cursor=pointer]':
+              - generic: "Checkpoint: Populated"
+              - generic [ref=e413]:
+                - generic: dungeon
+              - generic [ref=e415]:
+                - generic: dungeon
+            - 'button "Node: SOLVE" [ref=e417] [cursor=pointer]':
+              - generic: Solvable?
+              - generic [ref=e419]:
+                - generic: dungeon
+              - generic [ref=e421]:
+                - generic: solvable
+              - generic [ref=e423]:
+                - generic: unreachable
+            - 'button "Node: BALANCE" [ref=e425] [cursor=pointer]':
+              - generic: Balanced?
+              - generic [ref=e427]:
+                - generic: dungeon
+              - generic [ref=e429]:
+                - generic: balanced
+              - generic [ref=e431]:
+                - generic: hot_spots
+            - 'button "Node: REGEN" [ref=e433] [cursor=pointer]':
+              - generic: Relax Constraints
+              - generic [ref=e435]:
+                - generic: dungeon
+              - generic [ref=e437]:
+                - generic: unreachable
+              - generic [ref=e439]:
+                - generic: dungeon_config
+            - 'button "Node: REBALANCE" [ref=e441] [cursor=pointer]':
+              - generic: Adjust Difficulty
+              - generic [ref=e443]:
+                - generic: dungeon
+              - generic [ref=e445]:
+                - generic: hot_spots
+              - generic [ref=e447]:
+                - generic: dungeon_config
+            - generic [ref=e454]: "yes"
+            - generic [ref=e457]: "no"
+            - generic [ref=e462]: "no"
+          - generic [ref=e465]:
+            - generic [ref=e467]: "subgraph: flavor_text"
+            - 'button "Node: EXPORT_GATE" [ref=e468] [cursor=pointer]':
+              - generic: Ready for Export
+              - generic [ref=e470]:
+                - generic: dungeon
+              - generic [ref=e472]:
+                - generic: dungeon
+            - 'button "Node: FT_ROOMS" [ref=e474] [cursor=pointer]':
+              - generic: Room Descriptions
+              - generic [ref=e476]:
+                - generic: dungeon
+              - generic [ref=e478]:
+                - generic: descriptions
+            - 'button "Node: FT_ITEMS" [ref=e480] [cursor=pointer]':
+              - generic: Item Descriptions
+              - generic [ref=e482]:
+                - generic: dungeon
+              - generic [ref=e484]:
+                - generic: descriptions
+              - generic [ref=e486]:
+                - generic: item_text
+            - 'button "Node: FT_LORE" [ref=e488] [cursor=pointer]':
+              - generic: Lore Fragments
+              - generic [ref=e490]:
+                - generic: dungeon
+              - generic [ref=e492]:
+                - generic: descriptions
+              - generic [ref=e494]:
+                - generic: lore
+          - generic [ref=e500]:
+            - generic [ref=e502]: "parallel: outputs"
+            - 'button "Node: FT_MERGE" [ref=e503] [cursor=pointer]':
+              - generic: Merge Flavor
+              - generic [ref=e505]:
+                - generic: dungeon
+              - generic [ref=e507]:
+                - generic: descriptions
+              - generic [ref=e509]:
+                - generic: item_text
+              - generic [ref=e511]:
+                - generic: lore
+              - generic [ref=e513]:
+                - generic: dungeon
+            - 'button "Node: ASCII" [ref=e515] [cursor=pointer]':
+              - generic: ASCII Map
+              - generic [ref=e517]:
+                - generic: dungeon
+              - generic [ref=e519]:
+                - generic: text
+            - 'button "Node: MMD" [ref=e521] [cursor=pointer]':
+              - generic: Mermaid Graph
+              - generic [ref=e523]:
+                - generic: dungeon
+              - generic [ref=e525]:
+                - generic: mermaid
+            - 'button "Node: JSON" [ref=e527] [cursor=pointer]':
+              - generic: JSON Data
+              - generic [ref=e529]:
+                - generic: dungeon
+              - generic [ref=e531]:
+                - generic: json
+            - 'button "Node: HISTORY" [ref=e533] [cursor=pointer]':
+              - generic: Generation History
+              - generic [ref=e535]:
+                - generic: dungeon
+              - generic [ref=e537]:
+                - generic: history
+              - generic [ref=e539]:
+                - generic: text
+          - generic [ref=e564]: approved
+          - generic [ref=e582]: "yes"
+    - generic [ref=e63]:
+      - generic [ref=e137]:
+        - button "Node" [ref=e138] [cursor=pointer]
+        - button "Blackboard" [ref=e139] [cursor=pointer]
+        - button "Console" [ref=e140] [cursor=pointer]
+        - button "Breakpoints" [ref=e141] [cursor=pointer]
+      - paragraph [ref=e585]: Select a node to inspect
+  - generic [ref=e67]:
+    - button "+" [ref=e68] [cursor=pointer]
+    - button "-" [ref=e69] [cursor=pointer]
+    - button "Fit" [ref=e70] [cursor=pointer]

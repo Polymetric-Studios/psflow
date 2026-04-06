@@ -1,0 +1,11 @@
+[10927611ms] [ERROR] CodeMirror plugin crashed: RangeError: Field is not present in this state
+    at _EditorState.field (http://localhost:4000/node_modules/.vite/deps/chunk-VPD6HJ22.js?v=bff37a89:2292:15)
+    at Object.lineMarker (http://localhost:4000/src/editor.ts?t=1775005383896:151:30)
+    at UpdateContext.line (http://localhost:4000/node_modules/.vite/deps/chunk-ZODA5E5H.js?v=bff37a89:10630:38)
+    at Object.syncGutters (http://localhost:4000/node_modules/.vite/deps/chunk-ZODA5E5H.js?v=bff37a89:10532:14)
+    at new <anonymous> (http://localhost:4000/node_modules/.vite/deps/chunk-ZODA5E5H.js?v=bff37a89:10469:10)
+    at _ViewPlugin.create (http://localhost:4000/node_modules/.vite/deps/chunk-ZODA5E5H.js?v=bff37a89:1486:46)
+    at PluginInstance.update (http://localhost:4000/node_modules/.vite/deps/chunk-ZODA5E5H.js?v=bff37a89:1502:41)
+    at new _EditorView (http://localhost:4000/node_modules/.vite/deps/chunk-ZODA5E5H.js?v=bff37a89:7508:15)
+    at createEditor (http://localhost:4000/src/editor.ts?t=1775005383896:229:16)
+    at main (http://localhost:4000/src/main.ts?t=1775005383896:156:12) @ http://localhost:4000/node_modules/.vite/deps/chunk-ZODA5E5H.js?v=bff37a89:1431

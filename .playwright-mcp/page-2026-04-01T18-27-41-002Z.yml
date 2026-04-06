@@ -1,0 +1,75 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "Open" [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+          - generic [ref=e10]: Open
+        - button "Trace" [ref=e11] [cursor=pointer]:
+          - img [ref=e12]
+          - generic [ref=e15]: Trace
+        - button "Run" [ref=e17] [cursor=pointer]:
+          - img [ref=e18]
+          - generic [ref=e20]: Run
+      - generic [ref=e69]: demo.mmd
+      - generic [ref=e22]:
+        - button "Text" [ref=e23] [cursor=pointer]
+        - button "Split" [ref=e24] [cursor=pointer]
+        - button "Graph" [ref=e25] [cursor=pointer]
+    - generic [ref=e26]:
+      - generic [ref=e27]:
+        - textbox "WebSocket port" [ref=e28]: "9001"
+        - button "Connect" [ref=e29] [cursor=pointer]
+      - generic [ref=e30]: 5 nodes
+  - generic [ref=e32]:
+    - button "Step back (Left)" [disabled] [ref=e33]:
+      - img [ref=e34]
+    - button "Play/Pause (Space)" [disabled] [ref=e37]:
+      - img [ref=e38]
+    - button "Step forward (Right)" [disabled] [ref=e40]:
+      - img [ref=e41]
+    - combobox [disabled] [ref=e45] [cursor=pointer]:
+      - option "0.5x"
+      - option "1x" [selected]
+      - option "2x"
+      - option "5x"
+      - option "10x"
+    - button "Reset to start" [disabled] [ref=e46]:
+      - img [ref=e47]
+  - generic [ref=e50]:
+    - generic [ref=e101]:
+      - generic [ref=e102]:
+        - button "+" [ref=e103] [cursor=pointer]
+        - button "−" [ref=e104] [cursor=pointer]
+        - button "Fit" [ref=e105] [cursor=pointer]
+        - button "Ports" [active] [ref=e107] [cursor=pointer]
+      - img [ref=e126]:
+        - generic [ref=e127]:
+          - generic [ref=e129]: "yes"
+          - generic [ref=e132]: "no"
+          - 'button "Node: Generate Data" [ref=e133] [cursor=pointer]':
+            - generic: Generate Data
+            - generic: value
+            - generic: label
+          - 'button "Node: Double It" [ref=e137] [cursor=pointer]':
+            - generic: Double It
+            - generic: value
+            - generic: doubled
+          - 'button "Node: Big Enough?" [ref=e141] [cursor=pointer]':
+            - generic: Big Enough?
+          - 'button "Node: Format Output" [ref=e143] [cursor=pointer]':
+            - generic: Format Output
+            - generic: doubled
+            - generic: message
+          - 'button "Node: Too Small" [ref=e147] [cursor=pointer]':
+            - generic: Too Small
+    - generic [ref=e59]:
+      - generic [ref=e96]:
+        - button "Node" [ref=e97] [cursor=pointer]
+        - button "Blackboard" [ref=e98] [cursor=pointer]
+        - button "Breakpoints" [ref=e99] [cursor=pointer]
+      - paragraph [ref=e100]: Select a node to inspect
+  - generic [ref=e63]:
+    - button "+" [ref=e64] [cursor=pointer]
+    - button "-" [ref=e65] [cursor=pointer]
+    - button "Fit" [ref=e66] [cursor=pointer]

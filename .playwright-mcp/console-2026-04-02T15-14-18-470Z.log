@@ -1,0 +1,14 @@
+[   23237ms] [LOG] [edge] e0: routingPoints=4, source=INPUT.out.temperature, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23237ms] [LOG] [edge] e1: routingPoints=4, source=INPUT.out.humidity, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23237ms] [LOG] [edge] e2: routingPoints=4, source=TEMP.out.temp_label, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23237ms] [LOG] [edge] e3: routingPoints=4, source=HUMID.out.humid_label, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23237ms] [LOG] [edge] e4: routingPoints=2, source=COMBINE, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23237ms] [LOG] [edge] e5: routingPoints=4, source=CHECK, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23237ms] [LOG] [edge] e6: routingPoints=2, source=CHECK, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23242ms] [LOG] [edge] e0: routingPoints=0, source=INPUT.out.temperature, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23242ms] [LOG] [edge] e1: routingPoints=0, source=INPUT.out.humidity, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23242ms] [LOG] [edge] e2: routingPoints=0, source=TEMP.out.temp_label, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23242ms] [LOG] [edge] e3: routingPoints=0, source=HUMID.out.humid_label, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23242ms] [LOG] [edge] e4: routingPoints=0, source=COMBINE, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23242ms] [LOG] [edge] e5: routingPoints=0, source=CHECK, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98
+[   23242ms] [LOG] [edge] e6: routingPoints=0, source=CHECK, keys=routingPoints @ http://localhost:3333/src/graph/views.ts?t=1775142762962:98

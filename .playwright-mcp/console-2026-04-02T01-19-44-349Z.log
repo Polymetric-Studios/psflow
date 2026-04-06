@@ -1,0 +1,89 @@
+[44456150ms] [ERROR] psflow-debugger: TypeError: module.load is not a function
+    at http://localhost:3333/node_modules/.vite/deps/inversify.js?v=07980bfa:4705:43
+    at Array.map (<anonymous>)
+    at #load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=07980bfa:4705:20)
+    at ContainerModuleManager.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=07980bfa:4650:31)
+    at Container.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=07980bfa:5111:34)
+    at loadDefaultModules (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=0cf0d76c:19162:17)
+    at createContainer (http://localhost:3333/src/graph/di-config.ts:72:3)
+    at createGraph (http://localhost:3333/src/graph/index.ts:29:23)
+    at main (http://localhost:3333/src/main.ts?t=1775137239951:368:11) @ http://localhost:3333/src/main.ts?t=1775137239951:346
+[44456348ms] [ERROR] psflow-debugger: TypeError: module.load is not a function
+    at http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:43
+    at Array.map (<anonymous>)
+    at #load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:20)
+    at ContainerModuleManager.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4650:31)
+    at Container.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:5111:34)
+    at loadDefaultModules (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=fabb4225:19162:17)
+    at createContainer (http://localhost:3333/src/graph/di-config.ts:72:3)
+    at createGraph (http://localhost:3333/src/graph/index.ts:29:23)
+    at main (http://localhost:3333/src/main.ts?t=1775137239951:368:11) @ http://localhost:3333/src/main.ts?t=1775137239951:346
+[47155283ms] [ERROR] psflow-debugger: TypeError: module.load is not a function
+    at http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:43
+    at Array.map (<anonymous>)
+    at #load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:20)
+    at ContainerModuleManager.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4650:31)
+    at Container.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:5111:34)
+    at loadDefaultModules (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=fabb4225:19162:17)
+    at createContainer (http://localhost:3333/src/graph/di-config.ts?t=1775139939451:72:3)
+    at createGraph (http://localhost:3333/src/graph/index.ts?t=1775139939451:29:23)
+    at main (http://localhost:3333/src/main.ts?t=1775139939451:368:11) @ http://localhost:3333/src/main.ts?t=1775139939451:346
+[47175587ms] [ERROR] psflow-debugger: TypeError: module.load is not a function
+    at http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:43
+    at Array.map (<anonymous>)
+    at #load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:20)
+    at ContainerModuleManager.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4650:31)
+    at Container.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:5111:34)
+    at loadDefaultModules (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=fabb4225:19162:17)
+    at createContainer (http://localhost:3333/src/graph/di-config.ts?t=1775139959790:72:3)
+    at createGraph (http://localhost:3333/src/graph/index.ts?t=1775139959790:29:23)
+    at main (http://localhost:3333/src/main.ts?t=1775139959790:368:11) @ http://localhost:3333/src/main.ts?t=1775139959790:346
+[47202477ms] [ERROR] psflow-debugger: TypeError: module.load is not a function
+    at http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:43
+    at Array.map (<anonymous>)
+    at #load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:20)
+    at ContainerModuleManager.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4650:31)
+    at Container.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:5111:34)
+    at loadDefaultModules (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=fabb4225:19162:17)
+    at createContainer (http://localhost:3333/src/graph/di-config.ts?t=1775139959790:72:3)
+    at createGraph (http://localhost:3333/src/graph/index.ts?t=1775139986680:29:23)
+    at main (http://localhost:3333/src/main.ts?t=1775139986680:368:11) @ http://localhost:3333/src/main.ts?t=1775139986680:346
+[47218287ms] [ERROR] psflow-debugger: TypeError: module.load is not a function
+    at http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:43
+    at Array.map (<anonymous>)
+    at #load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:20)
+    at ContainerModuleManager.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4650:31)
+    at Container.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:5111:34)
+    at loadDefaultModules (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=fabb4225:19162:17)
+    at createContainer (http://localhost:3333/src/graph/di-config.ts?t=1775139959790:72:3)
+    at createGraph (http://localhost:3333/src/graph/index.ts?t=1775140002513:29:23)
+    at main (http://localhost:3333/src/main.ts?t=1775140002513:368:11) @ http://localhost:3333/src/main.ts?t=1775140002513:346
+[47244998ms] [ERROR] psflow-debugger: TypeError: module.load is not a function
+    at http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:43
+    at Array.map (<anonymous>)
+    at #load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:20)
+    at ContainerModuleManager.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4650:31)
+    at Container.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:5111:34)
+    at loadDefaultModules (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=fabb4225:19162:17)
+    at createContainer (http://localhost:3333/src/graph/di-config.ts?t=1775140029199:72:3)
+    at createGraph (http://localhost:3333/src/graph/index.ts?t=1775140029199:29:23)
+    at main (http://localhost:3333/src/main.ts?t=1775140029199:368:11) @ http://localhost:3333/src/main.ts?t=1775140029199:346
+[47268819ms] [ERROR] psflow-debugger: TypeError: module.load is not a function
+    at http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:43
+    at Array.map (<anonymous>)
+    at #load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4705:20)
+    at ContainerModuleManager.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:4650:31)
+    at Container.load (http://localhost:3333/node_modules/.vite/deps/inversify.js?v=fabb4225:5111:34)
+    at loadDefaultModules (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=fabb4225:19162:17)
+    at createContainer (http://localhost:3333/src/graph/di-config.ts?t=1775140029199:72:3)
+    at createGraph (http://localhost:3333/src/graph/index.ts?t=1775140029199:29:23)
+    at main (http://localhost:3333/src/main.ts?t=1775140029199:368:11) @ http://localhost:3333/src/main.ts?t=1775140029199:346
+[47445234ms] [ERROR] WebSocket connection to 'ws://localhost:3333/?token=pyM-1xpZQiiu' failed:  @ http://localhost:3333/@vite/client:801
+[47445234ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:3333/@vite/client:963
+[47445281ms] [ERROR] WebSocket connection to 'ws://localhost:3333/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3333/@vite/client:1034
+[47446284ms] [ERROR] WebSocket connection to 'ws://localhost:3333/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3333/@vite/client:1034
+[47447287ms] [ERROR] WebSocket connection to 'ws://localhost:3333/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3333/@vite/client:1034
+[47448291ms] [ERROR] WebSocket connection to 'ws://localhost:3333/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3333/@vite/client:1034
+[47449296ms] [ERROR] WebSocket connection to 'ws://localhost:3333/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3333/@vite/client:1034
+[47450301ms] [ERROR] WebSocket connection to 'ws://localhost:3333/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3333/@vite/client:1034
+[47451310ms] [ERROR] WebSocket connection to 'ws://localhost:3333/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3333/@vite/client:1034

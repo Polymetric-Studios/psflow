@@ -1,0 +1,20 @@
+[   22527ms] ReferenceError: context is not defined
+    at PsflowLabelView.render (http://localhost:3333/src/graph/views.ts?t=1775140980936:153:5)
+    at _ModelRenderer.renderElement (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:3051:28)
+    at http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:3060:56
+    at Array.map (<anonymous>)
+    at _ModelRenderer.renderChildren (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:3060:33)
+    at PsflowNodeView.render (http://localhost:3333/src/graph/views.ts?t=1775140980936:66:19)
+    at _ModelRenderer.renderElement (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:3051:28)
+    at http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:3060:56
+    at Array.map (<anonymous>)
+    at _ModelRenderer.renderChildren (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:3060:33)
+    at PsflowGraphView.render (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:14113:54)
+    at PsflowGraphView.render (http://localhost:3333/src/graph/views.ts?t=1775140980936:17:25)
+    at _ModelRenderer.renderElement (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:3051:28)
+    at ModelViewer.update (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:3094:92)
+    at http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:2943:27
+    at http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:816:41
+    at Array.forEach (<anonymous>)
+    at AnimationFrameSyncer.run (http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:816:18)
+    at http://localhost:3333/node_modules/.vite/deps/sprotty.js?v=685cdc16:804:50

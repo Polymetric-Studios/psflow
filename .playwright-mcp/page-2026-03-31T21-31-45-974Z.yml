@@ -1,0 +1,22 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - button "Load .mmd" [ref=e5] [cursor=pointer]
+      - button "Run" [disabled] [ref=e6]
+      - button "Load Trace" [disabled] [ref=e7]
+    - generic [ref=e8]:
+      - button "<" [disabled] [ref=e9]
+      - button "Play" [disabled] [ref=e10]
+      - button ">" [disabled] [ref=e11]
+      - combobox [disabled] [ref=e12]:
+        - option "0.5x"
+        - option "1x" [selected]
+        - option "2x"
+        - option "5x"
+        - option "10x"
+    - generic [ref=e14]: Ready
+  - generic [ref=e15]:
+    - textbox [ref=e21]
+    - generic [ref=e23]:
+      - generic [ref=e24]: Inspector
+      - paragraph [ref=e26]: Select a node to inspect

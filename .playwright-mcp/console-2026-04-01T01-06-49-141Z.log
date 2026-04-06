@@ -1,0 +1,4 @@
+[ 1130224ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4000/@vite/client:963
+[ 1130225ms] [ERROR] WebSocket connection to 'ws://localhost:4000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:4000/@vite/client:1034
+[ 1160439ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4000/@vite/client:963
+[ 1160440ms] [ERROR] WebSocket connection to 'ws://localhost:4000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:4000/@vite/client:1034

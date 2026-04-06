@@ -1,0 +1,45 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - button "Load .mmd" [ref=e5] [cursor=pointer]
+      - button "Load Trace" [active] [ref=e6] [cursor=pointer]
+      - generic [ref=e28]: sample.mmd
+    - generic [ref=e7]:
+      - button "<" [ref=e8] [cursor=pointer]
+      - button "Play" [ref=e9] [cursor=pointer]
+      - button ">" [ref=e10] [cursor=pointer]
+      - combobox [ref=e11]:
+        - option "0.5x"
+        - option "1x" [selected]
+        - option "2x"
+        - option "5x"
+        - option "10x"
+      - generic [ref=e57]: 0 / 4
+    - generic [ref=e13]: 5 nodes | trace loaded
+  - generic [ref=e14]:
+    - textbox [ref=e20]:
+      - generic [ref=e21]: graph TD
+      - generic [ref=e29]: A[Fetch RSS] --> B[Classify]
+      - generic [ref=e30]: "B --> C{Relevant?}"
+      - generic [ref=e31]: C -->|yes| D[Summarize]
+      - generic [ref=e32]: C -->|no| E[Archive]
+      - generic [ref=e34]: "%% @A handler: fetch_rss"
+      - generic [ref=e35]: "%% @A config.url: \"https://feeds.example.com/tech\""
+      - generic [ref=e36]: "%% @A config.max_items: 50"
+      - generic [ref=e37]: "%% @A outputs.articles: \"Article[]\""
+      - generic [ref=e39]: "%% @B handler: llm_call"
+      - generic [ref=e40]: "%% @B config.model: \"claude-sonnet-4-20250514\""
+      - generic [ref=e41]: "%% @B config.prompt: \"classify_relevance\""
+      - generic [ref=e42]: "%% @B inputs.articles: \"Article[]\""
+      - generic [ref=e43]: "%% @B outputs.classified: \"ClassifiedArticle[]\""
+      - generic [ref=e45]: "%% @C handler: branch"
+      - generic [ref=e46]: "%% @C config.guard: \"ctx.classified.relevant == true\""
+      - generic [ref=e48]: "%% @D handler: llm_call"
+      - generic [ref=e49]: "%% @D config.model: \"claude-sonnet-4-20250514\""
+      - generic [ref=e50]: "%% @D config.prompt: \"summarize_article\""
+      - generic [ref=e51]: "%% @D outputs.summary: \"string\""
+      - generic [ref=e53]: "%% @E handler: file_write"
+      - generic [ref=e54]: "%% @E config.path: \"./archive/{date}/{id}.json\""
+    - generic [ref=e22]:
+      - generic [ref=e23]: Inspector
+      - paragraph [ref=e58]: Select a node to inspect

@@ -1,0 +1,67 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "Open" [active] [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+          - generic [ref=e10]: Open
+        - button "Trace" [ref=e11] [cursor=pointer]:
+          - img [ref=e12]
+          - generic [ref=e15]: Trace
+        - button "Run" [ref=e17] [cursor=pointer]:
+          - img [ref=e18]
+          - generic [ref=e20]: Run
+      - generic [ref=e63]: demo.mmd
+    - generic [ref=e21]:
+      - generic [ref=e22]:
+        - textbox "WebSocket port" [ref=e23]: "9001"
+        - button "Connect" [ref=e24] [cursor=pointer]
+      - generic [ref=e25]: 5 nodes
+  - generic [ref=e27]:
+    - button "Step back (Left)" [disabled] [ref=e28]:
+      - img [ref=e29]
+    - button "Play/Pause (Space)" [disabled] [ref=e32]:
+      - img [ref=e33]
+    - button "Step forward (Right)" [disabled] [ref=e35]:
+      - img [ref=e36]
+    - combobox [disabled] [ref=e40] [cursor=pointer]:
+      - option "0.5x"
+      - option "1x" [selected]
+      - option "2x"
+      - option "5x"
+      - option "10x"
+    - button "Reset to start" [disabled] [ref=e41]:
+      - img [ref=e42]
+  - generic [ref=e45]:
+    - textbox [ref=e51]:
+      - generic [ref=e52]: graph TD
+      - generic [ref=e64]: A[Generate Data] --> B[Double It]
+      - generic [ref=e65]: "B --> C{Big Enough?}"
+      - generic [ref=e66]: C -->|yes| D[Format Output]
+      - generic [ref=e67]: C -->|no| E[Too Small]
+      - generic [ref=e69]: "%% @A handler: rhai"
+      - generic [ref=e70]: "%% @A config.script: \"#{ value: 42, label: \\\"hello world\\\" }\""
+      - generic [ref=e71]: "%% @A outputs.value: \"I64\""
+      - generic [ref=e72]: "%% @A outputs.label: \"String\""
+      - generic [ref=e74]: "%% @B handler: rhai"
+      - generic [ref=e75]: "%% @B config.script: \"let v = inputs.value * 2; #{ doubled: v }\""
+      - generic [ref=e76]: "%% @B inputs.value: \"I64\""
+      - generic [ref=e77]: "%% @B outputs.doubled: \"I64\""
+      - generic [ref=e79]: "%% @C handler: branch"
+      - generic [ref=e80]: "%% @C config.guard: \"inputs.doubled > 50\""
+      - generic [ref=e82]: "%% @D handler: rhai"
+      - generic [ref=e83]: "%% @D config.script: \"#{ message: \\\"Result is \\\" + inputs.doubled.to_string() }\""
+      - generic [ref=e84]: "%% @D inputs.doubled: \"I64\""
+      - generic [ref=e85]: "%% @D outputs.message: \"String\""
+      - generic [ref=e87]: "%% @E handler: log"
+      - generic [ref=e88]: "%% @E config.message: \"Value was too small\""
+    - generic [ref=e53]:
+      - generic [ref=e91]:
+        - button "Node" [ref=e92] [cursor=pointer]
+        - button "Blackboard" [ref=e93] [cursor=pointer]
+        - button "Breakpoints" [ref=e94] [cursor=pointer]
+      - paragraph [ref=e95]: Select a node to inspect
+  - generic [ref=e57]:
+    - button "+" [ref=e58] [cursor=pointer]
+    - button "-" [ref=e59] [cursor=pointer]
+    - button "Fit" [ref=e60] [cursor=pointer]

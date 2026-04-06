@@ -1,0 +1,39 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e5]:
+      - button "Open" [ref=e6] [cursor=pointer]:
+        - img [ref=e7]
+        - generic [ref=e10]: Open
+      - button "Trace" [disabled] [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Trace
+      - button "Run" [disabled] [ref=e17]:
+        - img [ref=e18]
+        - generic [ref=e20]: Run
+    - generic [ref=e21]:
+      - generic [ref=e22]:
+        - textbox "WebSocket port" [ref=e23]: "9001"
+        - button "Connect" [ref=e24] [cursor=pointer]
+      - generic [ref=e25]: Ready
+  - generic [ref=e27]:
+    - button "Step back (Left)" [disabled] [ref=e28]:
+      - img [ref=e29]
+    - button "Play/Pause (Space)" [disabled] [ref=e32]:
+      - img [ref=e33]
+    - button "Step forward (Right)" [disabled] [ref=e35]:
+      - img [ref=e36]
+    - combobox [disabled] [ref=e40] [cursor=pointer]:
+      - option "0.5x"
+      - option "1x" [selected]
+      - option "2x"
+      - option "5x"
+      - option "10x"
+    - button "Reset to start" [disabled] [ref=e41]:
+      - img [ref=e42]
+  - generic [ref=e45]:
+    - textbox [ref=e51]
+    - paragraph [ref=e55]: Select a node to inspect
+  - generic [ref=e57]:
+    - button "+" [ref=e58] [cursor=pointer]
+    - button "-" [ref=e59] [cursor=pointer]
+    - button "Fit" [ref=e60] [cursor=pointer]

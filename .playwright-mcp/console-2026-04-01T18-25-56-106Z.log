@@ -1,0 +1,4 @@
+[     155ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3001/favicon.ico:0
+[  888543ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:9001/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/src/live.ts:23
+[  891198ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:9001/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/src/live.ts:23
+[  898765ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:9001/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/src/live.ts:23

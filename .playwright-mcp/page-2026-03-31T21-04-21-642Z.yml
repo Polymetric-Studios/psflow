@@ -1,0 +1,105 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - button "Load .mmd" [ref=e5] [cursor=pointer]
+      - button "Load Trace" [active] [ref=e6] [cursor=pointer]
+      - generic [ref=e28]: dungeon_generator.mmd
+    - generic [ref=e7]:
+      - button "<" [ref=e8] [cursor=pointer]
+      - button "Play" [ref=e9] [cursor=pointer]
+      - button ">" [ref=e10] [cursor=pointer]
+      - combobox [ref=e11]:
+        - option "0.5x"
+        - option "1x" [selected]
+        - option "2x"
+        - option "5x"
+        - option "10x"
+      - generic [ref=e309]: 0 / 4
+    - generic [ref=e13]: 42 nodes | trace loaded
+  - generic [ref=e14]:
+    - textbox [ref=e20]:
+      - generic [ref=e21]: graph TD
+      - generic [ref=e215]: "subgraph Entry [\"event: triggers\"]"
+      - generic [ref=e216]: CLI_TRIGGER[CLI Invoke] --> SEED
+      - generic [ref=e217]: WEBHOOK[Webhook Trigger] --> SEED
+      - generic [ref=e218]: WATCH[File Watch Trigger] --> SEED
+      - generic [ref=e219]: end
+      - generic [ref=e221]: subgraph Init
+      - generic [ref=e222]: SEED[Seed RNG] --> CONFIG[Load Config]
+      - generic [ref=e223]: "CONFIG --> SNAPSHOT_INIT[Checkpoint: Init]"
+      - generic [ref=e224]: end
+      - generic [ref=e226]: "subgraph Generate [\"parallel: rooms\"]"
+      - generic [ref=e227]: SNAPSHOT_INIT --> ROOMS[Generate Rooms]
+      - generic [ref=e228]: ROOMS --> R_ACCUM[Accumulate Room List]
+      - generic [ref=e229]: R_ACCUM --> R_DETAIL[Room Details]
+      - generic [ref=e230]: R_DETAIL --> R_THEME[Apply Theme]
+      - generic [ref=e231]: end
+      - generic [ref=e233]: "subgraph RaceLayout [\"race: layout strategies\"]"
+      - generic [ref=e234]: R_THEME --> MST_LAYOUT[MST + Loops]
+      - generic [ref=e235]: R_THEME --> GRID_LAYOUT[Grid Snap]
+      - generic [ref=e236]: R_THEME --> ORGANIC_LAYOUT[Organic Growth]
+      - generic [ref=e237]: "MST_LAYOUT --> LAYOUT_PICK{First Valid?}"
+      - generic [ref=e238]: GRID_LAYOUT --> LAYOUT_PICK
+      - generic [ref=e239]: ORGANIC_LAYOUT --> LAYOUT_PICK
+      - generic [ref=e240]: end
+      - generic [ref=e242]: subgraph Connect
+      - generic [ref=e243]: LAYOUT_PICK --> CORR[Place Corridors]
+      - generic [ref=e244]: CORR --> DOORS[Place Doors]
+      - generic [ref=e245]: "DOORS --> SNAPSHOT_LAYOUT[Checkpoint: Layout]"
+      - generic [ref=e246]: end
+      - generic [ref=e248]: subgraph Approve
+      - generic [ref=e249]: SNAPSHOT_LAYOUT --> PREVIEW_MAP[Render Preview Map]
+      - generic [ref=e250]: "PREVIEW_MAP --> HUMAN_LAYOUT{Approve Layout?}"
+      - generic [ref=e251]: HUMAN_LAYOUT -->|approved| POPULATE_GATE[Begin Population]
+      - generic [ref=e252]: HUMAN_LAYOUT -->|rejected| TWEAK[Apply Feedback]
+      - generic [ref=e253]: TWEAK --> ROOMS
+      - generic [ref=e254]: end
+      - generic [ref=e256]: "subgraph Populate [\"parallel: content\"]"
+      - generic [ref=e257]: POPULATE_GATE --> KEYS[Distribute Keys]
+      - generic [ref=e258]: POPULATE_GATE --> MONSTERS[Place Monsters]
+      - generic [ref=e259]: POPULATE_GATE --> LOOT[Place Loot]
+      - generic [ref=e260]: POPULATE_GATE --> TRAPS[Place Traps]
+      - generic [ref=e261]: POPULATE_GATE --> SECRETS[Hide Secrets]
+      - generic [ref=e262]: end
+      - generic [ref=e264]: subgraph MergeContent
+      - generic [ref=e265]: KEYS --> CONTENT_ACCUM[Accumulate Content]
+      - generic [ref=e266]: MONSTERS --> CONTENT_ACCUM
+      - generic [ref=e267]: LOOT --> CONTENT_ACCUM
+      - generic [ref=e268]: TRAPS --> CONTENT_ACCUM
+      - generic [ref=e269]: SECRETS --> CONTENT_ACCUM
+      - generic [ref=e270]: CONTENT_ACCUM --> MERGE[Merge Dungeon]
+      - generic [ref=e271]: end
+      - generic [ref=e273]: subgraph Validate
+      - generic [ref=e274]: "MERGE --> SNAPSHOT_POPULATED[Checkpoint: Populated]"
+      - generic [ref=e275]: "SNAPSHOT_POPULATED --> SOLVE{Solvable?}"
+      - generic [ref=e276]: "SOLVE -->|yes| BALANCE{Balanced?}"
+      - generic [ref=e277]: SOLVE -->|no| REGEN[Relax Constraints]
+      - generic [ref=e278]: REGEN --> ROOMS
+      - generic [ref=e279]: BALANCE -->|yes| EXPORT_GATE[Ready for Export]
+      - generic [ref=e280]: BALANCE -->|no| REBALANCE[Adjust Difficulty]
+      - generic [ref=e281]: REBALANCE --> MONSTERS
+      - generic [ref=e282]: end
+      - generic [ref=e284]: "subgraph FlavorText [\"subgraph: flavor_text\"]"
+      - generic [ref=e285]: EXPORT_GATE --> FT_ROOMS[Room Descriptions]
+      - generic [ref=e286]: FT_ROOMS --> FT_ITEMS[Item Descriptions]
+      - generic [ref=e287]: FT_ITEMS --> FT_LORE[Lore Fragments]
+      - generic [ref=e288]: FT_LORE --> FT_MERGE[Merge Flavor]
+      - generic [ref=e289]: end
+      - generic [ref=e291]: "subgraph Export [\"parallel: outputs\"]"
+      - generic [ref=e292]: FT_MERGE --> ASCII[ASCII Map]
+      - generic [ref=e293]: FT_MERGE --> MMD[Mermaid Graph]
+      - generic [ref=e294]: FT_MERGE --> JSON[JSON Data]
+      - generic [ref=e295]: FT_MERGE --> HISTORY[Generation History]
+      - generic [ref=e296]: end
+      - generic [ref=e298]: "%% ============================================="
+      - generic [ref=e299]: "%% Entry Points — Event-Driven (Phase 1.3.5)"
+      - generic [ref=e300]: "%% ============================================="
+      - generic [ref=e302]: "%% @CLI_TRIGGER handler: event_entry"
+      - generic [ref=e303]: "%% @CLI_TRIGGER config.source: \"cli\""
+      - generic [ref=e304]: "%% @CLI_TRIGGER config.accepts: \"DungeonRequest\""
+      - generic [ref=e305]: "%% @CLI_TRIGGER outputs.request: \"DungeonRequest\""
+      - generic [ref=e307]: "%% @WEBHOOK handler: event_entry"
+      - generic [ref=e308]: "%% @WEBHOOK config.source: \"http\""
+    - generic [ref=e22]:
+      - generic [ref=e23]: Inspector
+      - paragraph [ref=e310]: Select a node to inspect

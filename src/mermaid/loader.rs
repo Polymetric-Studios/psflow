@@ -275,6 +275,34 @@ graph TD
     }
 
     #[test]
+    fn load_with_multiline_annotation() {
+        let input = "\
+graph TD
+    A[Plan] --> B[Build]
+
+    %% @A handler: planner
+    %% @A config.prompt: >>>
+    %%   Plan the feature: {inputs.description}
+    %%
+    %%   Consider:
+    %%   - Architecture implications
+    %%   - Testing strategy
+    %% <<<
+    %% @B handler: builder
+";
+        let graph = load_mermaid(input).unwrap();
+        let a = graph.node(&"A".into()).unwrap();
+        assert_eq!(a.handler, Some("planner".into()));
+        let prompt = a.config["prompt"].as_str().unwrap();
+        assert!(prompt.contains("Plan the feature: {inputs.description}"));
+        assert!(prompt.contains("- Architecture implications"));
+        assert!(prompt.contains("- Testing strategy"));
+
+        let b = graph.node(&"B".into()).unwrap();
+        assert_eq!(b.handler, Some("builder".into()));
+    }
+
+    #[test]
     fn direction_stored_in_metadata() {
         let input = "flowchart LR\n    A --> B";
         let graph = load_mermaid(input).unwrap();
