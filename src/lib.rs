@@ -26,7 +26,7 @@ pub use graph::metadata::GraphMetadata;
 pub use graph::node::{Node, NodeId};
 pub use graph::port::Port;
 pub use graph::types::{PortType, Value};
-pub use graph::{Graph, Subgraph, SubgraphDirective};
+pub use graph::{Graph, Subgraph, SubgraphDirective, SubgraphTopology};
 pub use graph::step_compiler::{
     compile_steps, is_structural_type, HANDLER_BRANCH, HANDLER_FORK, HANDLER_JOIN,
     HANDLER_LOOP_END, HANDLER_LOOP_START, HANDLER_MERGE,

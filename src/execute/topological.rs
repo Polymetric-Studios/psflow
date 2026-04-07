@@ -543,13 +543,29 @@ pub(crate) async fn handle_branch_decision(
 }
 
 /// Check if a node is blocked because an upstream branch didn't select its incoming edge.
+/// Check if a node is blocked by a branch decision on an upstream node.
+///
+/// Edge label semantics:
+/// - A labeled edge is blocked when its label doesn't match the branch decision.
+/// - `"else"` is a fallback label: it's blocked only when another edge from the
+///   same source carries the matching label. If no edge matches the decision,
+///   the `"else"` edge becomes the active path.
+/// - Unlabeled edges are never blocked by branch decisions.
 pub(crate) fn is_branch_blocked(graph: &Graph, node_id: &NodeId, ctx: &ExecutionContext) -> bool {
     for (src_node, edge_data) in graph.incoming_edges(node_id) {
         if let Some(decision) = ctx.get_branch_decision(&src_node.id.0) {
-            // The upstream node made a branch decision.
-            // If this edge has a label, it must match the decision.
             if let Some(ref label) = edge_data.label {
-                if label != &decision {
+                if label == "else" {
+                    // "else" is the fallback — blocked only if another edge
+                    // from the same source has the matching label
+                    let has_match = graph
+                        .outgoing_edges(&src_node.id)
+                        .iter()
+                        .any(|(e, _)| e.label.as_deref() == Some(&decision));
+                    if has_match {
+                        return true;
+                    }
+                } else if label != &decision {
                     return true;
                 }
             }
@@ -758,7 +774,12 @@ pub(crate) fn collect_inputs(graph: &Graph, node_id: &NodeId, ctx: &ExecutionCon
     inputs
 }
 
-/// Mark all downstream (transitive successors) of a failed node as Cancelled.
+/// Mark downstream (transitive successors) of a failed/cancelled node as Cancelled.
+///
+/// Convergence-aware: skips nodes that have other predecessors still
+/// potentially live (not Failed/Cancelled). This prevents a cancelled
+/// conditional branch from eagerly cancelling the merge node while the
+/// other branch is still running.
 pub(crate) fn cancel_downstream(graph: &Graph, failed_id: &NodeId, ctx: &ExecutionContext) {
     let mut stack = vec![failed_id.clone()];
     let mut visited = HashSet::new();
@@ -767,10 +788,21 @@ pub(crate) fn cancel_downstream(graph: &Graph, failed_id: &NodeId, ctx: &Executi
     while let Some(current) = stack.pop() {
         for successor in graph.successors(&current) {
             if visited.insert(successor.id.clone()) {
-                if !ctx.get_state(&successor.id.0).is_terminal() {
-                    let _ = ctx.set_state(&successor.id.0, NodeState::Cancelled);
+                if ctx.get_state(&successor.id.0).is_terminal() {
+                    continue;
                 }
-                stack.push(successor.id.clone());
+                // Don't cancel convergence nodes that have live predecessors
+                let preds = graph.predecessors(&successor.id);
+                let all_dead = preds.iter().all(|p| {
+                    matches!(
+                        ctx.get_state(&p.id.0),
+                        NodeState::Failed | NodeState::Cancelled
+                    )
+                });
+                if all_dead {
+                    let _ = ctx.set_state(&successor.id.0, NodeState::Cancelled);
+                    stack.push(successor.id.clone());
+                }
             }
         }
     }

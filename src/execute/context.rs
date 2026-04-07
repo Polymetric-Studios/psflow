@@ -321,7 +321,33 @@ impl ExecutionContext {
         }
     }
 
-    // -- Loop support --
+    // -- Subgraph support --
+
+    /// Aggregate outputs from all nodes in a subgraph into a map keyed by node ID.
+    ///
+    /// Returns `{node_id: Map{output_key: value, ...}, ...}` for all completed
+    /// nodes in the subgraph. Used for parallel result aggregation where
+    /// `{{results.{subgraph_id}}}` resolves to this map.
+    pub fn aggregate_subgraph_outputs(
+        &self,
+        node_ids: &[crate::graph::node::NodeId],
+    ) -> Outputs {
+        use crate::graph::types::Value;
+        use std::collections::BTreeMap;
+
+        let outputs = self.node_outputs.lock().unwrap_or_else(|e| e.into_inner());
+        let mut result = Outputs::new();
+        for nid in node_ids {
+            if let Some(node_outputs) = outputs.get(&nid.0) {
+                let map: BTreeMap<String, Value> = node_outputs
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                result.insert(nid.0.clone(), Value::Map(map));
+            }
+        }
+        result
+    }
 
     /// Reset node states and outputs to allow re-execution in loop iterations.
     pub fn reset_states<'a>(&self, node_ids: impl Iterator<Item = &'a str>) {
@@ -617,5 +643,64 @@ mod tests {
             })
             .collect();
         assert_eq!(ids, vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn aggregate_subgraph_outputs_collects_by_node_id() {
+        use crate::graph::node::NodeId;
+        use crate::graph::types::Value;
+
+        let ctx = ExecutionContext::new();
+
+        let mut out_a = Outputs::new();
+        out_a.insert("result".into(), Value::String("from_a".into()));
+        ctx.store_outputs("A", out_a);
+
+        let mut out_b = Outputs::new();
+        out_b.insert("result".into(), Value::String("from_b".into()));
+        ctx.store_outputs("B", out_b);
+
+        // Node C has no outputs (not completed yet)
+
+        let node_ids = vec![NodeId::new("A"), NodeId::new("B"), NodeId::new("C")];
+        let agg = ctx.aggregate_subgraph_outputs(&node_ids);
+
+        assert_eq!(agg.len(), 2); // Only A and B
+        match &agg["A"] {
+            Value::Map(m) => assert_eq!(m["result"], Value::String("from_a".into())),
+            other => panic!("expected Map, got {other:?}"),
+        }
+        match &agg["B"] {
+            Value::Map(m) => assert_eq!(m["result"], Value::String("from_b".into())),
+            other => panic!("expected Map, got {other:?}"),
+        }
+        assert!(agg.get("C").is_none());
+    }
+
+    #[test]
+    fn aggregate_subgraph_outputs_multi_port_node() {
+        use crate::graph::node::NodeId;
+        use crate::graph::types::Value;
+
+        let ctx = ExecutionContext::new();
+
+        let mut out_a = Outputs::new();
+        out_a.insert("text".into(), Value::String("hello".into()));
+        out_a.insert("score".into(), Value::I64(42));
+        out_a.insert("valid".into(), Value::Bool(true));
+        ctx.store_outputs("A", out_a);
+
+        let node_ids = vec![NodeId::new("A")];
+        let agg = ctx.aggregate_subgraph_outputs(&node_ids);
+
+        match &agg["A"] {
+            Value::Map(m) => {
+                assert_eq!(m["text"], Value::String("hello".into()));
+                assert_eq!(m["score"], Value::I64(42));
+                assert_eq!(m["valid"], Value::Bool(true));
+                assert_eq!(m.len(), 3);
+            }
+            other => panic!("expected Map, got {other:?}"),
+        }
     }
 }

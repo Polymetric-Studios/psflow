@@ -722,4 +722,145 @@ mod tests {
             })
         }
     }
+
+    // -- Conditional branching (Phase 2d verification) --
+
+    #[tokio::test]
+    async fn conditional_guard_selects_branch() {
+        // check --> branch
+        // branch -->|yes| deploy  (guard evaluates to true → edge_label "yes")
+        // branch -->|else| wait
+        // deploy --> done
+        // wait --> done
+        let mut g = Graph::new();
+        g.add_node(Node::new("check", "check").with_handler("pass")).unwrap();
+        let mut branch = Node::new("branch", "branch").with_handler("pass");
+        branch.config = serde_json::json!({"guard": "true"});
+        g.add_node(branch).unwrap();
+        g.add_node(Node::new("deploy", "deploy").with_handler("pass")).unwrap();
+        g.add_node(Node::new("wait", "wait").with_handler("pass")).unwrap();
+        g.add_node(Node::new("done", "done").with_handler("pass")).unwrap();
+
+        g.add_edge(&"check".into(), "", &"branch".into(), "", None).unwrap();
+        g.add_edge(&"branch".into(), "", &"deploy".into(), "", Some("yes".into())).unwrap();
+        g.add_edge(&"branch".into(), "", &"wait".into(), "", Some("else".into())).unwrap();
+        g.add_edge(&"deploy".into(), "", &"done".into(), "", None).unwrap();
+        g.add_edge(&"wait".into(), "", &"done".into(), "", None).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["check"], NodeState::Completed);
+        assert_eq!(result.node_states["branch"], NodeState::Completed);
+        assert_eq!(result.node_states["deploy"], NodeState::Completed);
+        assert_eq!(result.node_states["wait"], NodeState::Cancelled);
+        assert_eq!(result.node_states["done"], NodeState::Completed);
+    }
+
+    #[tokio::test]
+    async fn conditional_else_fallback() {
+        // branch -->|yes| a
+        // branch -->|else| b
+        // guard = "false" → edge_label "no", doesn't match "yes", so else runs
+        let mut g = Graph::new();
+        let mut branch = Node::new("branch", "branch").with_handler("pass");
+        branch.config = serde_json::json!({"guard": "false"});
+        g.add_node(branch).unwrap();
+        g.add_node(Node::new("a", "a").with_handler("pass")).unwrap();
+        g.add_node(Node::new("b", "b").with_handler("pass")).unwrap();
+
+        g.add_edge(&"branch".into(), "", &"a".into(), "", Some("yes".into())).unwrap();
+        g.add_edge(&"branch".into(), "", &"b".into(), "", Some("else".into())).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["branch"], NodeState::Completed);
+        assert_eq!(result.node_states["a"], NodeState::Cancelled);
+        assert_eq!(result.node_states["b"], NodeState::Completed);
+    }
+
+    #[tokio::test]
+    async fn conditional_three_branches_else_fallback() {
+        // branch -->|yes| a
+        // branch -->|no| b
+        // branch -->|else| c
+        // guard = "\"maybe\"" → no label matches, else runs
+        let mut g = Graph::new();
+        let mut branch = Node::new("branch", "branch").with_handler("pass");
+        branch.config = serde_json::json!({"guard": "\"maybe\""});
+        g.add_node(branch).unwrap();
+        g.add_node(Node::new("a", "a").with_handler("pass")).unwrap();
+        g.add_node(Node::new("b", "b").with_handler("pass")).unwrap();
+        g.add_node(Node::new("c", "c").with_handler("pass")).unwrap();
+
+        g.add_edge(&"branch".into(), "", &"a".into(), "", Some("yes".into())).unwrap();
+        g.add_edge(&"branch".into(), "", &"b".into(), "", Some("no".into())).unwrap();
+        g.add_edge(&"branch".into(), "", &"c".into(), "", Some("else".into())).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["branch"], NodeState::Completed);
+        assert_eq!(result.node_states["a"], NodeState::Cancelled);
+        assert_eq!(result.node_states["b"], NodeState::Cancelled);
+        assert_eq!(result.node_states["c"], NodeState::Completed);
+    }
+
+    #[tokio::test]
+    async fn convergence_one_branch_fails_other_succeeds() {
+        // A --> B (fails)
+        // A --> C (succeeds)
+        // B --> D (convergence)
+        // C --> D
+        // D should run because C succeeded
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
+        g.add_node(Node::new("B", "B").with_handler("fail")).unwrap();
+        g.add_node(Node::new("C", "C").with_handler("pass")).unwrap();
+        g.add_node(Node::new("D", "D").with_handler("pass")).unwrap();
+
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+        g.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"D".into(), "", None).unwrap();
+        g.add_edge(&"C".into(), "", &"D".into(), "", None).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
+        handlers.insert(
+            "fail".into(),
+            sync_handler(|_, _| {
+                Err(NodeError::Failed {
+                    source_message: None,
+                    message: "intentional".into(),
+                    recoverable: false,
+                })
+            }),
+        );
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &handlers)
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Completed);
+        assert_eq!(result.node_states["B"], NodeState::Failed);
+        assert_eq!(result.node_states["C"], NodeState::Completed);
+        assert_eq!(result.node_states["D"], NodeState::Completed);
+    }
 }

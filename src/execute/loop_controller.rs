@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::execute::context::ExecutionContext;
 use crate::execute::lifecycle::NodeState;
+use crate::graph::node::NodeId;
+use crate::graph::{Graph, SubgraphDirective};
 
 // ---------------------------------------------------------------------------
 // LoopIterator — trait for the caller to control iteration
@@ -14,8 +16,8 @@ use crate::execute::lifecycle::NodeState;
 /// The `LoopController` drives the state machine (detect end, reset, check bounds).
 /// The `LoopIterator` provides domain-specific logic (resolve items, update variables).
 pub trait LoopIterator: Send {
-    /// Called when a loop begins (loop-start node completes).
-    /// Return the total number of items to iterate, or `None` for unbounded loops.
+    /// Called when a loop begins. Return the total number of items to iterate,
+    /// or `None` for unbounded loops.
     fn on_loop_start(&mut self, loop_id: &str, ctx: &ExecutionContext) -> Option<usize>;
 
     /// Called before each iteration. Return `true` to continue, `false` to stop.
@@ -32,14 +34,14 @@ pub trait LoopIterator: Send {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoopState {
-    /// The loop subgraph ID (e.g., "sg-loop1").
+    /// The loop subgraph ID.
     pub loop_id: String,
-    /// Node IDs in the loop body (excluding start/end sentinels).
+    /// All node IDs in the loop body (including entry and exit nodes).
     pub body_node_ids: Vec<String>,
-    /// The loop-start sentinel node ID.
-    pub start_node_id: String,
-    /// The loop-end sentinel node ID.
-    pub end_node_id: String,
+    /// The entry node ID — first body node with incoming edges from outside.
+    pub entry_node_id: String,
+    /// The exit node ID — last body node with outgoing edges to outside.
+    pub exit_node_id: String,
     /// Current iteration index (0-based).
     pub index: usize,
     /// Total items (if known from on_loop_start).
@@ -56,8 +58,15 @@ pub struct LoopState {
 
 /// Manages loop iteration for the SteppedExecutor.
 ///
-/// After each `tick()`, call `process_tick()` to check if any loop-end nodes
-/// completed and reset body nodes for the next iteration.
+/// Usage:
+/// ```ignore
+/// loop {
+///     loop_controller.prepare(graph, &ctx, &mut iterator);
+///     let tick = executor.tick(graph, handlers, &ctx).await?;
+///     let reset = loop_controller.process_tick(&ctx, &mut iterator);
+///     if tick.is_complete && !reset { break; }
+/// }
+/// ```
 pub struct LoopController {
     loops: HashMap<String, LoopState>,
 }
@@ -75,6 +84,48 @@ impl LoopController {
         }
     }
 
+    /// Build a LoopController from all `loop:` subgraphs in the graph.
+    ///
+    /// Uses subgraph topology analysis to determine entry/exit nodes
+    /// instead of requiring sentinel nodes.
+    pub fn from_subgraphs(graph: &Graph) -> Self {
+        let mut loops = HashMap::new();
+        for sg in graph.subgraphs() {
+            if sg.directive != SubgraphDirective::Loop {
+                continue;
+            }
+            let topo = graph.subgraph_topology(sg);
+            let Some(first_node) = sg.nodes.first().cloned() else {
+                continue; // Empty subgraph, skip
+            };
+            let entry = topo
+                .entry_nodes
+                .first()
+                .cloned()
+                .unwrap_or_else(|| first_node.clone());
+            let exit = topo
+                .exit_nodes
+                .first()
+                .cloned()
+                .unwrap_or_else(|| entry.clone());
+
+            loops.insert(
+                sg.id.clone(),
+                LoopState {
+                    loop_id: sg.id.clone(),
+                    body_node_ids: sg.nodes.iter().map(|n| n.0.clone()).collect(),
+                    entry_node_id: entry.0,
+                    exit_node_id: exit.0,
+                    index: 0,
+                    total: None,
+                    max_iterations: 1000,
+                    initialized: false,
+                },
+            );
+        }
+        Self { loops }
+    }
+
     /// Get the loop states (for serialization/persistence).
     pub fn states(&self) -> &HashMap<String, LoopState> {
         &self.loops
@@ -85,7 +136,57 @@ impl LoopController {
         &mut self.loops
     }
 
-    /// Check for loop-start and loop-end completions after a tick.
+    /// Pre-tick: initialize loops whose entry node is about to run.
+    ///
+    /// A loop is ready to initialize when all predecessors of its entry node
+    /// (outside the subgraph) are in terminal state. Call this before each
+    /// tick so that `on_loop_start` and `on_iteration(0)` fire before the
+    /// entry node executes.
+    pub fn prepare(
+        &mut self,
+        graph: &Graph,
+        ctx: &ExecutionContext,
+        iterator: &mut dyn LoopIterator,
+    ) {
+        for (loop_id, state) in &mut self.loops {
+            if state.initialized {
+                continue;
+            }
+            // Check if entry node is still idle and predecessors are done
+            if ctx.get_state(&state.entry_node_id) != NodeState::Idle {
+                continue;
+            }
+            let entry_nid = NodeId::new(&state.entry_node_id);
+            let preds = graph.predecessors(&entry_nid);
+            let all_preds_done = preds.is_empty()
+                || preds
+                    .iter()
+                    .all(|p| ctx.get_state(&p.id.0).is_terminal());
+            if !all_preds_done {
+                continue;
+            }
+
+            let total = iterator.on_loop_start(loop_id, ctx);
+            state.initialized = true;
+            state.total = total;
+
+            if !iterator.on_iteration(loop_id, 0, ctx) {
+                // Zero-iteration loop: cancel all body nodes so the tick
+                // doesn't execute them, then signal completion.
+                for nid in &state.body_node_ids {
+                    if ctx.get_state(nid) == NodeState::Idle {
+                        let _ = ctx.set_state(nid, NodeState::Cancelled);
+                    }
+                }
+                if ctx.get_state(&state.exit_node_id) == NodeState::Idle {
+                    let _ = ctx.set_state(&state.exit_node_id, NodeState::Cancelled);
+                }
+                iterator.on_loop_end(loop_id, ctx);
+            }
+        }
+    }
+
+    /// Post-tick: detect exit node completions and advance iterations.
     ///
     /// Returns `true` if any loop body was reset (meaning the graph is no
     /// longer complete and another tick should be performed).
@@ -96,57 +197,46 @@ impl LoopController {
     ) -> bool {
         let mut reset_occurred = false;
 
-        // Check for loop-start completions (initialize loops)
         let loop_ids: Vec<String> = self.loops.keys().cloned().collect();
         for loop_id in &loop_ids {
             let state = &self.loops[loop_id];
-            if !state.initialized && ctx.get_state(&state.start_node_id) == NodeState::Completed {
-                let total = iterator.on_loop_start(loop_id, ctx);
-                let state = self.loops.get_mut(loop_id).unwrap();
-                state.initialized = true;
-                state.total = total;
-
-                // Signal the first iteration
-                if !iterator.on_iteration(loop_id, 0, ctx) {
-                    // Iterator says don't run — mark loop as done
-                    iterator.on_loop_end(loop_id, ctx);
-                }
+            if !state.initialized {
+                continue;
             }
-        }
 
-        // Check for loop-end completions (advance iteration)
-        for loop_id in &loop_ids {
-            let end_node_id = self.loops[loop_id].end_node_id.clone();
-            let end_state = ctx.get_state(&end_node_id);
+            let exit_state = ctx.get_state(&state.exit_node_id);
+            if exit_state != NodeState::Completed {
+                continue;
+            }
 
-            if end_state == NodeState::Completed {
-                let state = self.loops.get_mut(loop_id).unwrap();
-                state.index += 1;
+            let state = self.loops.get_mut(loop_id).unwrap();
+            state.index += 1;
 
-                let at_max = state.index >= state.max_iterations;
-                let at_end = state.total.is_some_and(|t| state.index >= t);
+            let at_max = state.index >= state.max_iterations;
+            let at_end = state.total.is_some_and(|t| state.index >= t);
 
-                if !at_max && !at_end && iterator.on_iteration(loop_id, state.index, ctx) {
-                    // More iterations: reset body nodes + end node
-                    let ids_to_reset: Vec<String> = state
-                        .body_node_ids
-                        .iter()
-                        .chain(std::iter::once(&state.end_node_id))
-                        .cloned()
-                        .collect();
-
-                    ctx.reset_states(ids_to_reset.iter().map(|s| s.as_str()));
-                    reset_occurred = true;
-                } else {
-                    // Loop done
-                    iterator.on_loop_end(loop_id, ctx);
+            if !at_max && !at_end && iterator.on_iteration(loop_id, state.index, ctx) {
+                // More iterations: reset body + exit node.
+                // Exit is chained explicitly because sentinel-based models
+                // exclude it from body_node_ids. In topology-based models
+                // it's already in body_node_ids; the duplicate reset is harmless.
+                let mut ids_to_reset: Vec<&str> = state
+                    .body_node_ids
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect();
+                if !ids_to_reset.contains(&state.exit_node_id.as_str()) {
+                    ids_to_reset.push(state.exit_node_id.as_str());
                 }
+                ctx.reset_states(ids_to_reset.into_iter());
+                reset_occurred = true;
+            } else {
+                iterator.on_loop_end(loop_id, ctx);
             }
         }
 
         reset_occurred
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +247,9 @@ impl LoopController {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    use crate::graph::node::Node;
+    use crate::graph::Subgraph;
 
     use crate::execute::concurrency::ConcurrencyLimits;
     use crate::execute::context::CancellationToken;
@@ -171,9 +264,9 @@ mod tests {
     fn make_loop_state() -> LoopState {
         LoopState {
             loop_id: "sg-loop1".into(),
-            body_node_ids: vec!["loop1/body".into()],
-            start_node_id: "loop1/loop-start".into(),
-            end_node_id: "loop1/loop-end".into(),
+            body_node_ids: vec!["body".into()],
+            entry_node_id: "body".into(),
+            exit_node_id: "body".into(),
             index: 0,
             total: None,
             max_iterations: 100,
@@ -213,27 +306,45 @@ mod tests {
     }
 
     #[test]
-    fn loop_controller_initializes_on_start_completion() {
+    fn prepare_initializes_when_predecessors_done() {
+        // pred --> body --> succ
+        // loop subgraph contains [body]
+        let mut g = Graph::new();
+        for id in ["pred", "body", "succ"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"body".into(), "", None).unwrap();
+        g.add_edge(&"body".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_subgraph(Subgraph {
+            id: "sg-loop1".into(),
+            label: "loop: process".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["body".into()],
+            children: Vec::new(),
+        });
+
         let ctx = make_ctx();
-        let mut loops = HashMap::new();
-        loops.insert("sg-loop1".into(), make_loop_state());
-        let mut controller = LoopController::new(loops);
+        let mut controller = LoopController::from_subgraphs(&g);
         let mut iter = CountingIterator::new(vec!["a".into(), "b".into()]);
 
-        // Simulate loop-start completing
-        let _ = ctx.set_state("loop1/loop-start", NodeState::Pending);
-        let _ = ctx.set_state("loop1/loop-start", NodeState::Running);
-        let _ = ctx.set_state("loop1/loop-start", NodeState::Completed);
+        // Before predecessor completes: prepare does nothing
+        controller.prepare(&g, &ctx, &mut iter);
+        assert!(!iter.started);
 
-        controller.process_tick(&ctx, &mut iter);
+        // Predecessor completes
+        let _ = ctx.set_state("pred", NodeState::Pending);
+        let _ = ctx.set_state("pred", NodeState::Running);
+        let _ = ctx.set_state("pred", NodeState::Completed);
 
+        // Now prepare initializes the loop
+        controller.prepare(&g, &ctx, &mut iter);
         assert!(iter.started);
         assert!(controller.states()["sg-loop1"].initialized);
         assert_eq!(controller.states()["sg-loop1"].total, Some(2));
     }
 
     #[test]
-    fn loop_controller_resets_on_end_completion() {
+    fn process_tick_resets_on_exit_completion() {
         let ctx = make_ctx();
         let mut loops = HashMap::new();
         let mut state = make_loop_state();
@@ -243,21 +354,21 @@ mod tests {
         let mut controller = LoopController::new(loops);
         let mut iter = CountingIterator::new(vec!["a".into(), "b".into(), "c".into()]);
 
-        // Simulate loop-end completing (first iteration done)
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Pending);
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Running);
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Completed);
+        // Exit node completes (first iteration done)
+        let _ = ctx.set_state("body", NodeState::Pending);
+        let _ = ctx.set_state("body", NodeState::Running);
+        let _ = ctx.set_state("body", NodeState::Completed);
 
         let reset = controller.process_tick(&ctx, &mut iter);
 
         assert!(reset, "should have reset body nodes");
         assert_eq!(controller.states()["sg-loop1"].index, 1);
-        // loop-end should have been reset to Idle
-        assert_eq!(ctx.get_state("loop1/loop-end"), NodeState::Idle);
+        // body should have been reset to Idle
+        assert_eq!(ctx.get_state("body"), NodeState::Idle);
     }
 
     #[test]
-    fn loop_controller_ends_at_total() {
+    fn process_tick_ends_at_total() {
         let ctx = make_ctx();
         let mut loops = HashMap::new();
         let mut state = make_loop_state();
@@ -268,10 +379,10 @@ mod tests {
         let mut controller = LoopController::new(loops);
         let mut iter = CountingIterator::new(vec!["a".into(), "b".into()]);
 
-        // Simulate loop-end completing (second/final iteration)
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Pending);
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Running);
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Completed);
+        // Exit node completes (second/final iteration)
+        let _ = ctx.set_state("body", NodeState::Pending);
+        let _ = ctx.set_state("body", NodeState::Running);
+        let _ = ctx.set_state("body", NodeState::Completed);
 
         let reset = controller.process_tick(&ctx, &mut iter);
 
@@ -280,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn loop_controller_respects_max_iterations() {
+    fn process_tick_respects_max_iterations() {
         let ctx = make_ctx();
         let mut loops = HashMap::new();
         let mut state = make_loop_state();
@@ -292,13 +403,137 @@ mod tests {
         let mut controller = LoopController::new(loops);
         let mut iter = CountingIterator::new((0..100).map(|i| format!("{i}")).collect());
 
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Pending);
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Running);
-        let _ = ctx.set_state("loop1/loop-end", NodeState::Completed);
+        let _ = ctx.set_state("body", NodeState::Pending);
+        let _ = ctx.set_state("body", NodeState::Running);
+        let _ = ctx.set_state("body", NodeState::Completed);
 
         let reset = controller.process_tick(&ctx, &mut iter);
 
         assert!(!reset, "should NOT reset — hit max_iterations");
         assert!(iter.ended);
+    }
+
+    #[test]
+    fn from_subgraphs_builds_from_topology() {
+        // pred --> A --> B --> succ
+        // loop subgraph contains [A, B]
+        let mut g = Graph::new();
+        for id in ["pred", "A", "B", "succ"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_subgraph(Subgraph {
+            id: "loop1".into(),
+            label: "loop: process".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["A".into(), "B".into()],
+            children: Vec::new(),
+        });
+        // Non-loop subgraph should be ignored
+        g.add_subgraph(Subgraph {
+            id: "par1".into(),
+            label: "parallel: other".into(),
+            directive: SubgraphDirective::Parallel,
+            nodes: vec!["pred".into()],
+            children: Vec::new(),
+        });
+
+        let controller = LoopController::from_subgraphs(&g);
+        assert_eq!(controller.states().len(), 1);
+
+        let state = &controller.states()["loop1"];
+        assert_eq!(state.entry_node_id, "A");
+        assert_eq!(state.exit_node_id, "B");
+        assert_eq!(state.body_node_ids, vec!["A", "B"]);
+        assert!(!state.initialized);
+    }
+
+    #[test]
+    fn from_subgraphs_single_node_loop() {
+        // pred --> A --> succ, loop subgraph = [A]
+        let mut g = Graph::new();
+        for id in ["pred", "A", "succ"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
+        g.add_edge(&"A".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_subgraph(Subgraph {
+            id: "loop1".into(),
+            label: "loop: single".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["A".into()],
+            children: Vec::new(),
+        });
+
+        let controller = LoopController::from_subgraphs(&g);
+        let state = &controller.states()["loop1"];
+        assert_eq!(state.entry_node_id, "A");
+        assert_eq!(state.exit_node_id, "A");
+        assert_eq!(state.body_node_ids, vec!["A"]);
+    }
+
+    #[test]
+    fn zero_iteration_loop_cancels_body() {
+        // pred --> body --> succ, loop over empty list
+        let mut g = Graph::new();
+        for id in ["pred", "body", "succ"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"body".into(), "", None).unwrap();
+        g.add_edge(&"body".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_subgraph(Subgraph {
+            id: "loop1".into(),
+            label: "loop: empty".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["body".into()],
+            children: Vec::new(),
+        });
+
+        let ctx = make_ctx();
+        let mut controller = LoopController::from_subgraphs(&g);
+        // Empty list → on_iteration(0) returns false
+        let mut iter = CountingIterator::new(vec![]);
+
+        // Predecessor completes
+        let _ = ctx.set_state("pred", NodeState::Pending);
+        let _ = ctx.set_state("pred", NodeState::Running);
+        let _ = ctx.set_state("pred", NodeState::Completed);
+
+        controller.prepare(&g, &ctx, &mut iter);
+
+        assert!(iter.started);
+        assert!(iter.ended);
+        // Body should be cancelled, not idle
+        assert_eq!(ctx.get_state("body"), NodeState::Cancelled);
+    }
+
+    #[test]
+    fn prepare_root_entry_no_predecessors() {
+        // body --> succ (body is a root node, no predecessors)
+        let mut g = Graph::new();
+        for id in ["body", "succ"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"body".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_subgraph(Subgraph {
+            id: "loop1".into(),
+            label: "loop: root".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["body".into()],
+            children: Vec::new(),
+        });
+
+        let ctx = make_ctx();
+        let mut controller = LoopController::from_subgraphs(&g);
+        let mut iter = CountingIterator::new(vec!["a".into(), "b".into()]);
+
+        // No predecessors → should initialize immediately
+        controller.prepare(&g, &ctx, &mut iter);
+
+        assert!(iter.started);
+        assert!(controller.states()["loop1"].initialized);
+        assert_eq!(controller.states()["loop1"].total, Some(2));
     }
 }

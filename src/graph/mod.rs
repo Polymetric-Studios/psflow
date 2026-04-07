@@ -39,6 +39,15 @@ pub struct Subgraph {
     pub children: Vec<Subgraph>,
 }
 
+/// Result of analyzing a subgraph's boundary with the rest of the graph.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubgraphTopology {
+    /// Nodes inside the subgraph with at least one incoming edge from outside.
+    pub entry_nodes: Vec<NodeId>,
+    /// Nodes inside the subgraph with at least one outgoing edge to outside.
+    pub exit_nodes: Vec<NodeId>,
+}
+
 /// The core graph data structure: nodes with typed ports connected by directed edges.
 ///
 /// Backed by `petgraph::StableDiGraph` for efficient graph operations with stable indices.
@@ -279,6 +288,42 @@ impl Graph {
 
     pub fn subgraphs(&self) -> &[Subgraph] {
         &self.subgraphs
+    }
+
+    /// Analyze a subgraph's boundary: which nodes have cross-boundary edges.
+    ///
+    /// Entry nodes have incoming edges from outside the subgraph.
+    /// Exit nodes have outgoing edges to outside the subgraph.
+    /// A single-node body will appear as both entry and exit.
+    pub fn subgraph_topology(&self, sg: &Subgraph) -> SubgraphTopology {
+        let members: std::collections::HashSet<&NodeId> = sg.nodes.iter().collect();
+
+        let entry_nodes = sg
+            .nodes
+            .iter()
+            .filter(|nid| {
+                self.predecessors(nid)
+                    .iter()
+                    .any(|pred| !members.contains(&pred.id))
+            })
+            .cloned()
+            .collect();
+
+        let exit_nodes = sg
+            .nodes
+            .iter()
+            .filter(|nid| {
+                self.successors(nid)
+                    .iter()
+                    .any(|succ| !members.contains(&succ.id))
+            })
+            .cloned()
+            .collect();
+
+        SubgraphTopology {
+            entry_nodes,
+            exit_nodes,
+        }
     }
 
     // -- Metadata --
@@ -747,5 +792,106 @@ mod tests {
 
         assert_eq!(g.subgraphs().len(), 1);
         assert_eq!(g.subgraphs()[0].directive, SubgraphDirective::Parallel);
+    }
+
+    // -- Subgraph topology tests --
+
+    #[test]
+    fn subgraph_topology_single_entry_single_exit() {
+        // pred --> A --> B --> succ
+        //          [sg: A, B]
+        let mut g = Graph::new();
+        for id in ["pred", "A", "B", "succ"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"succ".into(), "", None).unwrap();
+
+        let sg = Subgraph {
+            id: "sg".into(),
+            label: "parallel: work".into(),
+            directive: SubgraphDirective::Parallel,
+            nodes: vec!["A".into(), "B".into()],
+            children: Vec::new(),
+        };
+
+        let topo = g.subgraph_topology(&sg);
+        assert_eq!(topo.entry_nodes, vec![NodeId::new("A")]);
+        assert_eq!(topo.exit_nodes, vec![NodeId::new("B")]);
+    }
+
+    #[test]
+    fn subgraph_topology_multi_entry() {
+        // pred --> A
+        // pred --> B
+        // A, B --> succ
+        let mut g = Graph::new();
+        for id in ["pred", "A", "B", "succ"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"B".into(), "", None).unwrap();
+        g.add_edge(&"A".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"succ".into(), "", None).unwrap();
+
+        let sg = Subgraph {
+            id: "sg".into(),
+            label: "parallel: work".into(),
+            directive: SubgraphDirective::Parallel,
+            nodes: vec!["A".into(), "B".into()],
+            children: Vec::new(),
+        };
+
+        let topo = g.subgraph_topology(&sg);
+        assert_eq!(topo.entry_nodes.len(), 2);
+        assert!(topo.entry_nodes.contains(&NodeId::new("A")));
+        assert!(topo.entry_nodes.contains(&NodeId::new("B")));
+        assert_eq!(topo.exit_nodes.len(), 2);
+    }
+
+    #[test]
+    fn subgraph_topology_single_node_body() {
+        // pred --> A --> succ
+        // A is both entry and exit
+        let mut g = Graph::new();
+        for id in ["pred", "A", "succ"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
+        g.add_edge(&"A".into(), "", &"succ".into(), "", None).unwrap();
+
+        let sg = Subgraph {
+            id: "sg".into(),
+            label: "loop: process".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["A".into()],
+            children: Vec::new(),
+        };
+
+        let topo = g.subgraph_topology(&sg);
+        assert_eq!(topo.entry_nodes, vec![NodeId::new("A")]);
+        assert_eq!(topo.exit_nodes, vec![NodeId::new("A")]);
+    }
+
+    #[test]
+    fn subgraph_topology_isolated_no_cross_boundary_edges() {
+        // A --> B (both inside subgraph, no external edges)
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A")).unwrap();
+        g.add_node(Node::new("B", "B")).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+
+        let sg = Subgraph {
+            id: "sg".into(),
+            label: "parallel: isolated".into(),
+            directive: SubgraphDirective::Parallel,
+            nodes: vec!["A".into(), "B".into()],
+            children: Vec::new(),
+        };
+
+        let topo = g.subgraph_topology(&sg);
+        assert!(topo.entry_nodes.is_empty());
+        assert!(topo.exit_nodes.is_empty());
     }
 }
