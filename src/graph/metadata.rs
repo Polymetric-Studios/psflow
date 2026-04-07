@@ -21,6 +21,13 @@ pub struct GraphMetadata {
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// Consumer-defined metadata. Unknown `%% @graph` annotation keys are
+    /// stored here using dot-path expansion (e.g. `input.feature` becomes
+    /// `extras["input"]["feature"]`). This lets consumers like Ergon attach
+    /// domain-specific fields (inputs, constants, supervisor, etc.) without
+    /// psflow needing to know about them.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extras: serde_json::Map<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -50,6 +57,7 @@ mod tests {
             required_capabilities: vec!["tool_use".into(), "structured_output".into()],
             author: Some("Tester".into()),
             tags: vec!["test".into(), "example".into()],
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&m).unwrap();
@@ -102,6 +110,53 @@ graph TD
         let m = graph.metadata();
         assert!(m.name.is_none());
         assert!(m.version.is_none());
+        assert!(m.extras.is_empty());
+    }
+
+    #[test]
+    fn metadata_extras_from_unknown_keys() {
+        let input = "\
+graph TD
+    A --> B
+
+    %% @graph name: \"test\"
+    %% @graph supervisor: athena
+    %% @graph model: sonnet
+    %% @graph sandbox: true
+";
+        let graph = crate::mermaid::load_mermaid(input).unwrap();
+        let m = graph.metadata();
+        assert_eq!(m.name, Some("test".into()));
+        assert_eq!(m.extras["supervisor"], "athena");
+        assert_eq!(m.extras["model"], "sonnet");
+        assert_eq!(m.extras["sandbox"], true);
+    }
+
+    #[test]
+    fn metadata_extras_dot_path_expansion() {
+        let input = r#"
+graph TD
+    A --> B
+
+    %% @graph input.feature: {"type": "string", "required": true}
+    %% @graph input.count: {"type": "number", "default": 5}
+    %% @graph constant.max_retries: 3
+    %% @graph output: results.final
+"#;
+        let graph = crate::mermaid::load_mermaid(input).unwrap();
+        let m = graph.metadata();
+        // Dotted keys become nested objects
+        let inputs = m.extras["input"].as_object().unwrap();
+        let feature = inputs["feature"].as_object().unwrap();
+        assert_eq!(feature["type"], "string");
+        assert_eq!(feature["required"], true);
+        let count = inputs["count"].as_object().unwrap();
+        assert_eq!(count["type"], "number");
+        assert_eq!(count["default"], 5);
+        // constant.max_retries
+        assert_eq!(m.extras["constant"]["max_retries"], 3);
+        // Simple key
+        assert_eq!(m.extras["output"], "results.final");
     }
 
     #[test]
@@ -118,6 +173,7 @@ graph TD
             required_capabilities: vec!["tool_use".into(), "vision".into()],
             author: Some("Test".into()),
             tags: vec!["workflow".into(), "automation".into()],
+            ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&m).unwrap();

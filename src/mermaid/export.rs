@@ -111,7 +111,13 @@ fn emit_subgraph(
 
 fn has_graph_annotations(graph: &Graph) -> bool {
     let m = graph.metadata();
-    m.name.is_some() || m.version.is_some() || m.description.is_some() || m.author.is_some()
+    m.name.is_some()
+        || m.version.is_some()
+        || m.description.is_some()
+        || m.author.is_some()
+        || m.default_executor.is_some()
+        || m.required_adapter.is_some()
+        || !m.extras.is_empty()
 }
 
 fn emit_graph_annotations(out: &mut String, graph: &Graph) {
@@ -127,6 +133,20 @@ fn emit_graph_annotations(out: &mut String, graph: &Graph) {
     }
     if let Some(author) = &m.author {
         writeln!(out, "    %% @graph author: \"{author}\"").unwrap();
+    }
+    if let Some(de) = &m.default_executor {
+        writeln!(out, "    %% @graph default_executor: \"{de}\"").unwrap();
+    }
+    if let Some(ra) = &m.required_adapter {
+        writeln!(out, "    %% @graph required_adapter: \"{ra}\"").unwrap();
+    }
+    // Emit consumer-defined extras as graph annotations
+    for (key, val) in &m.extras {
+        if val.is_object() {
+            emit_value_annotations(out, "graph", key, val);
+        } else {
+            writeln!(out, "    %% @graph {key}: {}", format_value(val)).unwrap();
+        }
     }
 }
 
@@ -202,9 +222,9 @@ fn emit_value_annotations(
 
 fn format_value(v: &serde_json::Value) -> String {
     match v {
-        serde_json::Value::String(s) => format!("\"{s}\""),
         serde_json::Value::Null => "null".into(),
-        other => other.to_string(),
+        // serde_json::to_string handles quote escaping correctly
+        _ => serde_json::to_string(v).unwrap_or_else(|_| v.to_string()),
     }
 }
 
@@ -306,5 +326,36 @@ graph TD
         let exported = export_mermaid(&graph);
         assert!(exported.starts_with("graph TD"));
         assert!(exported.contains("-->"));
+    }
+
+    #[test]
+    fn graph_extras_round_trip() {
+        let input = r#"
+graph TD
+    A --> B
+
+    %% @graph name: "workflow"
+    %% @graph supervisor: athena
+    %% @graph sandbox: true
+    %% @graph input.feature: {"type": "string"}
+    %% @graph constant.retries: 3
+"#;
+        let graph1 = load_mermaid(input).unwrap();
+        let m1 = graph1.metadata();
+        assert_eq!(m1.name, Some("workflow".into()));
+        assert_eq!(m1.extras["supervisor"], "athena");
+        assert_eq!(m1.extras["sandbox"], true);
+        assert_eq!(m1.extras["input"]["feature"]["type"], "string");
+        assert_eq!(m1.extras["constant"]["retries"], 3);
+
+        // Round-trip through export/re-parse
+        let exported = export_mermaid(&graph1);
+        let graph2 = load_mermaid(&exported).unwrap();
+        let m2 = graph2.metadata();
+        assert_eq!(m2.name, Some("workflow".into()));
+        assert_eq!(m2.extras["supervisor"], "athena");
+        assert_eq!(m2.extras["sandbox"], true);
+        assert_eq!(m2.extras["input"]["feature"]["type"], "string");
+        assert_eq!(m2.extras["constant"]["retries"], 3);
     }
 }

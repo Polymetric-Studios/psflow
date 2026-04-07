@@ -71,7 +71,16 @@ fn apply_graph_annotation(meta: &mut GraphMetadata, ann: &ParsedAnnotation) {
         "default_executor" => meta.default_executor = s,
         "required_adapter" => meta.required_adapter = s,
         "author" => meta.author = s,
-        _ => {}
+        key => {
+            // Unknown keys go into extras with dot-path expansion
+            let mut wrapper = serde_json::Value::Object(std::mem::take(&mut meta.extras));
+            set_nested(&mut wrapper, key, value);
+            // Safe: set_nested never replaces the root object
+            meta.extras = match wrapper {
+                serde_json::Value::Object(map) => map,
+                _ => unreachable!(),
+            };
+        }
     }
 }
 
