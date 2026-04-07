@@ -61,7 +61,8 @@ pub use execute::{
 pub use handlers::{
     CatchHandler, DelayHandler, ErrorTransformHandler, FallbackHandler, GateHandler,
     LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, RhaiHandler, RetryHandler,
-    SplitHandler, TransformHandler,
+    SplitHandler, StepBranchHandler, StepForkHandler, StepJoinHandler, StepLoopEndHandler,
+    StepLoopStartHandler, TransformHandler,
 };
 #[cfg(feature = "runtime")]
 pub use registry::NodeRegistry;

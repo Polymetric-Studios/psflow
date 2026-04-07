@@ -127,15 +127,21 @@ impl SteppedExecutor {
                 break;
             }
 
-            // Check if a predecessor failed/cancelled
-            let has_failed_pred = graph.predecessors(node_id).iter().any(|pred| {
-                matches!(
-                    ctx.get_state(&pred.id.0),
-                    NodeState::Failed | NodeState::Cancelled
-                )
-            });
+            // Check if predecessors failed/cancelled.
+            // A convergence node (multiple predecessors) runs if ANY predecessor
+            // completed — this supports conditional merge where one branch is
+            // cancelled by design. A linear node (single predecessor) is
+            // cancelled if that predecessor failed/cancelled.
+            let preds = graph.predecessors(node_id);
+            let all_failed = !preds.is_empty()
+                && preds.iter().all(|pred| {
+                    matches!(
+                        ctx.get_state(&pred.id.0),
+                        NodeState::Failed | NodeState::Cancelled
+                    )
+                });
 
-            if has_failed_pred {
+            if all_failed {
                 let _ = ctx.set_state(&node_id.0, NodeState::Cancelled);
                 cancel_downstream(graph, node_id, ctx);
                 executed.push(node_id.0.clone());
