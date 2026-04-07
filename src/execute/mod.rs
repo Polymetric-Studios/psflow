@@ -6,6 +6,7 @@ pub mod event;
 pub mod event_bus;
 pub mod event_driven;
 pub mod lifecycle;
+pub mod loop_controller;
 pub mod reactive;
 pub mod retry;
 pub mod stepped;
@@ -22,6 +23,7 @@ pub use lifecycle::NodeState;
 pub use retry::{BackoffStrategy, RetryConfig};
 pub use event_driven::{EventDrivenExecutor, EventMessage, EventSender};
 pub use reactive::ReactiveExecutor;
+pub use loop_controller::{LoopController, LoopIterator, LoopState};
 pub use stepped::{SteppedExecutor, TickResult};
 pub use topological::TopologicalExecutor;
 

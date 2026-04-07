@@ -49,8 +49,9 @@ pub use execute::trace::{ExecutionTrace, RetryRecord, TraceRecord};
 pub use execute::{
     sync_handler, BackoffStrategy, CancellationToken, ConcurrencyLimits, EventBus,
     EventBusError, EventSubscriber, ExecutionContext, ExecutionError, ExecutionEvent,
-    ExecutionResult, Executor, HandlerRegistry, NodeHandler, NodeState, Outputs,
-    RetryConfig, SteppedExecutor, TickResult, TopologicalExecutor,
+    ExecutionResult, Executor, HandlerRegistry, LoopController, LoopIterator, LoopState,
+    NodeHandler, NodeState, Outputs, RetryConfig, SteppedExecutor, TickResult,
+    TopologicalExecutor,
 };
 #[cfg(feature = "runtime")]
 pub use handlers::{
