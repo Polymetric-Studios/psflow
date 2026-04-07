@@ -48,14 +48,6 @@ impl NodeRegistry {
         // Scripting
         reg.register("rhai", Arc::new(RhaiHandler::new(engine)));
 
-        // Step compiler control nodes
-        reg.register(crate::graph::step_compiler::HANDLER_FORK, Arc::new(StepForkHandler));
-        reg.register(crate::graph::step_compiler::HANDLER_JOIN, Arc::new(StepJoinHandler));
-        reg.register(crate::graph::step_compiler::HANDLER_BRANCH, Arc::new(StepBranchHandler));
-        reg.register(crate::graph::step_compiler::HANDLER_MERGE, Arc::new(StepJoinHandler));
-        reg.register(crate::graph::step_compiler::HANDLER_LOOP_START, Arc::new(StepLoopStartHandler));
-        reg.register(crate::graph::step_compiler::HANDLER_LOOP_END, Arc::new(StepLoopEndHandler));
-
         reg
     }
 

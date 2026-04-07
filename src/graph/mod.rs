@@ -2,7 +2,6 @@ pub mod edge;
 pub mod metadata;
 pub mod node;
 pub mod port;
-pub mod step_compiler;
 pub mod types;
 mod validation;
 

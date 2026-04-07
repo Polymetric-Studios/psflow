@@ -27,10 +27,6 @@ pub use graph::node::{Node, NodeId};
 pub use graph::port::Port;
 pub use graph::types::{PortType, Value};
 pub use graph::{Graph, Subgraph, SubgraphDirective, SubgraphTopology};
-pub use graph::step_compiler::{
-    compile_steps, is_structural_type, HANDLER_BRANCH, HANDLER_FORK, HANDLER_JOIN,
-    HANDLER_LOOP_END, HANDLER_LOOP_START, HANDLER_MERGE,
-};
 pub use mermaid::{export_mermaid, load_mermaid, MermaidError, Span};
 
 // Runtime-only re-exports
@@ -61,8 +57,7 @@ pub use execute::{
 pub use handlers::{
     CatchHandler, DelayHandler, ErrorTransformHandler, FallbackHandler, GateHandler,
     LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, RhaiHandler, RetryHandler,
-    SplitHandler, StepBranchHandler, StepForkHandler, StepJoinHandler, StepLoopEndHandler,
-    StepLoopStartHandler, TransformHandler,
+    SplitHandler, TransformHandler,
 };
 #[cfg(feature = "runtime")]
 pub use registry::NodeRegistry;
