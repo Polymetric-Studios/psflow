@@ -159,6 +159,16 @@ impl SteppedExecutor {
                 ExecutionError::ValidationFailed(format!("node '{}' not found", node_id))
             })?;
 
+            // exec.activate == false: skip this node, passing inputs through as outputs.
+            // Unlike Cancelled, Skipped does not propagate to downstream nodes.
+            if node.exec.get("activate").and_then(|v| v.as_bool()) == Some(false) {
+                let inputs = collect_inputs(graph, node_id, ctx);
+                ctx.store_outputs(&node_id.0, inputs);
+                let _ = ctx.set_state(&node_id.0, NodeState::Skipped);
+                executed.push(node_id.0.clone());
+                continue;
+            }
+
             let handler: Arc<dyn NodeHandler> = node
                 .handler
                 .as_ref()
@@ -820,6 +830,152 @@ mod tests {
         assert_eq!(result.node_states["a"], NodeState::Cancelled);
         assert_eq!(result.node_states["b"], NodeState::Cancelled);
         assert_eq!(result.node_states["c"], NodeState::Completed);
+    }
+
+    // -- Selective activation (exec.activate) --
+
+    fn node_with_activate(id: &str, activate: bool) -> Node {
+        let mut node = Node::new(id, id).with_handler("trace");
+        node.exec = serde_json::json!({"activate": activate});
+        node
+    }
+
+    #[tokio::test]
+    async fn skipped_node_passes_through_inputs() {
+        // A → B (skipped) → C: C should receive A's output
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
+        g.add_node(node_with_activate("B", false)).unwrap();
+        g.add_node(Node::new("C", "C").with_handler("trace")).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Completed);
+        assert_eq!(result.node_states["B"], NodeState::Skipped);
+        assert_eq!(result.node_states["C"], NodeState::Completed);
+        // C sees A→B→C trace (B skipped so only A and C appended)
+        assert_eq!(
+            result.node_outputs["C"]["trace"],
+            Value::String("AC".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn all_middle_nodes_skipped() {
+        // A → B (skipped) → C (skipped) → D: D receives A's output
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
+        g.add_node(node_with_activate("B", false)).unwrap();
+        g.add_node(node_with_activate("C", false)).unwrap();
+        g.add_node(Node::new("D", "D").with_handler("trace")).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
+        g.add_edge(&"C".into(), "", &"D".into(), "", None).unwrap();
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Completed);
+        assert_eq!(result.node_states["B"], NodeState::Skipped);
+        assert_eq!(result.node_states["C"], NodeState::Skipped);
+        assert_eq!(result.node_states["D"], NodeState::Completed);
+        assert_eq!(
+            result.node_outputs["D"]["trace"],
+            Value::String("AD".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn single_node_skipped() {
+        // Single node with activate=false
+        let mut g = Graph::new();
+        g.add_node(node_with_activate("A", false)).unwrap();
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Skipped);
+    }
+
+    #[tokio::test]
+    async fn all_nodes_skipped() {
+        // A (skipped) → B (skipped): both should be Skipped
+        let mut g = Graph::new();
+        g.add_node(node_with_activate("A", false)).unwrap();
+        g.add_node(node_with_activate("B", false)).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Skipped);
+        assert_eq!(result.node_states["B"], NodeState::Skipped);
+    }
+
+    #[tokio::test]
+    async fn skipped_node_does_not_cancel_downstream() {
+        // Verify Skipped differs from Cancelled: downstream runs
+        let mut g = Graph::new();
+        g.add_node(node_with_activate("A", false)).unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Skipped);
+        assert_eq!(result.node_states["B"], NodeState::Completed);
+    }
+
+    #[tokio::test]
+    async fn activate_true_runs_normally() {
+        // exec.activate = true should behave identically to no annotation
+        let mut g = Graph::new();
+        let mut node = Node::new("A", "A").with_handler("trace");
+        node.exec = serde_json::json!({"activate": true});
+        g.add_node(node).unwrap();
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Completed);
+    }
+
+    #[tokio::test]
+    async fn skipped_in_feedback_loop_intermediary() {
+        // A → B (skipped) → C, A also feeds C directly (convergence)
+        // C should run once both A (Completed) and B (Skipped) are terminal
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
+        g.add_node(node_with_activate("B", false)).unwrap();
+        g.add_node(Node::new("C", "C").with_handler("trace")).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+        g.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &trace_handlers())
+            .await
+            .unwrap();
+
+        assert_eq!(result.node_states["A"], NodeState::Completed);
+        assert_eq!(result.node_states["B"], NodeState::Skipped);
+        assert_eq!(result.node_states["C"], NodeState::Completed);
     }
 
     #[tokio::test]

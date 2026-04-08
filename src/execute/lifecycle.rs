@@ -10,6 +10,10 @@ pub enum NodeState {
     Completed,
     Failed,
     Cancelled,
+    /// Node was explicitly deactivated (`exec.activate = false`).
+    /// Unlike `Cancelled`, skipped nodes pass their inputs through as outputs
+    /// and do not propagate cancellation to downstream nodes.
+    Skipped,
 }
 
 impl NodeState {
@@ -17,7 +21,7 @@ impl NodeState {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            NodeState::Completed | NodeState::Failed | NodeState::Cancelled
+            NodeState::Completed | NodeState::Failed | NodeState::Cancelled | NodeState::Skipped
         )
     }
 
@@ -27,6 +31,7 @@ impl NodeState {
             (self, target),
             (NodeState::Idle, NodeState::Pending)
                 | (NodeState::Idle, NodeState::Cancelled)
+                | (NodeState::Idle, NodeState::Skipped)
                 | (NodeState::Pending, NodeState::Running)
                 | (NodeState::Pending, NodeState::Cancelled)
                 | (NodeState::Running, NodeState::Completed)
@@ -58,6 +63,7 @@ impl std::fmt::Display for NodeState {
             NodeState::Completed => write!(f, "completed"),
             NodeState::Failed => write!(f, "failed"),
             NodeState::Cancelled => write!(f, "cancelled"),
+            NodeState::Skipped => write!(f, "skipped"),
         }
     }
 }
@@ -93,6 +99,21 @@ mod tests {
         assert!(NodeState::Completed.is_terminal());
         assert!(NodeState::Failed.is_terminal());
         assert!(NodeState::Cancelled.is_terminal());
+        assert!(NodeState::Skipped.is_terminal());
+    }
+
+    #[test]
+    fn skipped_transitions() {
+        assert!(NodeState::Idle.can_transition_to(NodeState::Skipped));
+        assert!(!NodeState::Pending.can_transition_to(NodeState::Skipped));
+        assert!(!NodeState::Running.can_transition_to(NodeState::Skipped));
+        assert!(!NodeState::Completed.can_transition_to(NodeState::Skipped));
+        assert!(!NodeState::Skipped.can_transition_to(NodeState::Pending));
+    }
+
+    #[test]
+    fn skipped_display() {
+        assert_eq!(NodeState::Skipped.to_string(), "skipped");
     }
 
     #[test]
