@@ -40,8 +40,10 @@ pub struct LoopState {
     pub body_node_ids: Vec<String>,
     /// The entry node ID — first body node with incoming edges from outside.
     pub entry_node_id: String,
-    /// The exit node ID — last body node with outgoing edges to outside.
-    pub exit_node_id: String,
+    /// Exit node IDs — body nodes with outgoing edges to outside.
+    /// With conditional branching, multiple exit paths may exist;
+    /// the loop advances when ANY exit node completes.
+    pub exit_node_ids: Vec<String>,
     /// Current iteration index (0-based).
     pub index: usize,
     /// Total items (if known from on_loop_start).
@@ -103,19 +105,19 @@ impl LoopController {
                 .first()
                 .cloned()
                 .unwrap_or_else(|| first_node.clone());
-            let exit = topo
-                .exit_nodes
-                .first()
-                .cloned()
-                .unwrap_or_else(|| entry.clone());
+            let exit_ids: Vec<String> = if topo.exit_nodes.is_empty() {
+                vec![entry.0.clone()]
+            } else {
+                topo.exit_nodes.iter().map(|n| n.0.clone()).collect()
+            };
 
             loops.insert(
                 sg.id.clone(),
                 LoopState {
                     loop_id: sg.id.clone(),
-                    body_node_ids: sg.nodes.iter().map(|n| n.0.clone()).collect(),
+                    body_node_ids: sg.all_node_ids().iter().map(|n| n.0.clone()).collect(),
                     entry_node_id: entry.0,
-                    exit_node_id: exit.0,
+                    exit_node_ids: exit_ids,
                     index: 0,
                     total: None,
                     max_iterations: 1000,
@@ -178,8 +180,10 @@ impl LoopController {
                         let _ = ctx.set_state(nid, NodeState::Cancelled);
                     }
                 }
-                if ctx.get_state(&state.exit_node_id) == NodeState::Idle {
-                    let _ = ctx.set_state(&state.exit_node_id, NodeState::Cancelled);
+                for exit_id in &state.exit_node_ids {
+                    if ctx.get_state(exit_id) == NodeState::Idle {
+                        let _ = ctx.set_state(exit_id, NodeState::Cancelled);
+                    }
                 }
                 iterator.on_loop_end(loop_id, ctx);
             }
@@ -204,8 +208,13 @@ impl LoopController {
                 continue;
             }
 
-            let exit_state = ctx.get_state(&state.exit_node_id);
-            if exit_state != NodeState::Completed {
+            // Check if ANY exit node completed (with conditional branching,
+            // one exit path completes while others may be cancelled).
+            let any_exit_completed = state
+                .exit_node_ids
+                .iter()
+                .any(|id| ctx.get_state(id) == NodeState::Completed);
+            if !any_exit_completed {
                 continue;
             }
 
@@ -216,17 +225,16 @@ impl LoopController {
             let at_end = state.total.is_some_and(|t| state.index >= t);
 
             if !at_max && !at_end && iterator.on_iteration(loop_id, state.index, ctx) {
-                // More iterations: reset body + exit node.
-                // Exit is chained explicitly because sentinel-based models
-                // exclude it from body_node_ids. In topology-based models
-                // it's already in body_node_ids; the duplicate reset is harmless.
+                // More iterations: reset body + all exit nodes.
                 let mut ids_to_reset: Vec<&str> = state
                     .body_node_ids
                     .iter()
                     .map(|s| s.as_str())
                     .collect();
-                if !ids_to_reset.contains(&state.exit_node_id.as_str()) {
-                    ids_to_reset.push(state.exit_node_id.as_str());
+                for exit_id in &state.exit_node_ids {
+                    if !ids_to_reset.contains(&exit_id.as_str()) {
+                        ids_to_reset.push(exit_id.as_str());
+                    }
                 }
                 ctx.reset_states(ids_to_reset.into_iter());
                 reset_occurred = true;
@@ -266,7 +274,7 @@ mod tests {
             loop_id: "sg-loop1".into(),
             body_node_ids: vec!["body".into()],
             entry_node_id: "body".into(),
-            exit_node_id: "body".into(),
+            exit_node_ids: vec!["body".into()],
             index: 0,
             total: None,
             max_iterations: 100,
@@ -445,7 +453,7 @@ mod tests {
 
         let state = &controller.states()["loop1"];
         assert_eq!(state.entry_node_id, "A");
-        assert_eq!(state.exit_node_id, "B");
+        assert_eq!(state.exit_node_ids, vec!["B"]);
         assert_eq!(state.body_node_ids, vec!["A", "B"]);
         assert!(!state.initialized);
     }
@@ -470,7 +478,7 @@ mod tests {
         let controller = LoopController::from_subgraphs(&g);
         let state = &controller.states()["loop1"];
         assert_eq!(state.entry_node_id, "A");
-        assert_eq!(state.exit_node_id, "A");
+        assert_eq!(state.exit_node_ids, vec!["A"]);
         assert_eq!(state.body_node_ids, vec!["A"]);
     }
 
@@ -535,5 +543,109 @@ mod tests {
         assert!(iter.started);
         assert!(controller.states()["loop1"].initialized);
         assert_eq!(controller.states()["loop1"].total, Some(2));
+    }
+
+    #[test]
+    fn multiple_exit_nodes_any_completed_advances_loop() {
+        // Loop with two exit paths (conditional branching):
+        //   pred --> entry --> exit_a --> after
+        //                 \-> exit_b --> after
+        // exit_a is the "break" path (e.g., approved)
+        // exit_b is the "continue" path (e.g., else)
+        let mut g = Graph::new();
+        for id in ["pred", "entry", "exit_a", "exit_b", "after"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"entry".into(), "", None).unwrap();
+        g.add_edge(&"entry".into(), "", &"exit_a".into(), "", None).unwrap();
+        g.add_edge(&"entry".into(), "", &"exit_b".into(), "", None).unwrap();
+        g.add_edge(&"exit_a".into(), "", &"after".into(), "", None).unwrap();
+        g.add_edge(&"exit_b".into(), "", &"after".into(), "", None).unwrap();
+
+        g.add_subgraph(Subgraph {
+            id: "loop1".into(),
+            label: "loop: iter".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["entry".into(), "exit_a".into(), "exit_b".into()],
+            children: Vec::new(),
+        });
+
+        let ctx = make_ctx();
+        let mut controller = LoopController::from_subgraphs(&g);
+        let mut iter = CountingIterator::new(vec!["a".into(), "b".into(), "c".into()]);
+
+        // Should detect both exit nodes
+        let state = &controller.states()["loop1"];
+        assert_eq!(state.exit_node_ids.len(), 2);
+        assert!(state.exit_node_ids.contains(&"exit_a".to_string()));
+        assert!(state.exit_node_ids.contains(&"exit_b".to_string()));
+
+        // Helper to transition node to a terminal state
+        let set_completed = |id: &str| {
+            ctx.set_state(id, NodeState::Pending).unwrap();
+            ctx.set_state(id, NodeState::Running).unwrap();
+            ctx.set_state(id, NodeState::Completed).unwrap();
+        };
+        let set_cancelled = |id: &str| {
+            ctx.set_state(id, NodeState::Pending).unwrap();
+            ctx.set_state(id, NodeState::Cancelled).unwrap();
+        };
+
+        // Initialize
+        set_completed("pred");
+        controller.prepare(&g, &ctx, &mut iter);
+        assert!(controller.states()["loop1"].initialized);
+
+        // Simulate: exit_a cancelled (branch blocked), exit_b completed (else path)
+        set_completed("entry");
+        set_cancelled("exit_a");
+        set_completed("exit_b");
+
+        // process_tick should detect exit_b completed and advance
+        let reset = controller.process_tick(&ctx, &mut iter);
+        assert!(reset, "loop should reset when any exit node completes");
+        assert_eq!(controller.states()["loop1"].index, 1);
+
+        // Body nodes should be reset to Idle
+        assert_eq!(ctx.get_state("entry"), NodeState::Idle);
+        assert_eq!(ctx.get_state("exit_a"), NodeState::Idle);
+        assert_eq!(ctx.get_state("exit_b"), NodeState::Idle);
+    }
+
+    #[test]
+    fn nested_subgraph_nodes_included_in_body() {
+        let mut g = Graph::new();
+        for id in ["entry", "inner_a", "inner_b", "join", "after"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"entry".into(), "", &"inner_a".into(), "", None).unwrap();
+        g.add_edge(&"entry".into(), "", &"inner_b".into(), "", None).unwrap();
+        g.add_edge(&"inner_a".into(), "", &"join".into(), "", None).unwrap();
+        g.add_edge(&"inner_b".into(), "", &"join".into(), "", None).unwrap();
+        g.add_edge(&"join".into(), "", &"after".into(), "", None).unwrap();
+
+        g.add_subgraph(Subgraph {
+            id: "outer_loop".into(),
+            label: "loop: outer".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["entry".into(), "join".into()],
+            children: vec![Subgraph {
+                id: "inner_parallel".into(),
+                label: "parallel: inner".into(),
+                directive: SubgraphDirective::Parallel,
+                nodes: vec!["inner_a".into(), "inner_b".into()],
+                children: Vec::new(),
+            }],
+        });
+
+        let controller = LoopController::from_subgraphs(&g);
+        let state = &controller.states()["outer_loop"];
+
+        // body_node_ids must include nodes from nested child subgraphs
+        assert!(state.body_node_ids.contains(&"entry".into()));
+        assert!(state.body_node_ids.contains(&"join".into()));
+        assert!(state.body_node_ids.contains(&"inner_a".into()));
+        assert!(state.body_node_ids.contains(&"inner_b".into()));
+        assert_eq!(state.body_node_ids.len(), 4);
     }
 }

@@ -38,6 +38,17 @@ pub struct Subgraph {
     pub children: Vec<Subgraph>,
 }
 
+impl Subgraph {
+    /// Recursively collect all node IDs from this subgraph and its children.
+    pub fn all_node_ids(&self) -> Vec<NodeId> {
+        let mut ids = self.nodes.clone();
+        for child in &self.children {
+            ids.extend(child.all_node_ids());
+        }
+        ids
+    }
+}
+
 /// Result of analyzing a subgraph's boundary with the rest of the graph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubgraphTopology {
@@ -295,10 +306,10 @@ impl Graph {
     /// Exit nodes have outgoing edges to outside the subgraph.
     /// A single-node body will appear as both entry and exit.
     pub fn subgraph_topology(&self, sg: &Subgraph) -> SubgraphTopology {
-        let members: std::collections::HashSet<&NodeId> = sg.nodes.iter().collect();
+        let all_nodes = sg.all_node_ids();
+        let members: std::collections::HashSet<&NodeId> = all_nodes.iter().collect();
 
-        let entry_nodes = sg
-            .nodes
+        let entry_nodes = all_nodes
             .iter()
             .filter(|nid| {
                 self.predecessors(nid)
@@ -308,8 +319,7 @@ impl Graph {
             .cloned()
             .collect();
 
-        let exit_nodes = sg
-            .nodes
+        let exit_nodes = all_nodes
             .iter()
             .filter(|nid| {
                 self.successors(nid)
