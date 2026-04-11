@@ -289,25 +289,27 @@ impl ExecutionContext {
         cancel: CancellationToken,
         concurrency: ConcurrencyLimits,
     ) -> Self {
-        // Collect terminal node IDs — only these keep their state and outputs
-        let terminal_ids: std::collections::HashSet<String> = snapshot
+        // Collect node IDs that should keep their state and outputs:
+        // terminal nodes (Completed, Failed, Cancelled, Skipped) and
+        // Suspended nodes (waiting for external results).
+        let keep_ids: std::collections::HashSet<String> = snapshot
             .node_states
             .iter()
-            .filter(|(_, state)| state.is_terminal())
+            .filter(|(_, state)| state.is_terminal() || state.is_suspended())
             .map(|(id, _)| id.clone())
             .collect();
 
         let node_states: HashMap<String, NodeState> = snapshot
             .node_states
             .into_iter()
-            .filter(|(id, _)| terminal_ids.contains(id))
+            .filter(|(id, _)| keep_ids.contains(id))
             .collect();
 
-        // Only retain outputs for terminal nodes — discard stale partial outputs
+        // Only retain outputs for kept nodes — discard stale partial outputs
         let node_outputs: HashMap<String, Outputs> = snapshot
             .node_outputs
             .into_iter()
-            .filter(|(id, _)| terminal_ids.contains(id))
+            .filter(|(id, _)| keep_ids.contains(id))
             .collect();
 
         Self {
@@ -319,6 +321,88 @@ impl ExecutionContext {
             branch_decisions: Mutex::new(snapshot.branch_decisions),
             concurrency,
         }
+    }
+
+    // -- Suspended node support --
+
+    /// Get all node IDs currently in the `Suspended` state.
+    ///
+    /// These are nodes that have yielded control and are waiting for external
+    /// results via `submit_result()`.
+    pub fn suspended_nodes(&self) -> Vec<String> {
+        self.node_states
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(_, state)| state.is_suspended())
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Submit an external result for a single suspended node.
+    ///
+    /// Transitions the node from `Suspended` to `Completed`, stores the
+    /// provided outputs, and emits a `NodeCompleted` event. Returns an error
+    /// if the node is not in the `Suspended` state.
+    pub fn submit_result(
+        &self,
+        node_id: &str,
+        outputs: Outputs,
+    ) -> Result<(), crate::error::NodeError> {
+        let current = self.get_state(node_id);
+        if !current.is_suspended() {
+            return Err(crate::error::NodeError::Failed {
+                source_message: None,
+                message: format!(
+                    "cannot submit result for node '{node_id}': \
+                     expected Suspended state, got {current}"
+                ),
+                recoverable: false,
+            });
+        }
+        self.store_outputs(node_id, outputs.clone());
+        self.emit(ExecutionEvent::NodeCompleted {
+            node_id: node_id.to_string(),
+            outputs,
+        });
+        self.set_state(node_id, NodeState::Completed)
+    }
+
+    /// Submit keyed results for multiple suspended nodes at once.
+    ///
+    /// `results` maps node ID to outputs. Each entry must correspond to a
+    /// currently suspended node. All results are applied atomically (all
+    /// checked before any are applied). Returns an error if any node is not
+    /// in the `Suspended` state.
+    pub fn submit_results(
+        &self,
+        results: HashMap<String, Outputs>,
+    ) -> Result<(), crate::error::NodeError> {
+        // Validate all nodes are suspended before applying any results
+        for node_id in results.keys() {
+            let current = self.get_state(node_id);
+            if !current.is_suspended() {
+                return Err(crate::error::NodeError::Failed {
+                    source_message: None,
+                    message: format!(
+                        "cannot submit result for node '{node_id}': \
+                         expected Suspended state, got {current}"
+                    ),
+                    recoverable: false,
+                });
+            }
+        }
+        // Apply all results
+        for (node_id, outputs) in results {
+            self.store_outputs(&node_id, outputs.clone());
+            self.emit(ExecutionEvent::NodeCompleted {
+                node_id: node_id.clone(),
+                outputs,
+            });
+            // Safe to unwrap: we validated the transition above
+            let _ = self.set_state(&node_id, NodeState::Completed);
+        }
+        Ok(())
     }
 
     // -- Subgraph support --
@@ -702,5 +786,167 @@ mod tests {
             }
             other => panic!("expected Map, got {other:?}"),
         }
+    }
+
+    // -- Suspended node support tests --
+
+    #[test]
+    fn suspended_nodes_returns_empty_initially() {
+        let ctx = ExecutionContext::new();
+        assert!(ctx.suspended_nodes().is_empty());
+    }
+
+    #[test]
+    fn suspended_nodes_tracks_suspended_state() {
+        let ctx = ExecutionContext::new();
+        // Transition A to Suspended
+        ctx.set_state("A", NodeState::Pending).unwrap();
+        ctx.set_state("A", NodeState::Running).unwrap();
+        ctx.set_state("A", NodeState::Suspended).unwrap();
+
+        let suspended = ctx.suspended_nodes();
+        assert_eq!(suspended, vec!["A"]);
+    }
+
+    #[test]
+    fn submit_result_completes_suspended_node() {
+        let ctx = ExecutionContext::new();
+        ctx.set_state("A", NodeState::Pending).unwrap();
+        ctx.set_state("A", NodeState::Running).unwrap();
+        ctx.set_state("A", NodeState::Suspended).unwrap();
+
+        let mut outputs = Outputs::new();
+        outputs.insert("result".into(), crate::graph::types::Value::String("done".into()));
+
+        ctx.submit_result("A", outputs.clone()).unwrap();
+
+        assert_eq!(ctx.get_state("A"), NodeState::Completed);
+        assert_eq!(ctx.get_outputs("A"), Some(outputs));
+        assert!(ctx.suspended_nodes().is_empty());
+    }
+
+    #[test]
+    fn submit_result_fails_for_non_suspended_node() {
+        let ctx = ExecutionContext::new();
+        ctx.set_state("A", NodeState::Pending).unwrap();
+        ctx.set_state("A", NodeState::Running).unwrap();
+        ctx.set_state("A", NodeState::Completed).unwrap();
+
+        let outputs = Outputs::new();
+        let result = ctx.submit_result("A", outputs);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn submit_result_fails_for_idle_node() {
+        let ctx = ExecutionContext::new();
+        let result = ctx.submit_result("A", Outputs::new());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn submit_results_keyed_completes_multiple_nodes() {
+        let ctx = ExecutionContext::new();
+
+        // Suspend both A and B
+        for id in &["A", "B"] {
+            ctx.set_state(id, NodeState::Pending).unwrap();
+            ctx.set_state(id, NodeState::Running).unwrap();
+            ctx.set_state(id, NodeState::Suspended).unwrap();
+        }
+
+        let mut keyed = HashMap::new();
+        let mut out_a = Outputs::new();
+        out_a.insert("review".into(), crate::graph::types::Value::String("ux feedback".into()));
+        keyed.insert("A".into(), out_a);
+
+        let mut out_b = Outputs::new();
+        out_b.insert("review".into(), crate::graph::types::Value::String("visual feedback".into()));
+        keyed.insert("B".into(), out_b);
+
+        ctx.submit_results(keyed).unwrap();
+
+        assert_eq!(ctx.get_state("A"), NodeState::Completed);
+        assert_eq!(ctx.get_state("B"), NodeState::Completed);
+        assert!(ctx.suspended_nodes().is_empty());
+
+        // Verify each node got its own distinct result
+        let a_out = ctx.get_outputs("A").unwrap();
+        assert_eq!(
+            a_out.get("review"),
+            Some(&crate::graph::types::Value::String("ux feedback".into()))
+        );
+        let b_out = ctx.get_outputs("B").unwrap();
+        assert_eq!(
+            b_out.get("review"),
+            Some(&crate::graph::types::Value::String("visual feedback".into()))
+        );
+    }
+
+    #[test]
+    fn submit_results_rejects_if_any_not_suspended() {
+        let ctx = ExecutionContext::new();
+
+        // A is suspended
+        ctx.set_state("A", NodeState::Pending).unwrap();
+        ctx.set_state("A", NodeState::Running).unwrap();
+        ctx.set_state("A", NodeState::Suspended).unwrap();
+
+        // B is completed (not suspended)
+        ctx.set_state("B", NodeState::Pending).unwrap();
+        ctx.set_state("B", NodeState::Running).unwrap();
+        ctx.set_state("B", NodeState::Completed).unwrap();
+
+        let mut keyed = HashMap::new();
+        keyed.insert("A".into(), Outputs::new());
+        keyed.insert("B".into(), Outputs::new());
+
+        let result = ctx.submit_results(keyed);
+        assert!(result.is_err());
+
+        // A should still be suspended (atomic rejection)
+        assert_eq!(ctx.get_state("A"), NodeState::Suspended);
+    }
+
+    #[test]
+    fn submit_result_emits_node_completed_event() {
+        let ctx = ExecutionContext::new();
+        ctx.set_state("A", NodeState::Pending).unwrap();
+        ctx.set_state("A", NodeState::Running).unwrap();
+        ctx.set_state("A", NodeState::Suspended).unwrap();
+
+        let initial_event_count = ctx.event_count();
+
+        let mut outputs = Outputs::new();
+        outputs.insert("val".into(), crate::graph::types::Value::I64(42));
+        ctx.submit_result("A", outputs).unwrap();
+
+        // Should have emitted at least a NodeCompleted and a StateChanged event
+        let new_events = ctx.events_since(initial_event_count);
+        let has_completed = new_events.iter().any(|e| matches!(
+            e,
+            ExecutionEvent::NodeCompleted { node_id, .. } if node_id == "A"
+        ));
+        assert!(has_completed, "expected NodeCompleted event for A");
+    }
+
+    #[test]
+    fn snapshot_preserves_suspended_state() {
+        let ctx = ExecutionContext::new();
+        ctx.set_state("A", NodeState::Pending).unwrap();
+        ctx.set_state("A", NodeState::Running).unwrap();
+        ctx.set_state("A", NodeState::Suspended).unwrap();
+
+        let mut out = Outputs::new();
+        out.insert("partial".into(), crate::graph::types::Value::String("wip".into()));
+        ctx.store_outputs("A", out);
+
+        let snapshot = ctx.snapshot();
+        let restored = ExecutionContext::from_snapshot(snapshot);
+
+        // Suspended state is preserved across snapshot/restore
+        assert_eq!(restored.get_state("A"), NodeState::Suspended);
+        assert!(restored.get_outputs("A").is_some());
+        assert_eq!(restored.suspended_nodes(), vec!["A"]);
     }
 }

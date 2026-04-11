@@ -232,7 +232,8 @@ async fn execute_core(
         let mut independent_nodes: Vec<&NodeId> = Vec::new();
 
         for node_id in wave {
-            if ctx.get_state(&node_id.0).is_terminal() {
+            let state = ctx.get_state(&node_id.0);
+            if state.is_terminal() || state.is_suspended() {
                 continue;
             }
             if let Some(sg_idx) = subgraph_membership.get(node_id) {
@@ -253,11 +254,14 @@ async fn execute_core(
             let sg = &graph.subgraphs()[*sg_idx];
             executed_subgraphs.insert(sg.id.clone());
 
-            // Filter to non-terminal nodes in the subgraph
+            // Filter to non-terminal and non-suspended nodes in the subgraph
             let sg_nodes: Vec<NodeId> = sg
                 .nodes
                 .iter()
-                .filter(|id| !ctx.get_state(&id.0).is_terminal())
+                .filter(|id| {
+                    let s = ctx.get_state(&id.0);
+                    !s.is_terminal() && !s.is_suspended()
+                })
                 .cloned()
                 .collect();
 
@@ -312,7 +316,8 @@ async fn execute_core(
         let mut handles = Vec::new();
 
         for node_id in &independent_nodes {
-            if ctx.get_state(&node_id.0).is_terminal() {
+            let ind_state = ctx.get_state(&node_id.0);
+            if ind_state.is_terminal() || ind_state.is_suspended() {
                 continue;
             }
 
@@ -430,6 +435,10 @@ async fn execute_core(
                 Err(NodeError::Cancelled { .. }) => {
                     debug!(node = %node_id, "node cancelled");
                     let _ = ctx.set_state(&node_id, NodeState::Cancelled);
+                }
+                Err(NodeError::Suspended { .. }) => {
+                    debug!(node = %node_id, "node suspended (awaiting external result)");
+                    let _ = ctx.set_state(&node_id, NodeState::Suspended);
                 }
                 Err(ref error) => {
                     warn!(node = %node_id, error = %error, "node failed");

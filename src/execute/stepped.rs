@@ -25,6 +25,13 @@ pub struct TickResult {
     pub executed: Vec<String>,
     /// Whether all nodes have reached a terminal state.
     pub is_complete: bool,
+    /// Node IDs that transitioned to `Suspended` during this tick.
+    ///
+    /// These nodes need external results via `ExecutionContext::submit_result()`
+    /// before the graph can continue. The caller should collect results for
+    /// each suspended node (keyed by node ID) and submit them before the
+    /// next `tick()` call.
+    pub suspended: Vec<String>,
 }
 
 /// Stepped/tick executor: advances the graph one evaluation cycle per `tick()` call.
@@ -90,20 +97,21 @@ impl SteppedExecutor {
             return Ok(TickResult {
                 executed: Vec::new(),
                 is_complete: all_terminal(graph, ctx),
+                suspended: Vec::new(),
             });
         }
 
         let passthrough: Arc<dyn NodeHandler> = Arc::new(PassthroughHandler);
 
-        // Find all nodes that are ready: not terminal, all predecessors terminal
+        // Find all nodes that are ready: not terminal/suspended, all predecessors terminal
         let ready_nodes: Vec<NodeId> = graph
             .nodes()
             .filter(|node| {
                 let state = ctx.get_state(&node.id.0);
-                if state.is_terminal() {
+                if state.is_terminal() || state.is_suspended() {
                     return false;
                 }
-                // All predecessors must be in terminal state
+                // All predecessors must be in terminal state (not just suspended)
                 graph
                     .predecessors(&node.id)
                     .iter()
@@ -116,6 +124,7 @@ impl SteppedExecutor {
             return Ok(TickResult {
                 executed: Vec::new(),
                 is_complete: all_terminal(graph, ctx),
+                suspended: ctx.suspended_nodes(),
             });
         }
 
@@ -245,6 +254,8 @@ impl SteppedExecutor {
             }));
         }
 
+        let mut tick_suspended = Vec::new();
+
         for handle in handles {
             let (node_id, outcome) = handle
                 .await
@@ -265,6 +276,10 @@ impl SteppedExecutor {
                 Err(NodeError::Cancelled { .. }) => {
                     let _ = ctx.set_state(&node_id, NodeState::Cancelled);
                 }
+                Err(NodeError::Suspended { .. }) => {
+                    let _ = ctx.set_state(&node_id, NodeState::Suspended);
+                    tick_suspended.push(node_id);
+                }
                 Err(ref error) => {
                     ctx.emit(ExecutionEvent::NodeFailed {
                         node_id: node_id.clone(),
@@ -279,6 +294,7 @@ impl SteppedExecutor {
         Ok(TickResult {
             executed,
             is_complete: all_terminal(graph, ctx),
+            suspended: tick_suspended,
         })
     }
 }
@@ -315,6 +331,12 @@ impl Executor for SteppedExecutor {
             loop {
                 let tick_result = self.tick(graph, handlers, &ctx).await?;
                 if tick_result.is_complete {
+                    break;
+                }
+                if !tick_result.suspended.is_empty() {
+                    // Nodes are waiting for external results — the auto-run
+                    // Executor cannot provide them. Stop without cancelling;
+                    // the caller should use tick() directly for suspended flows.
                     break;
                 }
                 if tick_result.executed.is_empty() {
@@ -1018,5 +1040,231 @@ mod tests {
         assert_eq!(result.node_states["B"], NodeState::Failed);
         assert_eq!(result.node_states["C"], NodeState::Completed);
         assert_eq!(result.node_states["D"], NodeState::Completed);
+    }
+
+    // -- Suspended node tests --
+
+    /// Handler that returns NodeError::Suspended, simulating an external-await node.
+    fn suspend_handler() -> Arc<dyn NodeHandler> {
+        Arc::new(SuspendHandler)
+    }
+
+    struct SuspendHandler;
+
+    impl NodeHandler for SuspendHandler {
+        fn execute(
+            &self,
+            _node: &Node,
+            _inputs: Outputs,
+            _cancel: crate::execute::CancellationToken,
+        ) -> Pin<Box<dyn std::future::Future<Output = Result<Outputs, NodeError>> + Send>> {
+            Box::pin(async {
+                Err(NodeError::Suspended {
+                    reason: "awaiting external result".into(),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn tick_suspends_node_and_reports_it() {
+        // A(suspend) → B: A should suspend, B should not fire
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("suspend")).unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+
+        let mut handlers = trace_handlers();
+        handlers.insert("suspend".into(), suspend_handler());
+
+        let executor = SteppedExecutor::new();
+        let ctx = executor.create_context();
+
+        // Tick 1: A fires and suspends
+        let t1 = executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(t1.executed, vec!["A"]);
+        assert_eq!(t1.suspended, vec!["A"]);
+        assert!(!t1.is_complete); // Graph is NOT complete while A is suspended
+
+        // Tick 2: Nothing can fire (B depends on A, A is suspended)
+        let t2 = executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert!(t2.executed.is_empty());
+        assert!(!t2.is_complete);
+        // Still reports A as suspended in the context
+        assert_eq!(ctx.suspended_nodes(), vec!["A"]);
+    }
+
+    #[tokio::test]
+    async fn submit_result_unblocks_downstream() {
+        // A(suspend) → B: submit result for A, then B fires
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("suspend")).unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
+        g.add_edge(&"A".into(), "trace", &"B".into(), "trace", None).unwrap();
+
+        let mut handlers = trace_handlers();
+        handlers.insert("suspend".into(), suspend_handler());
+
+        let executor = SteppedExecutor::new();
+        let ctx = executor.create_context();
+
+        // Tick 1: A suspends
+        let t1 = executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(t1.suspended, vec!["A"]);
+        assert!(!t1.is_complete);
+
+        // Submit external result for A
+        let mut result_outputs = Outputs::new();
+        result_outputs.insert("trace".into(), Value::String("external-".into()));
+        ctx.submit_result("A", result_outputs).unwrap();
+
+        assert_eq!(ctx.get_state("A"), NodeState::Completed);
+        assert!(ctx.suspended_nodes().is_empty());
+
+        // Tick 2: B fires with A's submitted outputs
+        let t2 = executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(t2.executed, vec!["B"]);
+        assert!(t2.is_complete);
+
+        // B should see A's submitted output
+        let b_out = ctx.get_outputs("B").unwrap();
+        assert_eq!(
+            b_out.get("trace"),
+            Some(&Value::String("external-B".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_suspend_with_keyed_results() {
+        // S → (A(suspend), B(suspend)) → D
+        // Both A and B suspend, caller submits separate keyed results
+        let mut g = Graph::new();
+        g.add_node(Node::new("S", "S").with_handler("pass")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("suspend")).unwrap();
+        g.add_node(Node::new("B", "B").with_handler("suspend")).unwrap();
+        g.add_node(Node::new("D", "D").with_handler("pass")).unwrap();
+        g.add_edge(&"S".into(), "", &"A".into(), "", None).unwrap();
+        g.add_edge(&"S".into(), "", &"B".into(), "", None).unwrap();
+        g.add_edge(&"A".into(), "review", &"D".into(), "a_review", None).unwrap();
+        g.add_edge(&"B".into(), "review", &"D".into(), "b_review", None).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
+        handlers.insert("suspend".into(), suspend_handler());
+
+        let executor = SteppedExecutor::new();
+        let ctx = executor.create_context();
+
+        // Tick 1: S fires
+        let t1 = executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(t1.executed, vec!["S"]);
+        assert!(t1.suspended.is_empty());
+
+        // Tick 2: A and B fire and both suspend
+        let t2 = executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(t2.executed.len(), 2);
+        assert_eq!(t2.suspended.len(), 2);
+        assert!(t2.suspended.contains(&"A".to_string()));
+        assert!(t2.suspended.contains(&"B".to_string()));
+        assert!(!t2.is_complete);
+
+        // Submit separate keyed results for A and B
+        let mut keyed = HashMap::new();
+
+        let mut out_a = Outputs::new();
+        out_a.insert("review".into(), Value::String("ux-feedback".into()));
+        keyed.insert("A".into(), out_a);
+
+        let mut out_b = Outputs::new();
+        out_b.insert("review".into(), Value::String("visual-feedback".into()));
+        keyed.insert("B".into(), out_b);
+
+        ctx.submit_results(keyed).unwrap();
+
+        assert_eq!(ctx.get_state("A"), NodeState::Completed);
+        assert_eq!(ctx.get_state("B"), NodeState::Completed);
+
+        // Tick 3: D fires with both A and B's distinct results
+        let t3 = executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(t3.executed, vec!["D"]);
+        assert!(t3.is_complete);
+
+        // D should have received both keyed results, not duplicated
+        let d_out = ctx.get_outputs("D").unwrap();
+        assert_eq!(
+            d_out.get("a_review"),
+            Some(&Value::String("ux-feedback".into()))
+        );
+        assert_eq!(
+            d_out.get("b_review"),
+            Some(&Value::String("visual-feedback".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn executor_trait_stops_on_suspended_nodes() {
+        // When using the Executor trait (auto-run), it should stop when
+        // nodes are suspended rather than spinning forever.
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("suspend")).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("suspend".into(), suspend_handler());
+
+        let result = SteppedExecutor::new()
+            .execute(&g, &handlers)
+            .await
+            .unwrap();
+
+        // A should be suspended (not completed, not cancelled)
+        assert_eq!(result.node_states["A"], NodeState::Suspended);
+    }
+
+    #[tokio::test]
+    async fn suspended_node_not_re_executed_on_tick() {
+        // Verify that a suspended node is not picked up again for execution
+        let execution_count = Arc::new(AtomicUsize::new(0));
+        let count_clone = execution_count.clone();
+
+        let counting_suspend = Arc::new({
+            struct CountingSuspend(Arc<AtomicUsize>);
+            impl NodeHandler for CountingSuspend {
+                fn execute(
+                    &self,
+                    _node: &Node,
+                    _inputs: Outputs,
+                    _cancel: crate::execute::CancellationToken,
+                ) -> Pin<Box<dyn std::future::Future<Output = Result<Outputs, NodeError>> + Send>> {
+                    self.0.fetch_add(1, AtomicOrdering::SeqCst);
+                    Box::pin(async {
+                        Err(NodeError::Suspended {
+                            reason: "waiting".into(),
+                        })
+                    })
+                }
+            }
+            CountingSuspend(count_clone)
+        });
+
+        let mut g = Graph::new();
+        g.add_node(Node::new("A", "A").with_handler("counting")).unwrap();
+
+        let mut handlers = HandlerRegistry::new();
+        handlers.insert("counting".into(), counting_suspend as Arc<dyn NodeHandler>);
+
+        let executor = SteppedExecutor::new();
+        let ctx = executor.create_context();
+
+        // Tick 1: A fires and suspends
+        executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(execution_count.load(AtomicOrdering::SeqCst), 1);
+
+        // Tick 2: A should NOT be re-executed
+        executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(execution_count.load(AtomicOrdering::SeqCst), 1);
+
+        // Tick 3: Still not re-executed
+        executor.tick(&g, &handlers, &ctx).await.unwrap();
+        assert_eq!(execution_count.load(AtomicOrdering::SeqCst), 1);
     }
 }

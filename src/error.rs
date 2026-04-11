@@ -24,6 +24,18 @@ pub enum NodeError {
 
     #[error("adapter error ({adapter}): {message}")]
     AdapterError { adapter: String, message: String },
+
+    /// The node is suspending execution and waiting for an external result.
+    ///
+    /// Handlers return this to signal that the node cannot complete on its own
+    /// and needs an external caller to provide a result via
+    /// `ExecutionContext::submit_result()`. The executor transitions the node
+    /// to `NodeState::Suspended` instead of `Failed`.
+    ///
+    /// The `reason` field is informational and may describe what the node is
+    /// waiting for (e.g., "awaiting human review", "external API callback").
+    #[error("suspended: {reason}")]
+    Suspended { reason: String },
 }
 
 /// Details of a port type mismatch between connected nodes.
@@ -119,6 +131,9 @@ mod tests {
             NodeError::AdapterError {
                 adapter: "mock".into(),
                 message: "connection refused".into(),
+            },
+            NodeError::Suspended {
+                reason: "awaiting human review".into(),
             },
         ];
 

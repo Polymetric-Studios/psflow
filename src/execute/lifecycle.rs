@@ -14,6 +14,18 @@ pub enum NodeState {
     /// Unlike `Cancelled`, skipped nodes pass their inputs through as outputs
     /// and do not propagate cancellation to downstream nodes.
     Skipped,
+    /// Node has yielded control and is waiting for an external result.
+    ///
+    /// A handler returns `NodeError::Suspended` to enter this state. The node
+    /// stays here until `ExecutionContext::submit_result()` provides a result
+    /// and transitions it to `Completed`. Unlike terminal states, `Suspended`
+    /// blocks downstream nodes from executing but does not cause the graph to
+    /// be considered "complete".
+    ///
+    /// This is the engine-level primitive for external-await patterns: the
+    /// caller drives the graph via `tick()`, discovers suspended nodes, collects
+    /// results externally, submits them, and resumes ticking.
+    Suspended,
 }
 
 impl NodeState {
@@ -23,6 +35,30 @@ impl NodeState {
             self,
             NodeState::Completed | NodeState::Failed | NodeState::Cancelled | NodeState::Skipped
         )
+    }
+
+    /// Whether this state blocks downstream but is not yet truly complete.
+    ///
+    /// `Suspended` nodes prevent downstream execution (predecessors must be
+    /// terminal for successors to fire) but the graph is not "done" while
+    /// any node is suspended. Use `is_blocking()` for predecessor checks
+    /// and `is_terminal()` for completion checks.
+    pub fn is_suspended(&self) -> bool {
+        matches!(self, NodeState::Suspended)
+    }
+
+    /// Whether this state prevents downstream nodes from executing.
+    ///
+    /// Both terminal states and `Suspended` satisfy predecessor checks,
+    /// meaning a downstream node considers a suspended predecessor as
+    /// "done enough" to not fire. Only `submit_result()` can transition
+    /// a suspended node to `Completed` and unblock the graph.
+    ///
+    /// Note: this returns true for terminal states AND suspended. For
+    /// the stepped executor's readiness check, predecessors must be
+    /// terminal (not merely suspended) to allow successors to fire.
+    pub fn is_done_or_suspended(&self) -> bool {
+        self.is_terminal() || self.is_suspended()
     }
 
     /// Whether a transition from self to target is valid.
@@ -37,6 +73,10 @@ impl NodeState {
                 | (NodeState::Running, NodeState::Completed)
                 | (NodeState::Running, NodeState::Failed)
                 | (NodeState::Running, NodeState::Cancelled)
+                | (NodeState::Running, NodeState::Suspended)
+                | (NodeState::Suspended, NodeState::Completed)
+                | (NodeState::Suspended, NodeState::Failed)
+                | (NodeState::Suspended, NodeState::Cancelled)
         )
     }
 
@@ -64,6 +104,7 @@ impl std::fmt::Display for NodeState {
             NodeState::Failed => write!(f, "failed"),
             NodeState::Cancelled => write!(f, "cancelled"),
             NodeState::Skipped => write!(f, "skipped"),
+            NodeState::Suspended => write!(f, "suspended"),
         }
     }
 }
@@ -100,6 +141,40 @@ mod tests {
         assert!(NodeState::Failed.is_terminal());
         assert!(NodeState::Cancelled.is_terminal());
         assert!(NodeState::Skipped.is_terminal());
+        // Suspended is NOT terminal — it blocks but doesn't complete.
+        assert!(!NodeState::Suspended.is_terminal());
+    }
+
+    #[test]
+    fn suspended_state() {
+        // Running -> Suspended is valid
+        assert!(NodeState::Running.can_transition_to(NodeState::Suspended));
+        // Suspended -> Completed is valid (external result submitted)
+        assert!(NodeState::Suspended.can_transition_to(NodeState::Completed));
+        // Suspended -> Failed is valid (external failure)
+        assert!(NodeState::Suspended.can_transition_to(NodeState::Failed));
+        // Suspended -> Cancelled is valid
+        assert!(NodeState::Suspended.can_transition_to(NodeState::Cancelled));
+        // Idle -> Suspended is NOT valid (must go through Running)
+        assert!(!NodeState::Idle.can_transition_to(NodeState::Suspended));
+        // Suspended -> Running is NOT valid (cannot go backwards)
+        assert!(!NodeState::Suspended.can_transition_to(NodeState::Running));
+    }
+
+    #[test]
+    fn suspended_is_not_terminal_but_is_blocking() {
+        assert!(!NodeState::Suspended.is_terminal());
+        assert!(NodeState::Suspended.is_suspended());
+        assert!(NodeState::Suspended.is_done_or_suspended());
+        // Terminal states are also done_or_suspended
+        assert!(NodeState::Completed.is_done_or_suspended());
+        // Non-terminal, non-suspended are not
+        assert!(!NodeState::Running.is_done_or_suspended());
+    }
+
+    #[test]
+    fn suspended_display() {
+        assert_eq!(NodeState::Suspended.to_string(), "suspended");
     }
 
     #[test]

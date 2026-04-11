@@ -72,6 +72,15 @@ impl ExecutionSnapshot {
             .map(|(id, _)| id.as_str())
             .collect()
     }
+
+    /// Node IDs that are waiting for external results.
+    pub fn suspended_nodes(&self) -> Vec<&str> {
+        self.node_states
+            .iter()
+            .filter(|(_, s)| matches!(s, NodeState::Suspended))
+            .map(|(id, _)| id.as_str())
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -311,5 +320,79 @@ mod tests {
         let restored = ExecutionSnapshot::from_json(&json).unwrap();
         assert!(restored.node_states.is_empty());
         assert!(restored.node_outputs.is_empty());
+    }
+
+    #[test]
+    fn suspended_nodes_in_snapshot() {
+        let mut node_states = HashMap::new();
+        node_states.insert("A".into(), NodeState::Completed);
+        node_states.insert("B".into(), NodeState::Suspended);
+        node_states.insert("C".into(), NodeState::Idle);
+
+        let mut node_outputs = HashMap::new();
+        let mut b_out = Outputs::new();
+        b_out.insert("partial".into(), Value::String("wip".into()));
+        node_outputs.insert("B".into(), b_out);
+
+        let snapshot = ExecutionSnapshot {
+            node_states,
+            node_outputs,
+            blackboard: BlackboardSnapshot {
+                global: HashMap::new(),
+                scoped: HashMap::new(),
+            },
+            branch_decisions: HashMap::new(),
+            version: ExecutionSnapshot::CURRENT_VERSION,
+        };
+
+        assert_eq!(snapshot.suspended_nodes(), vec!["B"]);
+
+        // JSON round-trip preserves Suspended
+        let json = snapshot.to_json().unwrap();
+        let restored = ExecutionSnapshot::from_json(&json).unwrap();
+        assert_eq!(restored.node_states.get("B"), Some(&NodeState::Suspended));
+    }
+
+    #[test]
+    fn resume_preserves_suspended_nodes() {
+        let mut node_states = HashMap::new();
+        node_states.insert("A".into(), NodeState::Completed);
+        node_states.insert("B".into(), NodeState::Suspended);
+        node_states.insert("C".into(), NodeState::Running); // Should be reset to Idle
+
+        let mut node_outputs = HashMap::new();
+        let mut a_out = Outputs::new();
+        a_out.insert("val".into(), Value::I64(1));
+        node_outputs.insert("A".into(), a_out);
+        let mut b_out = Outputs::new();
+        b_out.insert("partial".into(), Value::String("waiting".into()));
+        node_outputs.insert("B".into(), b_out);
+
+        let snapshot = ExecutionSnapshot {
+            node_states,
+            node_outputs,
+            blackboard: BlackboardSnapshot {
+                global: HashMap::new(),
+                scoped: HashMap::new(),
+            },
+            branch_decisions: HashMap::new(),
+            version: ExecutionSnapshot::CURRENT_VERSION,
+        };
+
+        let ctx = ExecutionContext::from_snapshot(snapshot);
+
+        // Completed nodes stay completed
+        assert_eq!(ctx.get_state("A"), NodeState::Completed);
+        // Suspended nodes stay suspended (preserved across resume)
+        assert_eq!(ctx.get_state("B"), NodeState::Suspended);
+        assert!(ctx.get_outputs("B").is_some());
+        // Running nodes are reset to Idle
+        assert_eq!(ctx.get_state("C"), NodeState::Idle);
+
+        // Can submit result for suspended node after resume
+        let mut result_outputs = Outputs::new();
+        result_outputs.insert("final".into(), Value::String("done".into()));
+        ctx.submit_result("B", result_outputs).unwrap();
+        assert_eq!(ctx.get_state("B"), NodeState::Completed);
     }
 }

@@ -227,6 +227,7 @@ fn error_type_name(e: &NodeError) -> String {
         NodeError::Cancelled { .. } => "Cancelled".into(),
         NodeError::TypeMismatch { .. } => "TypeMismatch".into(),
         NodeError::AdapterError { .. } => "AdapterError".into(),
+        NodeError::Suspended { .. } => "Suspended".into(),
     }
 }
 
@@ -237,6 +238,7 @@ fn is_recoverable(e: &NodeError) -> bool {
         NodeError::Cancelled { .. } => false,
         NodeError::TypeMismatch { .. } => false,
         NodeError::AdapterError { .. } => true,
+        NodeError::Suspended { .. } => false,
     }
 }
 
