@@ -9,11 +9,7 @@ pub fn export_mermaid(graph: &Graph) -> String {
     let mut emitted = HashSet::new();
 
     // Direction from metadata, default TD
-    let direction = graph
-        .metadata()
-        .direction
-        .as_deref()
-        .unwrap_or("TD");
+    let direction = graph.metadata().direction.as_deref().unwrap_or("TD");
     writeln!(out, "graph {direction}").unwrap();
 
     // Emit subgraphs with their nodes inside the blocks
@@ -52,8 +48,8 @@ pub fn export_mermaid(graph: &Graph) -> String {
     let mut all_nodes: Vec<&Node> = graph.nodes().collect();
     all_nodes.sort_by(|a, b| a.id.0.cmp(&b.id.0));
 
-    let has_any_annotations = all_nodes.iter().any(|n| has_annotations(n))
-        || has_graph_annotations(graph);
+    let has_any_annotations =
+        all_nodes.iter().any(|n| has_annotations(n)) || has_graph_annotations(graph);
     if has_any_annotations {
         writeln!(out).unwrap();
     }
@@ -154,10 +150,7 @@ fn has_annotations(node: &Node) -> bool {
     node.handler.is_some()
         || !node.inputs.is_empty()
         || !node.outputs.is_empty()
-        || node
-            .config
-            .as_object()
-            .is_some_and(|m| !m.is_empty())
+        || node.config.as_object().is_some_and(|m| !m.is_empty())
         || node.exec.as_object().is_some_and(|m| !m.is_empty())
 }
 
@@ -257,7 +250,9 @@ graph TD
         assert_eq!(graph1.edge_count(), graph2.edge_count());
 
         for node in graph1.nodes() {
-            let n2 = graph2.node(&node.id).expect("node missing after round-trip");
+            let n2 = graph2
+                .node(&node.id)
+                .expect("node missing after round-trip");
             assert_eq!(n2.handler, node.handler, "handler mismatch for {}", node.id);
             assert_eq!(n2.inputs, node.inputs, "inputs mismatch for {}", node.id);
             assert_eq!(n2.outputs, node.outputs, "outputs mismatch for {}", node.id);

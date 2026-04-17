@@ -32,9 +32,7 @@ pub fn value_to_dynamic(v: &Value) -> Dynamic {
                 .collect();
             Dynamic::from_map(rhai_map)
         }
-        Value::Domain { data, .. } => {
-            rhai::serde::to_dynamic(data).unwrap_or(Dynamic::UNIT)
-        }
+        Value::Domain { data, .. } => rhai::serde::to_dynamic(data).unwrap_or(Dynamic::UNIT),
         Value::Null => Dynamic::UNIT,
     }
 }

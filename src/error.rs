@@ -146,47 +146,37 @@ mod tests {
 
     #[test]
     fn node_error_display_messages() {
-        assert!(
-            NodeError::Failed {
-                source_message: None,
-                message: "boom".into(),
-                recoverable: false,
-            }
-            .to_string()
-            .contains("boom")
-        );
+        assert!(NodeError::Failed {
+            source_message: None,
+            message: "boom".into(),
+            recoverable: false,
+        }
+        .to_string()
+        .contains("boom"));
 
-        assert!(
-            NodeError::Timeout {
-                elapsed_ms: 100,
-                limit_ms: 50,
-            }
-            .to_string()
-            .contains("100ms")
-        );
+        assert!(NodeError::Timeout {
+            elapsed_ms: 100,
+            limit_ms: 50,
+        }
+        .to_string()
+        .contains("100ms"));
 
-        assert!(
-            NodeError::Cancelled {
-                reason: "test".into(),
-            }
-            .to_string()
-            .contains("test")
-        );
+        assert!(NodeError::Cancelled {
+            reason: "test".into(),
+        }
+        .to_string()
+        .contains("test"));
     }
 
     #[test]
     fn graph_error_display_messages() {
-        assert!(
-            GraphError::DuplicateNodeId { id: "A".into() }
-                .to_string()
-                .contains("A")
-        );
+        assert!(GraphError::DuplicateNodeId { id: "A".into() }
+            .to_string()
+            .contains("A"));
 
-        assert!(
-            GraphError::NodeNotFound { id: "X".into() }
-                .to_string()
-                .contains("X")
-        );
+        assert!(GraphError::NodeNotFound { id: "X".into() }
+            .to_string()
+            .contains("X"));
 
         let mismatch = PortTypeMismatchInfo {
             source_node: "A".into(),

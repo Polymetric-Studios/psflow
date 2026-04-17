@@ -1,8 +1,5 @@
 use clap::Parser;
-use psflow::{
-    load_mermaid, NodeRegistry, NodeState, TopologicalExecutor,
-    Executor, Outputs,
-};
+use psflow::{load_mermaid, Executor, NodeRegistry, NodeState, Outputs, TopologicalExecutor};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use tracing_subscriber::EnvFilter;
@@ -41,7 +38,11 @@ fn main() -> ExitCode {
 
     // Initialize tracing subscriber.
     // RUST_LOG env var takes precedence; otherwise use -v flags.
-    let filter = if std::env::var("RUST_LOG").ok().filter(|v| !v.is_empty()).is_some() {
+    let filter = if std::env::var("RUST_LOG")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .is_some()
+    {
         EnvFilter::from_default_env()
     } else {
         let level = match cli.verbose {
@@ -78,11 +79,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let name = graph
-        .metadata()
-        .name
-        .as_deref()
-        .unwrap_or("(unnamed)");
+    let name = graph.metadata().name.as_deref().unwrap_or("(unnamed)");
     eprintln!(
         "loaded graph '{}': {} nodes, {} edges",
         name,
@@ -135,11 +132,7 @@ fn main() -> ExitCode {
         });
     }
 
-    let result = rt.block_on(async {
-        TopologicalExecutor::new()
-            .execute(&graph, &handlers)
-            .await
-    });
+    let result = rt.block_on(async { TopologicalExecutor::new().execute(&graph, &handlers).await });
 
     match result {
         Ok(result) => {
@@ -149,7 +142,10 @@ fn main() -> ExitCode {
                 match serde_json::to_string_pretty(&trace) {
                     Ok(json) => {
                         if let Err(e) = std::fs::write(trace_path, &json) {
-                            eprintln!("error: cannot write trace to '{}': {e}", trace_path.display());
+                            eprintln!(
+                                "error: cannot write trace to '{}': {e}",
+                                trace_path.display()
+                            );
                         } else {
                             eprintln!("trace written to {}", trace_path.display());
                         }
@@ -179,7 +175,10 @@ fn main() -> ExitCode {
                     };
                     eprintln!("  [{symbol}] {id}: {state}");
                 }
-                eprintln!("completed in {:.1}ms", result.elapsed.as_secs_f64() * 1000.0);
+                eprintln!(
+                    "completed in {:.1}ms",
+                    result.elapsed.as_secs_f64() * 1000.0
+                );
             }
 
             if failed.is_empty() {

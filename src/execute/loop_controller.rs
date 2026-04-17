@@ -160,10 +160,8 @@ impl LoopController {
             }
             let entry_nid = NodeId::new(&state.entry_node_id);
             let preds = graph.predecessors(&entry_nid);
-            let all_preds_done = preds.is_empty()
-                || preds
-                    .iter()
-                    .all(|p| ctx.get_state(&p.id.0).is_terminal());
+            let all_preds_done =
+                preds.is_empty() || preds.iter().all(|p| ctx.get_state(&p.id.0).is_terminal());
             if !all_preds_done {
                 continue;
             }
@@ -226,11 +224,8 @@ impl LoopController {
 
             if !at_max && !at_end && iterator.on_iteration(loop_id, state.index, ctx) {
                 // More iterations: reset body + all exit nodes.
-                let mut ids_to_reset: Vec<&str> = state
-                    .body_node_ids
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect();
+                let mut ids_to_reset: Vec<&str> =
+                    state.body_node_ids.iter().map(|s| s.as_str()).collect();
                 for exit_id in &state.exit_node_ids {
                     if !ids_to_reset.contains(&exit_id.as_str()) {
                         ids_to_reset.push(exit_id.as_str());
@@ -321,8 +316,10 @@ mod tests {
         for id in ["pred", "body", "succ"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"pred".into(), "", &"body".into(), "", None).unwrap();
-        g.add_edge(&"body".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"body".into(), "", None)
+            .unwrap();
+        g.add_edge(&"body".into(), "", &"succ".into(), "", None)
+            .unwrap();
         g.add_subgraph(Subgraph {
             id: "sg-loop1".into(),
             label: "loop: process".into(),
@@ -429,9 +426,11 @@ mod tests {
         for id in ["pred", "A", "B", "succ"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None)
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
-        g.add_edge(&"B".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"succ".into(), "", None)
+            .unwrap();
         g.add_subgraph(Subgraph {
             id: "loop1".into(),
             label: "loop: process".into(),
@@ -465,8 +464,10 @@ mod tests {
         for id in ["pred", "A", "succ"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
-        g.add_edge(&"A".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None)
+            .unwrap();
+        g.add_edge(&"A".into(), "", &"succ".into(), "", None)
+            .unwrap();
         g.add_subgraph(Subgraph {
             id: "loop1".into(),
             label: "loop: single".into(),
@@ -489,8 +490,10 @@ mod tests {
         for id in ["pred", "body", "succ"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"pred".into(), "", &"body".into(), "", None).unwrap();
-        g.add_edge(&"body".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"body".into(), "", None)
+            .unwrap();
+        g.add_edge(&"body".into(), "", &"succ".into(), "", None)
+            .unwrap();
         g.add_subgraph(Subgraph {
             id: "loop1".into(),
             label: "loop: empty".into(),
@@ -524,7 +527,8 @@ mod tests {
         for id in ["body", "succ"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"body".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"body".into(), "", &"succ".into(), "", None)
+            .unwrap();
         g.add_subgraph(Subgraph {
             id: "loop1".into(),
             label: "loop: root".into(),
@@ -556,11 +560,16 @@ mod tests {
         for id in ["pred", "entry", "exit_a", "exit_b", "after"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"pred".into(), "", &"entry".into(), "", None).unwrap();
-        g.add_edge(&"entry".into(), "", &"exit_a".into(), "", None).unwrap();
-        g.add_edge(&"entry".into(), "", &"exit_b".into(), "", None).unwrap();
-        g.add_edge(&"exit_a".into(), "", &"after".into(), "", None).unwrap();
-        g.add_edge(&"exit_b".into(), "", &"after".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"entry".into(), "", None)
+            .unwrap();
+        g.add_edge(&"entry".into(), "", &"exit_a".into(), "", None)
+            .unwrap();
+        g.add_edge(&"entry".into(), "", &"exit_b".into(), "", None)
+            .unwrap();
+        g.add_edge(&"exit_a".into(), "", &"after".into(), "", None)
+            .unwrap();
+        g.add_edge(&"exit_b".into(), "", &"after".into(), "", None)
+            .unwrap();
 
         g.add_subgraph(Subgraph {
             id: "loop1".into(),
@@ -618,11 +627,16 @@ mod tests {
         for id in ["entry", "inner_a", "inner_b", "join", "after"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"entry".into(), "", &"inner_a".into(), "", None).unwrap();
-        g.add_edge(&"entry".into(), "", &"inner_b".into(), "", None).unwrap();
-        g.add_edge(&"inner_a".into(), "", &"join".into(), "", None).unwrap();
-        g.add_edge(&"inner_b".into(), "", &"join".into(), "", None).unwrap();
-        g.add_edge(&"join".into(), "", &"after".into(), "", None).unwrap();
+        g.add_edge(&"entry".into(), "", &"inner_a".into(), "", None)
+            .unwrap();
+        g.add_edge(&"entry".into(), "", &"inner_b".into(), "", None)
+            .unwrap();
+        g.add_edge(&"inner_a".into(), "", &"join".into(), "", None)
+            .unwrap();
+        g.add_edge(&"inner_b".into(), "", &"join".into(), "", None)
+            .unwrap();
+        g.add_edge(&"join".into(), "", &"after".into(), "", None)
+            .unwrap();
 
         g.add_subgraph(Subgraph {
             id: "outer_loop".into(),

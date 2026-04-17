@@ -1,9 +1,9 @@
 use crate::error::NodeError;
+use crate::execute::concurrency::ConcurrencyLimits;
 use crate::execute::context::{CancellationToken, ExecutionContext};
 use crate::execute::control;
 use crate::execute::event::ExecutionEvent;
 use crate::execute::lifecycle::NodeState;
-use crate::execute::concurrency::ConcurrencyLimits;
 use crate::execute::{
     ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler, Outputs,
 };
@@ -77,13 +77,7 @@ impl TopologicalExecutor {
             self.cancel_token.clone(),
             self.concurrency.clone(),
         );
-        execute_impl_from_context(
-            graph,
-            handlers,
-            Arc::new(ctx),
-            self.adapter.clone(),
-        )
-        .await
+        execute_impl_from_context(graph, handlers, Arc::new(ctx), self.adapter.clone()).await
     }
 
     /// Execute a graph with a child blackboard that inherits from a parent.
@@ -136,14 +130,14 @@ async fn execute_impl_from_context(
     ctx: Arc<ExecutionContext>,
     adapter: Option<Arc<dyn crate::adapter::AiAdapter>>,
 ) -> Result<ExecutionResult, ExecutionError> {
-    let graph_name = graph
-        .metadata()
-        .name
-        .as_deref()
-        .unwrap_or("unnamed");
+    let graph_name = graph.metadata().name.as_deref().unwrap_or("unnamed");
 
     let start = Instant::now();
-    info!(graph = graph_name, nodes = graph.node_count(), "execution resumed");
+    info!(
+        graph = graph_name,
+        nodes = graph.node_count(),
+        "execution resumed"
+    );
 
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
@@ -161,14 +155,15 @@ async fn execute_impl_with_blackboard(
     )>,
     adapter: Option<Arc<dyn crate::adapter::AiAdapter>>,
 ) -> Result<ExecutionResult, ExecutionError> {
-    let graph_name = graph
-        .metadata()
-        .name
-        .as_deref()
-        .unwrap_or("unnamed");
+    let graph_name = graph.metadata().name.as_deref().unwrap_or("unnamed");
 
     let start = Instant::now();
-    info!(graph = graph_name, nodes = graph.node_count(), edges = graph.edge_count(), "execution started");
+    info!(
+        graph = graph_name,
+        nodes = graph.node_count(),
+        edges = graph.edge_count(),
+        "execution started"
+    );
 
     let ctx = if let Some((parent_bb, inheritance)) = parent {
         Arc::new(ExecutionContext::with_parent_blackboard(
@@ -178,7 +173,10 @@ async fn execute_impl_with_blackboard(
             concurrency,
         ))
     } else {
-        Arc::new(ExecutionContext::with_concurrency(cancel_token, concurrency))
+        Arc::new(ExecutionContext::with_concurrency(
+            cancel_token,
+            concurrency,
+        ))
     };
 
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
@@ -194,7 +192,6 @@ async fn execute_core(
     adapter: Option<Arc<dyn crate::adapter::AiAdapter>>,
     start: Instant,
 ) -> Result<ExecutionResult, ExecutionError> {
-
     if graph.node_count() == 0 {
         let elapsed = start.elapsed();
         ctx.emit(ExecutionEvent::ExecutionCompleted { elapsed });
@@ -273,13 +270,22 @@ async fn execute_core(
                 SubgraphDirective::Parallel => {
                     let max_concurrent = parse_max_concurrent(graph, &sg.nodes);
                     control::execute_parallel(
-                        &sg_nodes, graph, handlers, &ctx, &passthrough, max_concurrent,
+                        &sg_nodes,
+                        graph,
+                        handlers,
+                        &ctx,
+                        &passthrough,
+                        max_concurrent,
                     )
                     .await?;
                 }
                 SubgraphDirective::Race => {
                     control::execute_race_with_adapter(
-                        &sg_nodes, graph, handlers, &ctx, &passthrough,
+                        &sg_nodes,
+                        graph,
+                        handlers,
+                        &ctx,
+                        &passthrough,
                         adapter.as_deref(),
                     )
                     .await?;
@@ -287,7 +293,12 @@ async fn execute_core(
                 SubgraphDirective::Loop => {
                     let loop_config = parse_loop_config(graph, &sg.nodes);
                     control::execute_loop_with_adapter(
-                        &sg_nodes, &loop_config, graph, handlers, &ctx, &passthrough,
+                        &sg_nodes,
+                        &loop_config,
+                        graph,
+                        handlers,
+                        &ctx,
+                        &passthrough,
                         adapter.as_deref(),
                     )
                     .await?;
@@ -297,17 +308,13 @@ async fn execute_core(
                     // The trigger nodes passthrough — the graph continues from
                     // whichever node they feed into.
                     debug!(subgraph = %sg.id, "event subgraph — running as sequence in CLI mode");
-                    control::execute_sequence(
-                        &sg_nodes, graph, handlers, &ctx, &passthrough, true,
-                    )
-                    .await?;
+                    control::execute_sequence(&sg_nodes, graph, handlers, &ctx, &passthrough, true)
+                        .await?;
                 }
                 _ => {
                     // Named or None with nodes — execute as sequence
-                    control::execute_sequence(
-                        &sg_nodes, graph, handlers, &ctx, &passthrough, true,
-                    )
-                    .await?;
+                    control::execute_sequence(&sg_nodes, graph, handlers, &ctx, &passthrough, true)
+                        .await?;
                 }
             }
         }
@@ -362,55 +369,58 @@ async fn execute_core(
             let handler_name = node.handler.clone().unwrap_or_else(|| "passthrough".into());
             let node_span = info_span!("node", id = %node_id_str, handler = %handler_name);
 
-            handles.push(tokio::spawn(async move {
-                // Move permit into task so it's held until completion
-                let _permit = _global_permit;
+            handles.push(tokio::spawn(
+                async move {
+                    // Move permit into task so it's held until completion
+                    let _permit = _global_permit;
 
-                if cancel.is_cancelled() {
-                    return (
-                        node_id_str,
-                        Err(NodeError::Cancelled {
-                            reason: "execution cancelled".into(),
-                        }),
-                    );
-                }
+                    if cancel.is_cancelled() {
+                        return (
+                            node_id_str,
+                            Err(NodeError::Cancelled {
+                                reason: "execution cancelled".into(),
+                            }),
+                        );
+                    }
 
-                if let Err(e) = ctx_clone.set_state(&node_id_str, NodeState::Running) {
-                    return (node_id_str, Err(e));
-                }
+                    if let Err(e) = ctx_clone.set_state(&node_id_str, NodeState::Running) {
+                        return (node_id_str, Err(e));
+                    }
 
-                trace!(node = %node_id_str, "handler executing");
+                    trace!(node = %node_id_str, "handler executing");
 
-                let execute_fn = async {
-                    if let Some(ref rc) = retry_config {
-                        crate::execute::retry::execute_with_retry_ctx(
-                            &handler,
-                            &node_clone,
-                            inputs,
-                            cancel.clone(),
-                            rc,
-                            Some(&ctx_clone),
-                        )
-                        .await
+                    let execute_fn = async {
+                        if let Some(ref rc) = retry_config {
+                            crate::execute::retry::execute_with_retry_ctx(
+                                &handler,
+                                &node_clone,
+                                inputs,
+                                cancel.clone(),
+                                rc,
+                                Some(&ctx_clone),
+                            )
+                            .await
+                        } else {
+                            handler.execute(&node_clone, inputs, cancel.clone()).await
+                        }
+                    };
+
+                    let result = if let Some(timeout) = timeout_dur {
+                        match tokio::time::timeout(timeout, execute_fn).await {
+                            Ok(r) => r,
+                            Err(_) => Err(NodeError::Timeout {
+                                elapsed_ms: timeout.as_millis() as u64,
+                                limit_ms: timeout.as_millis() as u64,
+                            }),
+                        }
                     } else {
-                        handler.execute(&node_clone, inputs, cancel.clone()).await
-                    }
-                };
+                        execute_fn.await
+                    };
 
-                let result = if let Some(timeout) = timeout_dur {
-                    match tokio::time::timeout(timeout, execute_fn).await {
-                        Ok(r) => r,
-                        Err(_) => Err(NodeError::Timeout {
-                            elapsed_ms: timeout.as_millis() as u64,
-                            limit_ms: timeout.as_millis() as u64,
-                        }),
-                    }
-                } else {
-                    execute_fn.await
-                };
-
-                (node_id_str, result)
-            }.instrument(node_span)));
+                    (node_id_str, result)
+                }
+                .instrument(node_span),
+            ));
         }
 
         // Await all tasks in this wave
@@ -422,7 +432,8 @@ async fn execute_core(
             match outcome {
                 Ok(outputs) => {
                     // Check if this is a branch node and record the decision
-                    handle_branch_decision(graph, &node_id, &outputs, &ctx, adapter.as_deref()).await;
+                    handle_branch_decision(graph, &node_id, &outputs, &ctx, adapter.as_deref())
+                        .await;
 
                     debug!(node = %node_id, output_keys = ?outputs.keys().collect::<Vec<_>>(), "node completed");
                     ctx.store_outputs(&node_id, outputs.clone());
@@ -454,7 +465,10 @@ async fn execute_core(
     }
 
     let elapsed = start.elapsed();
-    info!(elapsed_ms = elapsed.as_millis() as u64, "execution completed");
+    info!(
+        elapsed_ms = elapsed.as_millis() as u64,
+        "execution completed"
+    );
     ctx.emit(ExecutionEvent::ExecutionCompleted { elapsed });
 
     Ok(ExecutionResult {
@@ -721,23 +735,30 @@ pub(crate) fn compute_waves(graph: &Graph) -> Result<Vec<Vec<NodeId>>, Execution
 /// from a node to one of its ancestors in the DFS tree — these are exactly
 /// the edges whose removal breaks all cycles.
 fn find_back_edges(
-    graph: &petgraph::stable_graph::StableDiGraph<crate::graph::node::Node, crate::graph::edge::EdgeData>,
+    graph: &petgraph::stable_graph::StableDiGraph<
+        crate::graph::node::Node,
+        crate::graph::edge::EdgeData,
+    >,
 ) -> Vec<petgraph::graph::EdgeIndex> {
     use petgraph::stable_graph::EdgeIndex;
 
     let mut back_edges = Vec::new();
     let mut visiting = HashSet::new(); // Currently on the DFS stack (grey nodes)
-    let mut visited = HashSet::new();  // Fully processed (black nodes)
+    let mut visited = HashSet::new(); // Fully processed (black nodes)
 
     fn dfs(
         node: NodeIndex,
-        graph: &petgraph::stable_graph::StableDiGraph<crate::graph::node::Node, crate::graph::edge::EdgeData>,
+        graph: &petgraph::stable_graph::StableDiGraph<
+            crate::graph::node::Node,
+            crate::graph::edge::EdgeData,
+        >,
         visiting: &mut HashSet<NodeIndex>,
         visited: &mut HashSet<NodeIndex>,
         back_edges: &mut Vec<EdgeIndex>,
     ) {
         visiting.insert(node);
-        let neighbors: Vec<_> = graph.edges_directed(node, Direction::Outgoing)
+        let neighbors: Vec<_> = graph
+            .edges_directed(node, Direction::Outgoing)
             .map(|e| (e.id(), e.target()))
             .collect();
         for (edge_id, target) in neighbors {
@@ -885,7 +906,10 @@ mod tests {
         assert_eq!(result.node_states["A"], NodeState::Completed);
         assert_eq!(result.node_states["B"], NodeState::Completed);
         assert_eq!(result.node_states["C"], NodeState::Completed);
-        assert_eq!(result.node_outputs["C"]["trace"], Value::String("ABC".into()));
+        assert_eq!(
+            result.node_outputs["C"]["trace"],
+            Value::String("ABC".into())
+        );
     }
 
     #[tokio::test]
@@ -896,10 +920,18 @@ mod tests {
                 .add_node(Node::new(id, id).with_handler("pass"))
                 .unwrap();
         }
-        graph.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
-        graph.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
-        graph.add_edge(&"B".into(), "", &"D".into(), "", None).unwrap();
-        graph.add_edge(&"C".into(), "", &"D".into(), "", None).unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"B".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"C".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"B".into(), "", &"D".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"C".into(), "", &"D".into(), "", None)
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
@@ -923,12 +955,24 @@ mod tests {
                 .add_node(Node::new(id, id).with_handler("trace"))
                 .unwrap();
         }
-        graph.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
-        graph.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
-        graph.add_edge(&"A".into(), "", &"D".into(), "", None).unwrap();
-        graph.add_edge(&"B".into(), "", &"E".into(), "", None).unwrap();
-        graph.add_edge(&"C".into(), "", &"E".into(), "", None).unwrap();
-        graph.add_edge(&"D".into(), "", &"E".into(), "", None).unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"B".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"C".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"D".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"B".into(), "", &"E".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"C".into(), "", &"E".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"D".into(), "", &"E".into(), "", None)
+            .unwrap();
 
         let result = TopologicalExecutor::new()
             .execute(&graph, &trace_handlers())
@@ -979,10 +1023,18 @@ mod tests {
         for id in ["A", "B", "C", "D"] {
             graph.add_node(Node::new(id, id)).unwrap();
         }
-        graph.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
-        graph.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
-        graph.add_edge(&"B".into(), "", &"D".into(), "", None).unwrap();
-        graph.add_edge(&"C".into(), "", &"D".into(), "", None).unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"B".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"C".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"B".into(), "", &"D".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"C".into(), "", &"D".into(), "", None)
+            .unwrap();
 
         let waves = compute_waves(&graph).unwrap();
         assert_eq!(waves.len(), 3);
@@ -1035,11 +1087,21 @@ mod tests {
     #[tokio::test]
     async fn error_cascades_to_downstream() {
         let mut graph = Graph::new();
-        graph.add_node(Node::new("A", "A").with_handler("ok")).unwrap();
-        graph.add_node(Node::new("B", "B").with_handler("fail")).unwrap();
-        graph.add_node(Node::new("C", "C").with_handler("ok")).unwrap();
-        graph.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
-        graph.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
+        graph
+            .add_node(Node::new("A", "A").with_handler("ok"))
+            .unwrap();
+        graph
+            .add_node(Node::new("B", "B").with_handler("fail"))
+            .unwrap();
+        graph
+            .add_node(Node::new("C", "C").with_handler("ok"))
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"B".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"B".into(), "", &"C".into(), "", None)
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("ok".into(), sync_handler(|_, inputs| Ok(inputs)));
@@ -1068,14 +1130,30 @@ mod tests {
     async fn concurrent_failures_both_cancel_downstream() {
         // A → (B, C) → D. Both B and C fail.
         let mut graph = Graph::new();
-        graph.add_node(Node::new("A", "A").with_handler("ok")).unwrap();
-        graph.add_node(Node::new("B", "B").with_handler("fail")).unwrap();
-        graph.add_node(Node::new("C", "C").with_handler("fail")).unwrap();
-        graph.add_node(Node::new("D", "D").with_handler("ok")).unwrap();
-        graph.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
-        graph.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
-        graph.add_edge(&"B".into(), "", &"D".into(), "", None).unwrap();
-        graph.add_edge(&"C".into(), "", &"D".into(), "", None).unwrap();
+        graph
+            .add_node(Node::new("A", "A").with_handler("ok"))
+            .unwrap();
+        graph
+            .add_node(Node::new("B", "B").with_handler("fail"))
+            .unwrap();
+        graph
+            .add_node(Node::new("C", "C").with_handler("fail"))
+            .unwrap();
+        graph
+            .add_node(Node::new("D", "D").with_handler("ok"))
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"B".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"C".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"B".into(), "", &"D".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"C".into(), "", &"D".into(), "", None)
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("ok".into(), sync_handler(|_, inputs| Ok(inputs)));
@@ -1112,7 +1190,9 @@ mod tests {
         graph
             .add_node(Node::new("B", "B").with_handler("ok"))
             .unwrap();
-        graph.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+        graph
+            .add_edge(&"A".into(), "", &"B".into(), "", None)
+            .unwrap();
 
         let token = CancellationToken::new();
         let mut handlers = HandlerRegistry::new();
@@ -1242,16 +1322,14 @@ mod tests {
         // Single node
         let mut g = Graph::new();
         g.add_node(Node::new("A", "A")).unwrap();
-        let result = executor
-            .execute(&g, &HandlerRegistry::new())
-            .await
-            .unwrap();
+        let result = executor.execute(&g, &HandlerRegistry::new()).await.unwrap();
         assert_eq!(result.node_states["A"], NodeState::Completed);
 
         // Linear chain with error propagation
         let mut g = Graph::new();
         g.add_node(Node::new("X", "X").with_handler("ok")).unwrap();
-        g.add_node(Node::new("Y", "Y").with_handler("fail")).unwrap();
+        g.add_node(Node::new("Y", "Y").with_handler("fail"))
+            .unwrap();
         g.add_node(Node::new("Z", "Z").with_handler("ok")).unwrap();
         g.add_edge(&"X".into(), "", &"Y".into(), "", None).unwrap();
         g.add_edge(&"Y".into(), "", &"Z".into(), "", None).unwrap();
@@ -1290,12 +1368,22 @@ mod tests {
         branch.config = serde_json::json!({ "guard": "inputs.flag == true" });
         graph.add_node(branch).unwrap();
 
-        graph.add_node(Node::new("YES", "Yes").with_handler("ok")).unwrap();
-        graph.add_node(Node::new("NO", "No").with_handler("ok")).unwrap();
+        graph
+            .add_node(Node::new("YES", "Yes").with_handler("ok"))
+            .unwrap();
+        graph
+            .add_node(Node::new("NO", "No").with_handler("ok"))
+            .unwrap();
 
-        graph.add_edge(&"PROD".into(), "flag", &"BR".into(), "flag", None).unwrap();
-        graph.add_edge(&"BR".into(), "", &"YES".into(), "", Some("yes".into())).unwrap();
-        graph.add_edge(&"BR".into(), "", &"NO".into(), "", Some("no".into())).unwrap();
+        graph
+            .add_edge(&"PROD".into(), "flag", &"BR".into(), "flag", None)
+            .unwrap();
+        graph
+            .add_edge(&"BR".into(), "", &"YES".into(), "", Some("yes".into()))
+            .unwrap();
+        graph
+            .add_edge(&"BR".into(), "", &"NO".into(), "", Some("no".into()))
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("ok".into(), sync_handler(|_, inputs| Ok(inputs)));
@@ -1307,10 +1395,7 @@ mod tests {
                 Ok(out)
             }),
         );
-        handlers.insert(
-            "pass_through".into(),
-            sync_handler(|_, inputs| Ok(inputs)),
-        );
+        handlers.insert("pass_through".into(), sync_handler(|_, inputs| Ok(inputs)));
 
         let result = TopologicalExecutor::new()
             .execute(&graph, &handlers)
@@ -1326,18 +1411,30 @@ mod tests {
     async fn branch_follows_no_path() {
         let mut graph = Graph::new();
 
-        graph.add_node(Node::new("PROD", "Producer").with_handler("produce_false")).unwrap();
+        graph
+            .add_node(Node::new("PROD", "Producer").with_handler("produce_false"))
+            .unwrap();
 
         let mut branch = Node::new("BR", "Branch").with_handler("pass_through");
         branch.config = serde_json::json!({ "guard": "inputs.flag == true" });
         graph.add_node(branch).unwrap();
 
-        graph.add_node(Node::new("YES", "Yes").with_handler("ok")).unwrap();
-        graph.add_node(Node::new("NO", "No").with_handler("ok")).unwrap();
+        graph
+            .add_node(Node::new("YES", "Yes").with_handler("ok"))
+            .unwrap();
+        graph
+            .add_node(Node::new("NO", "No").with_handler("ok"))
+            .unwrap();
 
-        graph.add_edge(&"PROD".into(), "flag", &"BR".into(), "flag", None).unwrap();
-        graph.add_edge(&"BR".into(), "", &"YES".into(), "", Some("yes".into())).unwrap();
-        graph.add_edge(&"BR".into(), "", &"NO".into(), "", Some("no".into())).unwrap();
+        graph
+            .add_edge(&"PROD".into(), "flag", &"BR".into(), "flag", None)
+            .unwrap();
+        graph
+            .add_edge(&"BR".into(), "", &"YES".into(), "", Some("yes".into()))
+            .unwrap();
+        graph
+            .add_edge(&"BR".into(), "", &"NO".into(), "", Some("no".into()))
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("ok".into(), sync_handler(|_, inputs| Ok(inputs)));
@@ -1349,10 +1446,7 @@ mod tests {
                 Ok(out)
             }),
         );
-        handlers.insert(
-            "pass_through".into(),
-            sync_handler(|_, inputs| Ok(inputs)),
-        );
+        handlers.insert("pass_through".into(), sync_handler(|_, inputs| Ok(inputs)));
 
         let result = TopologicalExecutor::new()
             .execute(&graph, &handlers)
@@ -1370,8 +1464,12 @@ mod tests {
     async fn parallel_subgraph_directive() {
         // Two independent nodes in a parallel subgraph
         let mut graph = Graph::new();
-        graph.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
-        graph.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
+        graph
+            .add_node(Node::new("A", "A").with_handler("trace"))
+            .unwrap();
+        graph
+            .add_node(Node::new("B", "B").with_handler("trace"))
+            .unwrap();
 
         graph.add_subgraph(crate::graph::Subgraph {
             id: "sg1".into(),
@@ -1395,8 +1493,12 @@ mod tests {
         // Two nodes in a race subgraph. Both complete, but the framework
         // should cancel siblings when the first completes.
         let mut graph = Graph::new();
-        graph.add_node(Node::new("FAST", "Fast").with_handler("fast")).unwrap();
-        graph.add_node(Node::new("SLOW", "Slow").with_handler("slow")).unwrap();
+        graph
+            .add_node(Node::new("FAST", "Fast").with_handler("fast"))
+            .unwrap();
+        graph
+            .add_node(Node::new("SLOW", "Slow").with_handler("slow"))
+            .unwrap();
 
         graph.add_subgraph(crate::graph::Subgraph {
             id: "race1".into(),
@@ -1407,11 +1509,14 @@ mod tests {
         });
 
         let mut handlers = HandlerRegistry::new();
-        handlers.insert("fast".into(), sync_handler(|_, _| {
-            let mut out = Outputs::new();
-            out.insert("result".into(), Value::String("fast_won".into()));
-            Ok(out)
-        }));
+        handlers.insert(
+            "fast".into(),
+            sync_handler(|_, _| {
+                let mut out = Outputs::new();
+                out.insert("result".into(), Value::String("fast_won".into()));
+                Ok(out)
+            }),
+        );
         handlers.insert(
             "slow".into(),
             Arc::new(SlowHandler(Duration::from_millis(200))),
@@ -1476,11 +1581,21 @@ mod tests {
     async fn sequence_in_named_subgraph() {
         // Nodes in a Named subgraph execute as a sequence
         let mut graph = Graph::new();
-        graph.add_node(Node::new("S1", "Step 1").with_handler("trace")).unwrap();
-        graph.add_node(Node::new("S2", "Step 2").with_handler("trace")).unwrap();
-        graph.add_node(Node::new("S3", "Step 3").with_handler("trace")).unwrap();
-        graph.add_edge(&"S1".into(), "", &"S2".into(), "", None).unwrap();
-        graph.add_edge(&"S2".into(), "", &"S3".into(), "", None).unwrap();
+        graph
+            .add_node(Node::new("S1", "Step 1").with_handler("trace"))
+            .unwrap();
+        graph
+            .add_node(Node::new("S2", "Step 2").with_handler("trace"))
+            .unwrap();
+        graph
+            .add_node(Node::new("S3", "Step 3").with_handler("trace"))
+            .unwrap();
+        graph
+            .add_edge(&"S1".into(), "", &"S2".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"S2".into(), "", &"S3".into(), "", None)
+            .unwrap();
 
         graph.add_subgraph(crate::graph::Subgraph {
             id: "seq1".into(),
@@ -1504,11 +1619,21 @@ mod tests {
     async fn sequence_fail_fast_cancels_remaining() {
         // S1 → S2(fail) → S3. S3 should be cancelled.
         let mut graph = Graph::new();
-        graph.add_node(Node::new("S1", "S1").with_handler("ok")).unwrap();
-        graph.add_node(Node::new("S2", "S2").with_handler("fail")).unwrap();
-        graph.add_node(Node::new("S3", "S3").with_handler("ok")).unwrap();
-        graph.add_edge(&"S1".into(), "", &"S2".into(), "", None).unwrap();
-        graph.add_edge(&"S2".into(), "", &"S3".into(), "", None).unwrap();
+        graph
+            .add_node(Node::new("S1", "S1").with_handler("ok"))
+            .unwrap();
+        graph
+            .add_node(Node::new("S2", "S2").with_handler("fail"))
+            .unwrap();
+        graph
+            .add_node(Node::new("S3", "S3").with_handler("ok"))
+            .unwrap();
+        graph
+            .add_edge(&"S1".into(), "", &"S2".into(), "", None)
+            .unwrap();
+        graph
+            .add_edge(&"S2".into(), "", &"S3".into(), "", None)
+            .unwrap();
 
         graph.add_subgraph(crate::graph::Subgraph {
             id: "seq1".into(),
@@ -1702,10 +1827,7 @@ mod tests {
             .unwrap();
 
         for i in 0..5 {
-            assert_eq!(
-                result.node_states[&format!("N{i}")],
-                NodeState::Completed
-            );
+            assert_eq!(result.node_states[&format!("N{i}")], NodeState::Completed);
         }
         assert!(
             max_seen.load(AtomicOrdering::SeqCst) <= 2,
@@ -1855,9 +1977,7 @@ mod tests {
             let mut graph = Graph::new();
             for i in 0..n {
                 graph
-                    .add_node(
-                        Node::new(format!("N{i}"), format!("Node {i}")).with_handler("h"),
-                    )
+                    .add_node(Node::new(format!("N{i}"), format!("Node {i}")).with_handler("h"))
                     .unwrap();
             }
             for (src, tgt) in edges {
@@ -1882,7 +2002,10 @@ mod tests {
 
             runner
                 .run(
-                    &(2..10usize, proptest::collection::vec((0..10usize, 0..10usize), 0..15)),
+                    &(
+                        2..10usize,
+                        proptest::collection::vec((0..10usize, 0..10usize), 0..15),
+                    ),
                     |(n, edges)| {
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         rt.block_on(async {
@@ -1900,10 +2023,7 @@ mod tests {
 
                             for i in 0..n {
                                 let id = format!("N{i}");
-                                let state = result
-                                    .node_states
-                                    .get(&id)
-                                    .unwrap_or(&NodeState::Idle);
+                                let state = result.node_states.get(&id).unwrap_or(&NodeState::Idle);
                                 prop_assert!(
                                     state.is_terminal(),
                                     "node {} in non-terminal state {:?}",
@@ -1930,7 +2050,10 @@ mod tests {
 
             runner
                 .run(
-                    &(2..8usize, proptest::collection::vec((0..8usize, 0..8usize), 0..12)),
+                    &(
+                        2..8usize,
+                        proptest::collection::vec((0..8usize, 0..8usize), 0..12),
+                    ),
                     |(n, edges)| {
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         rt.block_on(async {
@@ -1953,7 +2076,13 @@ mod tests {
                                 .unwrap();
 
                             let total = call_count.load(AtomicOrdering::SeqCst);
-                            prop_assert_eq!(total, n, "double execution: {} calls for {} nodes", total, n);
+                            prop_assert_eq!(
+                                total,
+                                n,
+                                "double execution: {} calls for {} nodes",
+                                total,
+                                n
+                            );
                             Ok(())
                         })
                     },
@@ -1973,7 +2102,10 @@ mod tests {
 
             runner
                 .run(
-                    &(3..8usize, proptest::collection::vec((0..8usize, 0..8usize), 0..10)),
+                    &(
+                        3..8usize,
+                        proptest::collection::vec((0..8usize, 0..8usize), 0..10),
+                    ),
                     |(n, edges)| {
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         rt.block_on(async {

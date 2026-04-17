@@ -107,7 +107,10 @@ mod tests {
 
     #[test]
     fn value_to_json_scalars() {
-        assert_eq!(value_to_json(&Value::String("hi".into())), serde_json::json!("hi"));
+        assert_eq!(
+            value_to_json(&Value::String("hi".into())),
+            serde_json::json!("hi")
+        );
         assert_eq!(value_to_json(&Value::I64(42)), serde_json::json!(42));
         assert_eq!(value_to_json(&Value::Bool(true)), serde_json::json!(true));
         assert_eq!(value_to_json(&Value::Null), serde_json::Value::Null);

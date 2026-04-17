@@ -217,11 +217,8 @@ mod tests {
         let token = CancellationToken::new();
         let token2 = token.clone();
 
-        let handle = tokio::spawn(async move {
-            handler
-                .execute(&node, Outputs::new(), token2)
-                .await
-        });
+        let handle =
+            tokio::spawn(async move { handler.execute(&node, Outputs::new(), token2).await });
 
         // Cancel after a short delay
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -254,7 +251,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("no operator listening"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("no operator listening"));
     }
 
     #[tokio::test]
@@ -316,10 +316,7 @@ mod tests {
             for _ in 0..2 {
                 let (prompt, responder) = receiver.recv().await.unwrap();
                 let mut resp = Outputs::new();
-                resp.insert(
-                    "from".into(),
-                    Value::String(prompt.node_id.clone()),
-                );
+                resp.insert("from".into(), Value::String(prompt.node_id.clone()));
                 received.push(prompt.node_id.clone());
                 responder.respond(resp);
             }
@@ -332,11 +329,13 @@ mod tests {
 
         let t1 = tokio::spawn(async move {
             let node = Node::new("A", "Node A");
-            h1.execute(&node, Outputs::new(), CancellationToken::new()).await
+            h1.execute(&node, Outputs::new(), CancellationToken::new())
+                .await
         });
         let t2 = tokio::spawn(async move {
             let node = Node::new("B", "Node B");
-            h2.execute(&node, Outputs::new(), CancellationToken::new()).await
+            h2.execute(&node, Outputs::new(), CancellationToken::new())
+                .await
         });
 
         let r1 = t1.await.unwrap().unwrap();

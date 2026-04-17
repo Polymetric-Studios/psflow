@@ -243,7 +243,8 @@ mod tests {
         inputs.insert("a".into(), Value::I64(1));
         inputs.insert("b".into(), Value::String("hello".into()));
 
-        let result = run_handler(&PassthroughHandler, &Node::new("N", "N"), inputs.clone()).unwrap();
+        let result =
+            run_handler(&PassthroughHandler, &Node::new("N", "N"), inputs.clone()).unwrap();
         assert_eq!(result, inputs);
     }
 
@@ -299,11 +300,8 @@ mod tests {
         let cancel = CancellationToken::new();
         let cancel2 = cancel.clone();
 
-        let handle = tokio::spawn(async move {
-            DelayHandler
-                .execute(&node, Outputs::new(), cancel2)
-                .await
-        });
+        let handle =
+            tokio::spawn(async move { DelayHandler.execute(&node, Outputs::new(), cancel2).await });
 
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancel.cancel();

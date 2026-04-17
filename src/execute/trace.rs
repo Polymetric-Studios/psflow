@@ -142,11 +142,7 @@ impl ExecutionTrace {
     /// This gives a node's-eye view of execution history: only nodes on the
     /// paths leading to `node_id` are included. Useful for scoping LLM context
     /// to a node's ancestor chain, excluding parallel branches.
-    pub fn for_node(
-        &self,
-        node_id: &str,
-        graph: &crate::graph::Graph,
-    ) -> Self {
+    pub fn for_node(&self, node_id: &str, graph: &crate::graph::Graph) -> Self {
         let ancestors = graph.ancestors(&node_id.into());
         let records: Vec<TraceRecord> = self
             .records
@@ -330,7 +326,11 @@ mod tests {
         let trace = ExecutionTrace::from_events(&events);
 
         for record in &trace.records {
-            assert!(record.elapsed.is_some(), "node {} missing elapsed", record.node_id);
+            assert!(
+                record.elapsed.is_some(),
+                "node {} missing elapsed",
+                record.node_id
+            );
             assert!(record.elapsed.unwrap() > Duration::ZERO);
         }
     }
@@ -566,36 +566,118 @@ mod tests {
         graph.add_node(Node::new("B", "B")).unwrap();
         graph.add_node(Node::new("C", "C")).unwrap();
         graph.add_node(Node::new("D", "D")).unwrap();
-        graph.add_edge(&"A".into(), "o", &"B".into(), "i", None).unwrap();
-        graph.add_edge(&"A".into(), "o", &"C".into(), "i", None).unwrap();
-        graph.add_edge(&"B".into(), "o", &"D".into(), "i", None).unwrap();
-        graph.add_edge(&"C".into(), "o", &"D".into(), "i", None).unwrap();
+        graph
+            .add_edge(&"A".into(), "o", &"B".into(), "i", None)
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "o", &"C".into(), "i", None)
+            .unwrap();
+        graph
+            .add_edge(&"B".into(), "o", &"D".into(), "i", None)
+            .unwrap();
+        graph
+            .add_edge(&"C".into(), "o", &"D".into(), "i", None)
+            .unwrap();
 
         // Simulate all 4 nodes completing
         let t0 = Instant::now();
         let events = vec![
             ExecutionEvent::ExecutionStarted { timestamp: t0 },
             // A completes
-            ExecutionEvent::StateChanged { node_id: "A".into(), from: NodeState::Idle, to: NodeState::Pending, timestamp: t0 },
-            ExecutionEvent::StateChanged { node_id: "A".into(), from: NodeState::Pending, to: NodeState::Running, timestamp: t0 },
-            ExecutionEvent::NodeCompleted { node_id: "A".into(), outputs: Outputs::new() },
-            ExecutionEvent::StateChanged { node_id: "A".into(), from: NodeState::Running, to: NodeState::Completed, timestamp: t0 + Duration::from_millis(10) },
+            ExecutionEvent::StateChanged {
+                node_id: "A".into(),
+                from: NodeState::Idle,
+                to: NodeState::Pending,
+                timestamp: t0,
+            },
+            ExecutionEvent::StateChanged {
+                node_id: "A".into(),
+                from: NodeState::Pending,
+                to: NodeState::Running,
+                timestamp: t0,
+            },
+            ExecutionEvent::NodeCompleted {
+                node_id: "A".into(),
+                outputs: Outputs::new(),
+            },
+            ExecutionEvent::StateChanged {
+                node_id: "A".into(),
+                from: NodeState::Running,
+                to: NodeState::Completed,
+                timestamp: t0 + Duration::from_millis(10),
+            },
             // B completes
-            ExecutionEvent::StateChanged { node_id: "B".into(), from: NodeState::Idle, to: NodeState::Pending, timestamp: t0 + Duration::from_millis(10) },
-            ExecutionEvent::StateChanged { node_id: "B".into(), from: NodeState::Pending, to: NodeState::Running, timestamp: t0 + Duration::from_millis(10) },
-            ExecutionEvent::NodeCompleted { node_id: "B".into(), outputs: Outputs::new() },
-            ExecutionEvent::StateChanged { node_id: "B".into(), from: NodeState::Running, to: NodeState::Completed, timestamp: t0 + Duration::from_millis(20) },
+            ExecutionEvent::StateChanged {
+                node_id: "B".into(),
+                from: NodeState::Idle,
+                to: NodeState::Pending,
+                timestamp: t0 + Duration::from_millis(10),
+            },
+            ExecutionEvent::StateChanged {
+                node_id: "B".into(),
+                from: NodeState::Pending,
+                to: NodeState::Running,
+                timestamp: t0 + Duration::from_millis(10),
+            },
+            ExecutionEvent::NodeCompleted {
+                node_id: "B".into(),
+                outputs: Outputs::new(),
+            },
+            ExecutionEvent::StateChanged {
+                node_id: "B".into(),
+                from: NodeState::Running,
+                to: NodeState::Completed,
+                timestamp: t0 + Duration::from_millis(20),
+            },
             // C completes
-            ExecutionEvent::StateChanged { node_id: "C".into(), from: NodeState::Idle, to: NodeState::Pending, timestamp: t0 + Duration::from_millis(10) },
-            ExecutionEvent::StateChanged { node_id: "C".into(), from: NodeState::Pending, to: NodeState::Running, timestamp: t0 + Duration::from_millis(10) },
-            ExecutionEvent::NodeCompleted { node_id: "C".into(), outputs: Outputs::new() },
-            ExecutionEvent::StateChanged { node_id: "C".into(), from: NodeState::Running, to: NodeState::Completed, timestamp: t0 + Duration::from_millis(20) },
+            ExecutionEvent::StateChanged {
+                node_id: "C".into(),
+                from: NodeState::Idle,
+                to: NodeState::Pending,
+                timestamp: t0 + Duration::from_millis(10),
+            },
+            ExecutionEvent::StateChanged {
+                node_id: "C".into(),
+                from: NodeState::Pending,
+                to: NodeState::Running,
+                timestamp: t0 + Duration::from_millis(10),
+            },
+            ExecutionEvent::NodeCompleted {
+                node_id: "C".into(),
+                outputs: Outputs::new(),
+            },
+            ExecutionEvent::StateChanged {
+                node_id: "C".into(),
+                from: NodeState::Running,
+                to: NodeState::Completed,
+                timestamp: t0 + Duration::from_millis(20),
+            },
             // D completes
-            ExecutionEvent::StateChanged { node_id: "D".into(), from: NodeState::Idle, to: NodeState::Pending, timestamp: t0 + Duration::from_millis(20) },
-            ExecutionEvent::StateChanged { node_id: "D".into(), from: NodeState::Pending, to: NodeState::Running, timestamp: t0 + Duration::from_millis(20) },
-            ExecutionEvent::NodeCompleted { node_id: "D".into(), outputs: Outputs::new() },
-            ExecutionEvent::StateChanged { node_id: "D".into(), from: NodeState::Running, to: NodeState::Completed, timestamp: t0 + Duration::from_millis(30) },
-            ExecutionEvent::ExecutionCompleted { elapsed: Duration::from_millis(30) },
+            ExecutionEvent::StateChanged {
+                node_id: "D".into(),
+                from: NodeState::Idle,
+                to: NodeState::Pending,
+                timestamp: t0 + Duration::from_millis(20),
+            },
+            ExecutionEvent::StateChanged {
+                node_id: "D".into(),
+                from: NodeState::Pending,
+                to: NodeState::Running,
+                timestamp: t0 + Duration::from_millis(20),
+            },
+            ExecutionEvent::NodeCompleted {
+                node_id: "D".into(),
+                outputs: Outputs::new(),
+            },
+            ExecutionEvent::StateChanged {
+                node_id: "D".into(),
+                from: NodeState::Running,
+                to: NodeState::Completed,
+                timestamp: t0 + Duration::from_millis(30),
+            },
+            ExecutionEvent::ExecutionCompleted {
+                elapsed: Duration::from_millis(30),
+            },
         ];
 
         let full_trace = ExecutionTrace::from_events(&events);
@@ -633,11 +715,21 @@ mod tests {
         use crate::graph::Graph;
 
         let mut graph = Graph::new();
-        graph.add_node(Node::new("A", "Start").with_handler("inc")).unwrap();
-        graph.add_node(Node::new("B", "Middle").with_handler("inc")).unwrap();
-        graph.add_node(Node::new("C", "End").with_handler("inc")).unwrap();
-        graph.add_edge(&"A".into(), "out", &"B".into(), "in", None).unwrap();
-        graph.add_edge(&"B".into(), "out", &"C".into(), "in", None).unwrap();
+        graph
+            .add_node(Node::new("A", "Start").with_handler("inc"))
+            .unwrap();
+        graph
+            .add_node(Node::new("B", "Middle").with_handler("inc"))
+            .unwrap();
+        graph
+            .add_node(Node::new("C", "End").with_handler("inc"))
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "out", &"B".into(), "in", None)
+            .unwrap();
+        graph
+            .add_edge(&"B".into(), "out", &"C".into(), "in", None)
+            .unwrap();
 
         let mut handlers = crate::execute::HandlerRegistry::new();
         handlers.insert(

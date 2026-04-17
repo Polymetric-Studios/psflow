@@ -50,8 +50,7 @@ impl ExecutionSnapshot {
     /// Load snapshot from a file.
     pub fn load(path: &std::path::Path) -> Result<Self, std::io::Error> {
         let json = std::fs::read_to_string(path)?;
-        Self::from_json(&json)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        Self::from_json(&json).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
     /// Node IDs that have already completed (should be skipped on resume).
@@ -134,14 +133,8 @@ mod tests {
 
         assert_eq!(restored.version, 1);
         assert_eq!(restored.node_states.len(), 4);
-        assert_eq!(
-            restored.node_states.get("A"),
-            Some(&NodeState::Completed)
-        );
-        assert_eq!(
-            restored.node_states.get("C"),
-            Some(&NodeState::Running)
-        );
+        assert_eq!(restored.node_states.get("A"), Some(&NodeState::Completed));
+        assert_eq!(restored.node_states.get("C"), Some(&NodeState::Running));
         assert_eq!(
             restored.node_outputs.get("A").unwrap().get("result"),
             Some(&Value::String("hello".into()))
@@ -202,7 +195,11 @@ mod tests {
 
         {
             let mut bb = ctx.blackboard();
-            bb.set("mode".into(), Value::String("fast".into()), BlackboardScope::Global);
+            bb.set(
+                "mode".into(),
+                Value::String("fast".into()),
+                BlackboardScope::Global,
+            );
         }
         ctx.set_branch_decision("BR", "yes".to_string());
 
@@ -252,11 +249,21 @@ mod tests {
 
         // Build graph: A → B → C
         let mut graph = Graph::new();
-        graph.add_node(Node::new("A", "First").with_handler("inc")).unwrap();
-        graph.add_node(Node::new("B", "Second").with_handler("inc")).unwrap();
-        graph.add_node(Node::new("C", "Third").with_handler("inc")).unwrap();
-        graph.add_edge(&"A".into(), "out", &"B".into(), "in", None).unwrap();
-        graph.add_edge(&"B".into(), "out", &"C".into(), "in", None).unwrap();
+        graph
+            .add_node(Node::new("A", "First").with_handler("inc"))
+            .unwrap();
+        graph
+            .add_node(Node::new("B", "Second").with_handler("inc"))
+            .unwrap();
+        graph
+            .add_node(Node::new("C", "Third").with_handler("inc"))
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "out", &"B".into(), "in", None)
+            .unwrap();
+        graph
+            .add_edge(&"B".into(), "out", &"C".into(), "in", None)
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert(
@@ -280,8 +287,12 @@ mod tests {
             branch_decisions: HashMap::new(),
             version: ExecutionSnapshot::CURRENT_VERSION,
         };
-        snapshot.node_states.insert("A".into(), NodeState::Completed);
-        snapshot.node_states.insert("B".into(), NodeState::Completed);
+        snapshot
+            .node_states
+            .insert("A".into(), NodeState::Completed);
+        snapshot
+            .node_states
+            .insert("B".into(), NodeState::Completed);
         let mut a_out = Outputs::new();
         a_out.insert("value".into(), Value::I64(1));
         snapshot.node_outputs.insert("A".into(), a_out.clone());

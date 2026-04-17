@@ -55,10 +55,7 @@ impl Blackboard {
     /// - `ReadOnly`: reads chain through to the parent; writes stay local.
     /// - `Snapshot`: copies the parent's global data; no ongoing link.
     /// - `Isolated`: empty blackboard, no parent data.
-    pub fn with_parent(
-        parent: &Blackboard,
-        inheritance: ContextInheritance,
-    ) -> Self {
+    pub fn with_parent(parent: &Blackboard, inheritance: ContextInheritance) -> Self {
         match inheritance {
             ContextInheritance::ReadOnly => Self {
                 global: HashMap::new(),
@@ -230,16 +227,8 @@ mod tests {
     #[test]
     fn node_scope_isolation() {
         let mut bb = Blackboard::new();
-        bb.set(
-            "x".into(),
-            Value::I64(1),
-            BlackboardScope::Node("A".into()),
-        );
-        bb.set(
-            "x".into(),
-            Value::I64(2),
-            BlackboardScope::Node("B".into()),
-        );
+        bb.set("x".into(), Value::I64(1), BlackboardScope::Node("A".into()));
+        bb.set("x".into(), Value::I64(2), BlackboardScope::Node("B".into()));
 
         assert_eq!(
             bb.get("x", &BlackboardScope::Node("A".into())),
@@ -322,10 +311,18 @@ mod tests {
     #[test]
     fn read_only_child_shadows_parent() {
         let mut parent = Blackboard::new();
-        parent.set("key".into(), Value::String("parent".into()), BlackboardScope::Global);
+        parent.set(
+            "key".into(),
+            Value::String("parent".into()),
+            BlackboardScope::Global,
+        );
 
         let mut child = Blackboard::with_parent(&parent, ContextInheritance::ReadOnly);
-        child.set("key".into(), Value::String("child".into()), BlackboardScope::Global);
+        child.set(
+            "key".into(),
+            Value::String("child".into()),
+            BlackboardScope::Global,
+        );
 
         // Child sees its own value (shadows parent)
         assert_eq!(
@@ -342,7 +339,11 @@ mod tests {
     #[test]
     fn read_only_scoped_reads_chain_through_parent() {
         let mut parent = Blackboard::new();
-        parent.set("from_parent".into(), Value::Bool(true), BlackboardScope::Global);
+        parent.set(
+            "from_parent".into(),
+            Value::Bool(true),
+            BlackboardScope::Global,
+        );
 
         let child = Blackboard::with_parent(&parent, ContextInheritance::ReadOnly);
 
@@ -399,7 +400,11 @@ mod tests {
     #[test]
     fn isolated_gets_empty_blackboard() {
         let mut parent = Blackboard::new();
-        parent.set("secret".into(), Value::String("hidden".into()), BlackboardScope::Global);
+        parent.set(
+            "secret".into(),
+            Value::String("hidden".into()),
+            BlackboardScope::Global,
+        );
 
         let child = Blackboard::with_parent(&parent, ContextInheritance::Isolated);
 

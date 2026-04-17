@@ -50,10 +50,7 @@ impl NodeHandler for CatchHandler {
                     outputs.insert("_caught_error".into(), Value::Bool(true));
                     outputs.insert("error".into(), Value::String(e.to_string()));
                     outputs.insert("error_type".into(), Value::String(error_type_name(&e)));
-                    outputs.insert(
-                        "recoverable".into(),
-                        Value::Bool(is_recoverable(&e)),
-                    );
+                    outputs.insert("recoverable".into(), Value::Bool(is_recoverable(&e)));
                     Ok(outputs)
                 }
             }
@@ -93,16 +90,14 @@ impl NodeHandler for FallbackHandler {
         Box::pin(async move {
             match primary.execute(&node, inputs, cancel.clone()).await {
                 Ok(outputs) => Ok(outputs),
-                Err(primary_err) => {
-                    match fallback.execute(&node, inputs_backup, cancel).await {
-                        Ok(outputs) => Ok(outputs),
-                        Err(fallback_err) => Err(NodeError::Failed {
-                            source_message: Some(primary_err.to_string()),
-                            message: format!("fallback also failed: {fallback_err}"),
-                            recoverable: is_recoverable(&fallback_err),
-                        }),
-                    }
-                }
+                Err(primary_err) => match fallback.execute(&node, inputs_backup, cancel).await {
+                    Ok(outputs) => Ok(outputs),
+                    Err(fallback_err) => Err(NodeError::Failed {
+                        source_message: Some(primary_err.to_string()),
+                        message: format!("fallback also failed: {fallback_err}"),
+                        recoverable: is_recoverable(&fallback_err),
+                    }),
+                },
             }
         })
     }
@@ -299,7 +294,10 @@ mod tests {
         let result = run_handler(&handler, &Node::new("C", "Catch"), Outputs::new()).unwrap();
 
         assert_eq!(result.get("_caught_error"), Some(&Value::Bool(true)));
-        assert_eq!(result.get("error_type"), Some(&Value::String("Failed".into())));
+        assert_eq!(
+            result.get("error_type"),
+            Some(&Value::String("Failed".into()))
+        );
         assert_eq!(result.get("recoverable"), Some(&Value::Bool(true)));
         assert!(result.get("error").is_some());
     }
@@ -310,7 +308,10 @@ mod tests {
         let result = run_handler(&handler, &Node::new("C", "Catch"), Outputs::new()).unwrap();
 
         assert_eq!(result.get("_caught_error"), Some(&Value::Bool(true)));
-        assert_eq!(result.get("error_type"), Some(&Value::String("Timeout".into())));
+        assert_eq!(
+            result.get("error_type"),
+            Some(&Value::String("Timeout".into()))
+        );
         assert_eq!(result.get("recoverable"), Some(&Value::Bool(true)));
     }
 

@@ -77,15 +77,15 @@ impl NodeHandler for RhaiHandler {
                         message: format!("rhai handler [{node_id}]: {e}"),
                         recoverable: false,
                     })?;
-                tokio::fs::read_to_string(&validated).await.map_err(|e| {
-                    NodeError::Failed {
+                tokio::fs::read_to_string(&validated)
+                    .await
+                    .map_err(|e| NodeError::Failed {
                         source_message: None,
                         message: format!(
                             "rhai handler [{node_id}]: failed to read script file '{path}': {e}"
                         ),
                         recoverable: false,
-                    }
-                })?
+                    })?
             } else {
                 return Err(NodeError::Failed {
                     source_message: None,
@@ -128,8 +128,9 @@ impl NodeHandler for RhaiHandler {
             }
 
             // Execute
-            let result = engine.eval_ast(&mut scope, &ast, &cancel).map_err(|e| {
-                match e {
+            let result = engine
+                .eval_ast(&mut scope, &ast, &cancel)
+                .map_err(|e| match e {
                     ScriptError::Cancelled => NodeError::Cancelled {
                         reason: format!("rhai handler [{node_id}]: script cancelled"),
                     },
@@ -138,8 +139,7 @@ impl NodeHandler for RhaiHandler {
                         message: format!("rhai handler [{node_id}]: {other}"),
                         recoverable: false,
                     },
-                }
-            })?;
+                })?;
 
             // Convert result to Outputs
             if result.is_map() {
@@ -309,7 +309,10 @@ mod tests {
 
         let result = handler.execute(&node, Outputs::new(), cancel).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("escapes base directory"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("escapes base directory"));
     }
 
     #[tokio::test]
@@ -368,11 +371,7 @@ mod tests {
         let exec_ctx = Arc::new(ExecutionContext::new());
         {
             let mut bb = exec_ctx.blackboard();
-            bb.set(
-                "threshold".into(),
-                Value::I64(100),
-                BlackboardScope::Global,
-            );
+            bb.set("threshold".into(), Value::I64(100), BlackboardScope::Global);
             bb.set(
                 "mode".into(),
                 Value::String("fast".into()),

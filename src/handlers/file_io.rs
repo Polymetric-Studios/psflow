@@ -34,48 +34,50 @@ impl NodeHandler for ReadFileHandler {
                 });
             }
 
-            let path_template = config
-                .get("path")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| NodeError::Failed {
-                    source_message: None,
-                    message: format!("node '{node_id}': missing config.path"),
-                    recoverable: false,
-                })?;
+            let path_template =
+                config
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| NodeError::Failed {
+                        source_message: None,
+                        message: format!("node '{node_id}': missing config.path"),
+                        recoverable: false,
+                    })?;
 
             let path = interpolate(path_template, &inputs);
 
             // Path containment check
             if let Some(base_dir) = config.get("base_dir").and_then(|v| v.as_str()) {
-                let safe_path = validate_path_containment(&path, base_dir).map_err(|e| {
-                    NodeError::Failed {
+                let safe_path =
+                    validate_path_containment(&path, base_dir).map_err(|e| NodeError::Failed {
                         source_message: None,
                         message: format!("node '{node_id}': {e}"),
                         recoverable: false,
-                    }
-                })?;
+                    })?;
                 // Use the normalized path
                 let path = safe_path.to_string_lossy().to_string();
-                let content = tokio::fs::read_to_string(&path).await.map_err(|e| {
-                    NodeError::Failed {
-                        source_message: Some(e.to_string()),
-                        message: format!("node '{node_id}': failed to read '{path}': {e}"),
-                        recoverable: false,
-                    }
-                })?;
+                let content =
+                    tokio::fs::read_to_string(&path)
+                        .await
+                        .map_err(|e| NodeError::Failed {
+                            source_message: Some(e.to_string()),
+                            message: format!("node '{node_id}': failed to read '{path}': {e}"),
+                            recoverable: false,
+                        })?;
                 let mut outputs = Outputs::new();
                 outputs.insert("content".into(), Value::String(content));
                 outputs.insert("path".into(), Value::String(path));
                 return Ok(outputs);
             }
 
-            let content = tokio::fs::read_to_string(&path).await.map_err(|e| {
-                NodeError::Failed {
-                    source_message: Some(e.to_string()),
-                    message: format!("node '{node_id}': failed to read '{path}': {e}"),
-                    recoverable: false,
-                }
-            })?;
+            let content =
+                tokio::fs::read_to_string(&path)
+                    .await
+                    .map_err(|e| NodeError::Failed {
+                        source_message: Some(e.to_string()),
+                        message: format!("node '{node_id}': failed to read '{path}': {e}"),
+                        recoverable: false,
+                    })?;
 
             let mut outputs = Outputs::new();
             outputs.insert("content".into(), Value::String(content));
@@ -115,14 +117,15 @@ impl NodeHandler for WriteFileHandler {
                 });
             }
 
-            let path_template = config
-                .get("path")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| NodeError::Failed {
-                    source_message: None,
-                    message: format!("node '{node_id}': missing config.path"),
-                    recoverable: false,
-                })?;
+            let path_template =
+                config
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| NodeError::Failed {
+                        source_message: None,
+                        message: format!("node '{node_id}': missing config.path"),
+                        recoverable: false,
+                    })?;
 
             let input_key = config
                 .get("input_key")
@@ -162,27 +165,27 @@ impl NodeHandler for WriteFileHandler {
             if create_dirs {
                 if let Some(parent) = std::path::Path::new(&path).parent() {
                     if !parent.as_os_str().is_empty() {
-                        tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                            NodeError::Failed {
+                        tokio::fs::create_dir_all(parent)
+                            .await
+                            .map_err(|e| NodeError::Failed {
                                 source_message: Some(e.to_string()),
                                 message: format!(
                                     "node '{node_id}': failed to create dirs for '{path}': {e}"
                                 ),
                                 recoverable: false,
-                            }
-                        })?;
+                            })?;
                     }
                 }
             }
 
             let bytes = content.as_bytes().len() as i64;
-            tokio::fs::write(&path, &content).await.map_err(|e| {
-                NodeError::Failed {
+            tokio::fs::write(&path, &content)
+                .await
+                .map_err(|e| NodeError::Failed {
                     source_message: Some(e.to_string()),
                     message: format!("node '{node_id}': failed to write '{path}': {e}"),
                     recoverable: false,
-                }
-            })?;
+                })?;
 
             let mut outputs = Outputs::new();
             outputs.insert("path".into(), Value::String(path));
@@ -220,14 +223,15 @@ impl NodeHandler for GlobHandler {
                 });
             }
 
-            let pattern_template = config
-                .get("pattern")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| NodeError::Failed {
-                    source_message: None,
-                    message: format!("node '{node_id}': missing config.pattern"),
-                    recoverable: false,
-                })?;
+            let pattern_template =
+                config
+                    .get("pattern")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| NodeError::Failed {
+                        source_message: None,
+                        message: format!("node '{node_id}': missing config.pattern"),
+                        recoverable: false,
+                    })?;
 
             let pattern = interpolate(pattern_template, &inputs);
 
@@ -250,7 +254,6 @@ impl NodeHandler for GlobHandler {
         })
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -298,7 +301,10 @@ mod tests {
             .execute(&node, Outputs::new(), CancellationToken::new())
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing config.path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing config.path"));
     }
 
     #[tokio::test]
@@ -368,10 +374,8 @@ mod tests {
         assert_eq!(result["bytes_written"], Value::I64(4));
         assert!(file_path.exists());
 
-        let _ = tokio::fs::remove_dir_all(
-            std::env::temp_dir().join("psflow_test_write_dirs"),
-        )
-        .await;
+        let _ =
+            tokio::fs::remove_dir_all(std::env::temp_dir().join("psflow_test_write_dirs")).await;
     }
 
     #[tokio::test]
@@ -445,6 +449,9 @@ mod tests {
             .execute(&node, Outputs::new(), CancellationToken::new())
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing config.pattern"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing config.pattern"));
     }
 }

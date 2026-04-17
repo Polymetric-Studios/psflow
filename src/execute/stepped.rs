@@ -7,9 +7,7 @@ use crate::execute::topological::{
     cancel_downstream, collect_inputs, handle_branch_decision, is_branch_blocked,
     PassthroughHandler,
 };
-use crate::execute::{
-    ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler,
-};
+use crate::execute::{ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler};
 use crate::graph::node::NodeId;
 use crate::graph::Graph;
 use std::collections::HashMap;
@@ -380,9 +378,9 @@ fn cancel_all_pending(graph: &Graph, ctx: &ExecutionContext) {
 mod tests {
     use super::*;
     use crate::execute::sync_handler;
+    use crate::execute::Outputs;
     use crate::graph::node::Node;
     use crate::graph::types::Value;
-    use crate::execute::Outputs;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering as AtomicOrdering;
 
@@ -413,9 +411,12 @@ mod tests {
     async fn tick_advances_one_wave() {
         // A → B → C: three ticks to complete
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("trace")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("trace"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace"))
+            .unwrap();
+        g.add_node(Node::new("C", "C").with_handler("trace"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
 
@@ -486,19 +487,15 @@ mod tests {
     async fn tick_context_inspection_between_ticks() {
         // Verify the caller can inspect/modify blackboard between ticks
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("write_bb")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("read_bb")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("write_bb"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("read_bb"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
 
         let mut handlers = HandlerRegistry::new();
-        handlers.insert(
-            "write_bb".into(),
-            sync_handler(|_, _| Ok(Outputs::new())),
-        );
-        handlers.insert(
-            "read_bb".into(),
-            sync_handler(|_, inputs| Ok(inputs)),
-        );
+        handlers.insert("write_bb".into(), sync_handler(|_, _| Ok(Outputs::new())));
+        handlers.insert("read_bb".into(), sync_handler(|_, inputs| Ok(inputs)));
 
         let executor = SteppedExecutor::new();
         let ctx = executor.create_context();
@@ -524,7 +521,10 @@ mod tests {
 
         let bb = ctx.blackboard();
         assert_eq!(
-            bb.get("injected", &crate::execute::blackboard::BlackboardScope::Global),
+            bb.get(
+                "injected",
+                &crate::execute::blackboard::BlackboardScope::Global
+            ),
             Some(&Value::String("from_caller".into()))
         );
     }
@@ -534,9 +534,12 @@ mod tests {
     #[tokio::test]
     async fn stepped_execute_runs_to_completion() {
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("trace")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("trace"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace"))
+            .unwrap();
+        g.add_node(Node::new("C", "C").with_handler("trace"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
 
@@ -567,7 +570,8 @@ mod tests {
     async fn stepped_error_cascades() {
         let mut g = Graph::new();
         g.add_node(Node::new("A", "A").with_handler("ok")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("fail")).unwrap();
+        g.add_node(Node::new("B", "B").with_handler("fail"))
+            .unwrap();
         g.add_node(Node::new("C", "C").with_handler("ok")).unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
@@ -585,10 +589,7 @@ mod tests {
             }),
         );
 
-        let result = SteppedExecutor::new()
-            .execute(&g, &handlers)
-            .await
-            .unwrap();
+        let result = SteppedExecutor::new().execute(&g, &handlers).await.unwrap();
 
         assert_eq!(result.node_states["A"], NodeState::Completed);
         assert_eq!(result.node_states["B"], NodeState::Failed);
@@ -598,7 +599,8 @@ mod tests {
     #[tokio::test]
     async fn stepped_cancellation() {
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("cancel_it")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("cancel_it"))
+            .unwrap();
         g.add_node(Node::new("B", "B").with_handler("ok")).unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
 
@@ -631,10 +633,7 @@ mod tests {
 
         let mut g = Graph::new();
         g.add_node(Node::new("A", "A")).unwrap();
-        let result = executor
-            .execute(&g, &HandlerRegistry::new())
-            .await
-            .unwrap();
+        let result = executor.execute(&g, &HandlerRegistry::new()).await.unwrap();
         assert_eq!(result.node_states["A"], NodeState::Completed);
     }
 
@@ -644,10 +643,14 @@ mod tests {
     async fn tick_count_matches_graph_depth() {
         // A → B → C → D: 4 ticks
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("pass")).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("pass")).unwrap();
-        g.add_node(Node::new("D", "D").with_handler("pass")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("C", "C").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("D", "D").with_handler("pass"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
         g.add_edge(&"C".into(), "", &"D".into(), "", None).unwrap();
@@ -678,7 +681,8 @@ mod tests {
     #[tokio::test]
     async fn tick_after_completion_returns_empty() {
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("pass"))
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
@@ -765,27 +769,45 @@ mod tests {
         // deploy --> done
         // wait --> done
         let mut g = Graph::new();
-        g.add_node(Node::new("check", "check").with_handler("pass")).unwrap();
+        g.add_node(Node::new("check", "check").with_handler("pass"))
+            .unwrap();
         let mut branch = Node::new("branch", "branch").with_handler("pass");
         branch.config = serde_json::json!({"guard": "true"});
         g.add_node(branch).unwrap();
-        g.add_node(Node::new("deploy", "deploy").with_handler("pass")).unwrap();
-        g.add_node(Node::new("wait", "wait").with_handler("pass")).unwrap();
-        g.add_node(Node::new("done", "done").with_handler("pass")).unwrap();
+        g.add_node(Node::new("deploy", "deploy").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("wait", "wait").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("done", "done").with_handler("pass"))
+            .unwrap();
 
-        g.add_edge(&"check".into(), "", &"branch".into(), "", None).unwrap();
-        g.add_edge(&"branch".into(), "", &"deploy".into(), "", Some("yes".into())).unwrap();
-        g.add_edge(&"branch".into(), "", &"wait".into(), "", Some("else".into())).unwrap();
-        g.add_edge(&"deploy".into(), "", &"done".into(), "", None).unwrap();
-        g.add_edge(&"wait".into(), "", &"done".into(), "", None).unwrap();
+        g.add_edge(&"check".into(), "", &"branch".into(), "", None)
+            .unwrap();
+        g.add_edge(
+            &"branch".into(),
+            "",
+            &"deploy".into(),
+            "",
+            Some("yes".into()),
+        )
+        .unwrap();
+        g.add_edge(
+            &"branch".into(),
+            "",
+            &"wait".into(),
+            "",
+            Some("else".into()),
+        )
+        .unwrap();
+        g.add_edge(&"deploy".into(), "", &"done".into(), "", None)
+            .unwrap();
+        g.add_edge(&"wait".into(), "", &"done".into(), "", None)
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
 
-        let result = SteppedExecutor::new()
-            .execute(&g, &handlers)
-            .await
-            .unwrap();
+        let result = SteppedExecutor::new().execute(&g, &handlers).await.unwrap();
 
         assert_eq!(result.node_states["check"], NodeState::Completed);
         assert_eq!(result.node_states["branch"], NodeState::Completed);
@@ -803,19 +825,20 @@ mod tests {
         let mut branch = Node::new("branch", "branch").with_handler("pass");
         branch.config = serde_json::json!({"guard": "false"});
         g.add_node(branch).unwrap();
-        g.add_node(Node::new("a", "a").with_handler("pass")).unwrap();
-        g.add_node(Node::new("b", "b").with_handler("pass")).unwrap();
+        g.add_node(Node::new("a", "a").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("b", "b").with_handler("pass"))
+            .unwrap();
 
-        g.add_edge(&"branch".into(), "", &"a".into(), "", Some("yes".into())).unwrap();
-        g.add_edge(&"branch".into(), "", &"b".into(), "", Some("else".into())).unwrap();
+        g.add_edge(&"branch".into(), "", &"a".into(), "", Some("yes".into()))
+            .unwrap();
+        g.add_edge(&"branch".into(), "", &"b".into(), "", Some("else".into()))
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
 
-        let result = SteppedExecutor::new()
-            .execute(&g, &handlers)
-            .await
-            .unwrap();
+        let result = SteppedExecutor::new().execute(&g, &handlers).await.unwrap();
 
         assert_eq!(result.node_states["branch"], NodeState::Completed);
         assert_eq!(result.node_states["a"], NodeState::Cancelled);
@@ -832,21 +855,24 @@ mod tests {
         let mut branch = Node::new("branch", "branch").with_handler("pass");
         branch.config = serde_json::json!({"guard": "\"maybe\""});
         g.add_node(branch).unwrap();
-        g.add_node(Node::new("a", "a").with_handler("pass")).unwrap();
-        g.add_node(Node::new("b", "b").with_handler("pass")).unwrap();
-        g.add_node(Node::new("c", "c").with_handler("pass")).unwrap();
+        g.add_node(Node::new("a", "a").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("b", "b").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("c", "c").with_handler("pass"))
+            .unwrap();
 
-        g.add_edge(&"branch".into(), "", &"a".into(), "", Some("yes".into())).unwrap();
-        g.add_edge(&"branch".into(), "", &"b".into(), "", Some("no".into())).unwrap();
-        g.add_edge(&"branch".into(), "", &"c".into(), "", Some("else".into())).unwrap();
+        g.add_edge(&"branch".into(), "", &"a".into(), "", Some("yes".into()))
+            .unwrap();
+        g.add_edge(&"branch".into(), "", &"b".into(), "", Some("no".into()))
+            .unwrap();
+        g.add_edge(&"branch".into(), "", &"c".into(), "", Some("else".into()))
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
 
-        let result = SteppedExecutor::new()
-            .execute(&g, &handlers)
-            .await
-            .unwrap();
+        let result = SteppedExecutor::new().execute(&g, &handlers).await.unwrap();
 
         assert_eq!(result.node_states["branch"], NodeState::Completed);
         assert_eq!(result.node_states["a"], NodeState::Cancelled);
@@ -866,9 +892,11 @@ mod tests {
     async fn skipped_node_passes_through_inputs() {
         // A → B (skipped) → C: C should receive A's output
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("trace"))
+            .unwrap();
         g.add_node(node_with_activate("B", false)).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("trace")).unwrap();
+        g.add_node(Node::new("C", "C").with_handler("trace"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
 
@@ -891,10 +919,12 @@ mod tests {
     async fn all_middle_nodes_skipped() {
         // A → B (skipped) → C (skipped) → D: D receives A's output
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("trace"))
+            .unwrap();
         g.add_node(node_with_activate("B", false)).unwrap();
         g.add_node(node_with_activate("C", false)).unwrap();
-        g.add_node(Node::new("D", "D").with_handler("trace")).unwrap();
+        g.add_node(Node::new("D", "D").with_handler("trace"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
         g.add_edge(&"C".into(), "", &"D".into(), "", None).unwrap();
@@ -950,7 +980,8 @@ mod tests {
         // Verify Skipped differs from Cancelled: downstream runs
         let mut g = Graph::new();
         g.add_node(node_with_activate("A", false)).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
 
         let result = SteppedExecutor::new()
@@ -983,9 +1014,11 @@ mod tests {
         // A → B (skipped) → C, A also feeds C directly (convergence)
         // C should run once both A (Completed) and B (Skipped) are terminal
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("trace"))
+            .unwrap();
         g.add_node(node_with_activate("B", false)).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("trace")).unwrap();
+        g.add_node(Node::new("C", "C").with_handler("trace"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
@@ -1008,10 +1041,14 @@ mod tests {
         // C --> D
         // D should run because C succeeded
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("fail")).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("pass")).unwrap();
-        g.add_node(Node::new("D", "D").with_handler("pass")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("fail"))
+            .unwrap();
+        g.add_node(Node::new("C", "C").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("D", "D").with_handler("pass"))
+            .unwrap();
 
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
@@ -1031,10 +1068,7 @@ mod tests {
             }),
         );
 
-        let result = SteppedExecutor::new()
-            .execute(&g, &handlers)
-            .await
-            .unwrap();
+        let result = SteppedExecutor::new().execute(&g, &handlers).await.unwrap();
 
         assert_eq!(result.node_states["A"], NodeState::Completed);
         assert_eq!(result.node_states["B"], NodeState::Failed);
@@ -1070,8 +1104,10 @@ mod tests {
     async fn tick_suspends_node_and_reports_it() {
         // A(suspend) → B: A should suspend, B should not fire
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("suspend")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("suspend"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
 
         let mut handlers = trace_handlers();
@@ -1098,9 +1134,12 @@ mod tests {
     async fn submit_result_unblocks_downstream() {
         // A(suspend) → B: submit result for A, then B fires
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("suspend")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
-        g.add_edge(&"A".into(), "trace", &"B".into(), "trace", None).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("suspend"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace"))
+            .unwrap();
+        g.add_edge(&"A".into(), "trace", &"B".into(), "trace", None)
+            .unwrap();
 
         let mut handlers = trace_handlers();
         handlers.insert("suspend".into(), suspend_handler());
@@ -1139,14 +1178,20 @@ mod tests {
         // S → (A(suspend), B(suspend)) → D
         // Both A and B suspend, caller submits separate keyed results
         let mut g = Graph::new();
-        g.add_node(Node::new("S", "S").with_handler("pass")).unwrap();
-        g.add_node(Node::new("A", "A").with_handler("suspend")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("suspend")).unwrap();
-        g.add_node(Node::new("D", "D").with_handler("pass")).unwrap();
+        g.add_node(Node::new("S", "S").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("A", "A").with_handler("suspend"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("suspend"))
+            .unwrap();
+        g.add_node(Node::new("D", "D").with_handler("pass"))
+            .unwrap();
         g.add_edge(&"S".into(), "", &"A".into(), "", None).unwrap();
         g.add_edge(&"S".into(), "", &"B".into(), "", None).unwrap();
-        g.add_edge(&"A".into(), "review", &"D".into(), "a_review", None).unwrap();
-        g.add_edge(&"B".into(), "review", &"D".into(), "b_review", None).unwrap();
+        g.add_edge(&"A".into(), "review", &"D".into(), "a_review", None)
+            .unwrap();
+        g.add_edge(&"B".into(), "review", &"D".into(), "b_review", None)
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
@@ -1206,15 +1251,13 @@ mod tests {
         // When using the Executor trait (auto-run), it should stop when
         // nodes are suspended rather than spinning forever.
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("suspend")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("suspend"))
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("suspend".into(), suspend_handler());
 
-        let result = SteppedExecutor::new()
-            .execute(&g, &handlers)
-            .await
-            .unwrap();
+        let result = SteppedExecutor::new().execute(&g, &handlers).await.unwrap();
 
         // A should be suspended (not completed, not cancelled)
         assert_eq!(result.node_states["A"], NodeState::Suspended);
@@ -1234,7 +1277,8 @@ mod tests {
                     _node: &Node,
                     _inputs: Outputs,
                     _cancel: crate::execute::CancellationToken,
-                ) -> Pin<Box<dyn std::future::Future<Output = Result<Outputs, NodeError>> + Send>> {
+                ) -> Pin<Box<dyn std::future::Future<Output = Result<Outputs, NodeError>> + Send>>
+                {
                     self.0.fetch_add(1, AtomicOrdering::SeqCst);
                     Box::pin(async {
                         Err(NodeError::Suspended {
@@ -1247,7 +1291,8 @@ mod tests {
         });
 
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("counting")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("counting"))
+            .unwrap();
 
         let mut handlers = HandlerRegistry::new();
         handlers.insert("counting".into(), counting_suspend as Arc<dyn NodeHandler>);

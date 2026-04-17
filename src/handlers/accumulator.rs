@@ -193,10 +193,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            result["accumulated"],
-            Value::Vec(vec![Value::I64(42)])
-        );
+        assert_eq!(result["accumulated"], Value::Vec(vec![Value::I64(42)]));
     }
 
     #[tokio::test]
@@ -234,7 +231,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing config.key"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing config.key"));
     }
 
     #[tokio::test]
@@ -253,7 +253,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("invalid config.scope"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid config.scope"));
     }
 
     #[tokio::test]
@@ -269,10 +272,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            result["accumulated"],
-            Value::Vec(vec![Value::Null])
-        );
+        assert_eq!(result["accumulated"], Value::Vec(vec![Value::Null]));
     }
 
     #[tokio::test]

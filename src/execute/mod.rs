@@ -9,8 +9,8 @@ pub mod lifecycle;
 pub mod loop_controller;
 pub mod reactive;
 pub mod retry;
-pub mod stepped;
 pub mod snapshot;
+pub mod stepped;
 pub mod topological;
 pub mod trace;
 
@@ -19,11 +19,11 @@ pub use concurrency::ConcurrencyLimits;
 pub use context::{CancellationToken, ExecutionContext};
 pub use event::ExecutionEvent;
 pub use event_bus::{EventBus, EventBusError, EventSubscriber};
-pub use lifecycle::NodeState;
-pub use retry::{BackoffStrategy, RetryConfig};
 pub use event_driven::{EventDrivenExecutor, EventMessage, EventSender};
-pub use reactive::ReactiveExecutor;
+pub use lifecycle::NodeState;
 pub use loop_controller::{LoopController, LoopIterator, LoopState};
+pub use reactive::ReactiveExecutor;
+pub use retry::{BackoffStrategy, RetryConfig};
 pub use stepped::{SteppedExecutor, TickResult};
 pub use topological::TopologicalExecutor;
 
@@ -42,6 +42,24 @@ pub type Outputs = HashMap<String, Value>;
 /// Registry mapping handler names to implementations.
 pub type HandlerRegistry = HashMap<String, Arc<dyn NodeHandler>>;
 
+/// How an embedder should treat a handler's execution shape.
+///
+/// psflow defines just the built-in kinds it understands. Embedders with
+/// additional runtime semantics (e.g. ergon-core's `Agentic` for MCP
+/// suspend/yield) layer their own enum on top; no need to encode those
+/// concepts upstream.
+///
+/// - `Deterministic` — the handler computes outputs inline and returns. No
+///   external coordination required. This is the default.
+/// - `Trigger` — the handler is an entry-node driven by external events
+///   (timers, file watches, webhooks, etc.); executors treat it as a graph
+///   source rather than a compute step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandlerKind {
+    Deterministic,
+    Trigger,
+}
+
 /// A node handler that processes inputs and produces outputs.
 ///
 /// The `cancel` token enables cooperative cancellation — handlers should check
@@ -54,6 +72,14 @@ pub trait NodeHandler: Send + Sync {
         inputs: Outputs,
         cancel: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = Result<Outputs, NodeError>> + Send>>;
+
+    /// Self-declare the handler's execution shape.
+    ///
+    /// Default: [`HandlerKind::Deterministic`]. Override on entry-node
+    /// handlers that should be classified as triggers.
+    fn kind(&self) -> HandlerKind {
+        HandlerKind::Deterministic
+    }
 }
 
 /// Strategy for executing a graph. The future borrows self, graph, and handlers.

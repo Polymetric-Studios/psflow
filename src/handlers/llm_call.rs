@@ -143,8 +143,14 @@ impl NodeHandler for LlmCallHandler {
 
                 // Apply limits from config if specified
                 let conv_config = ConversationConfig {
-                    max_tokens: config.get("context_max_tokens").and_then(|v| v.as_u64()).map(|v| v as usize),
-                    max_depth: config.get("context_depth").and_then(|v| v.as_u64()).map(|v| v as usize),
+                    max_tokens: config
+                        .get("context_max_tokens")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as usize),
+                    max_depth: config
+                        .get("context_depth")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as usize),
                 };
                 history.apply_limits(&conv_config);
 
@@ -224,9 +230,7 @@ impl NodeHandler for LlmCallHandler {
 
             // Accumulate this exchange into conversation history on the blackboard
             if let Some(ref ctx) = exec_ctx {
-                use crate::adapter::conversation::{
-                    ConversationHistory, CONVERSATION_HISTORY_KEY,
-                };
+                use crate::adapter::conversation::{ConversationHistory, CONVERSATION_HISTORY_KEY};
                 use crate::execute::blackboard::BlackboardScope;
 
                 let mut bb = ctx.blackboard();
@@ -251,10 +255,7 @@ impl NodeHandler for LlmCallHandler {
                 "_usage_output_tokens".into(),
                 Value::I64(response.usage.output_tokens as i64),
             );
-            outputs.insert(
-                "_latency_ms".into(),
-                Value::I64(response.latency_ms as i64),
-            );
+            outputs.insert("_latency_ms".into(), Value::I64(response.latency_ms as i64));
 
             Ok(outputs)
         })
@@ -269,9 +270,7 @@ mod tests {
 
     #[tokio::test]
     async fn transform_mode_returns_response() {
-        let adapter = Arc::new(
-            MockAdapter::new().with_response("summarize", "A brief summary."),
-        );
+        let adapter = Arc::new(MockAdapter::new().with_response("summarize", "A brief summary."));
         let handler = LlmCallHandler::new(adapter);
 
         let mut node = Node::new("LLM1", "Summarize");
@@ -313,17 +312,12 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            result.get("decision"),
-            Some(&Value::String("tech".into()))
-        );
+        assert_eq!(result.get("decision"), Some(&Value::String("tech".into())));
     }
 
     #[tokio::test]
     async fn json_output_format() {
-        let adapter = Arc::new(
-            MockAdapter::new().with_response("analyze", r#"{"score": 0.9}"#),
-        );
+        let adapter = Arc::new(MockAdapter::new().with_response("analyze", r#"{"score": 0.9}"#));
         let handler = LlmCallHandler::new(adapter);
 
         let mut node = Node::new("LLM3", "Analyze");
@@ -372,9 +366,7 @@ mod tests {
         let cancel = CancellationToken::new();
         cancel.cancel();
 
-        let result = handler
-            .execute(&node, Outputs::new(), cancel)
-            .await;
+        let result = handler.execute(&node, Outputs::new(), cancel).await;
         assert!(matches!(result, Err(NodeError::Cancelled { .. })));
     }
 
@@ -427,9 +419,15 @@ mod tests {
             .and_then(ConversationHistory::from_value)
             .unwrap();
         assert_eq!(history.len(), 2);
-        assert_eq!(history.messages[0].role, crate::adapter::conversation::MessageRole::User);
+        assert_eq!(
+            history.messages[0].role,
+            crate::adapter::conversation::MessageRole::User
+        );
         assert_eq!(history.messages[0].node_id, Some("LLM_A".into()));
-        assert_eq!(history.messages[1].role, crate::adapter::conversation::MessageRole::Assistant);
+        assert_eq!(
+            history.messages[1].role,
+            crate::adapter::conversation::MessageRole::Assistant
+        );
         drop(bb);
 
         // Second LLM call
@@ -540,7 +538,8 @@ mod tests {
             fn complete(
                 &self,
                 req: AiRequest,
-            ) -> Pin<Box<dyn Future<Output = Result<AiResponse, NodeError>> + Send + '_>> {
+            ) -> Pin<Box<dyn Future<Output = Result<AiResponse, NodeError>> + Send + '_>>
+            {
                 self.captured.lock().unwrap().push(req.conversation_history);
                 Box::pin(async {
                     Ok(AiResponse {
@@ -577,8 +576,12 @@ mod tests {
         graph.add_node(Node::new("A", "Root")).unwrap();
         graph.add_node(Node::new("B", "Branch B")).unwrap();
         graph.add_node(Node::new("C", "Branch C")).unwrap();
-        graph.add_edge(&"A".into(), "out", &"B".into(), "in", None).unwrap();
-        graph.add_edge(&"A".into(), "out", &"C".into(), "in", None).unwrap();
+        graph
+            .add_edge(&"A".into(), "out", &"B".into(), "in", None)
+            .unwrap();
+        graph
+            .add_edge(&"A".into(), "out", &"C".into(), "in", None)
+            .unwrap();
 
         let ctx = Arc::new(ExecutionContext::new());
 
@@ -623,7 +626,9 @@ mod tests {
 
         // B's messages must NOT be present
         assert!(
-            !sent_history.iter().any(|m| m.node_id.as_deref() == Some("B")),
+            !sent_history
+                .iter()
+                .any(|m| m.node_id.as_deref() == Some("B")),
             "parallel branch B's messages should be excluded"
         );
     }

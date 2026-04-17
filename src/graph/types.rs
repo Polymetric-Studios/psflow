@@ -133,9 +133,7 @@ impl Value {
             (Value::Map(entries), PortType::Map(inner)) => {
                 entries.values().all(|v| v.matches_type(inner))
             }
-            (Value::Domain { type_name, .. }, PortType::Domain(expected)) => {
-                type_name == expected
-            }
+            (Value::Domain { type_name, .. }, PortType::Domain(expected)) => type_name == expected,
             _ => false,
         }
     }
@@ -185,9 +183,7 @@ impl From<serde_json::Value> for Value {
                 }
             }
             serde_json::Value::String(s) => Value::String(s),
-            serde_json::Value::Array(arr) => {
-                Value::Vec(arr.into_iter().map(Value::from).collect())
-            }
+            serde_json::Value::Array(arr) => Value::Vec(arr.into_iter().map(Value::from).collect()),
             serde_json::Value::Object(map) => {
                 let m: BTreeMap<std::string::String, Value> =
                     map.into_iter().map(|(k, v)| (k, Value::from(v))).collect();
@@ -218,6 +214,90 @@ impl PartialEq for Value {
             ) => a_name == b_name && a_data == b_data,
             (Value::Null, Value::Null) => true,
             _ => false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ResultReducer — aggregation strategy for per-step results.
+// ---------------------------------------------------------------------------
+
+/// How successive results for the same step should be combined on the blackboard.
+///
+/// Each variant defines a pure function `(existing, new) -> merged`. `apply` is
+/// the canonical evaluator. The reducer is declarative metadata — it carries no
+/// runtime dependencies and lives next to [`Value`] for that reason.
+///
+/// - `Replace` — new value overwrites any existing value.
+/// - `Append` — values accumulate into a JSON array. Non-array existing values
+///   are wrapped before appending.
+/// - `Merge` — object-level shallow merge (last-writer-wins per key). Falls
+///   back to `Replace` for non-object pairs.
+/// - `Concat` — string concatenation with `\n` separator, or array concat for
+///   arrays. Falls back to `Replace` for mixed/other types.
+/// - `Promote` — behaves like `Replace` for the stored value, but signals to
+///   embedders that the value should ALSO be written under a name-addressable
+///   key so downstream consumers can fetch by name. The dual-write itself is
+///   handled by the embedder (e.g. `psflow::blackboard::helpers::set_result`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ResultReducer {
+    Replace,
+    Append,
+    Merge,
+    Concat,
+    Promote,
+}
+
+impl ResultReducer {
+    /// Apply the reducer to produce a merged value.
+    ///
+    /// `existing` is the value previously stored for this key (if any); `new`
+    /// is the incoming value. Returns the merged value to be stored.
+    pub fn apply(
+        &self,
+        existing: Option<&serde_json::Value>,
+        new: serde_json::Value,
+    ) -> serde_json::Value {
+        match self {
+            ResultReducer::Replace => new,
+
+            ResultReducer::Append => match existing {
+                Some(serde_json::Value::Array(arr)) => {
+                    let mut out = arr.clone();
+                    out.push(new);
+                    serde_json::Value::Array(out)
+                }
+                Some(other) => serde_json::Value::Array(vec![other.clone(), new]),
+                None => serde_json::Value::Array(vec![new]),
+            },
+
+            ResultReducer::Merge => match (existing, &new) {
+                (Some(serde_json::Value::Object(base)), serde_json::Value::Object(incoming)) => {
+                    let mut out = base.clone();
+                    for (k, v) in incoming {
+                        out.insert(k.clone(), v.clone());
+                    }
+                    serde_json::Value::Object(out)
+                }
+                _ => new,
+            },
+
+            ResultReducer::Concat => match (existing, &new) {
+                (Some(serde_json::Value::String(a)), serde_json::Value::String(b)) => {
+                    serde_json::Value::String(format!("{a}\n{b}"))
+                }
+                (Some(serde_json::Value::Array(a)), serde_json::Value::Array(b)) => {
+                    let mut out = a.clone();
+                    out.extend(b.iter().cloned());
+                    serde_json::Value::Array(out)
+                }
+                _ => new,
+            },
+
+            // Promote behaves identically to Replace for the stored value.
+            // Dual-write to a named key is handled by the embedder.
+            ResultReducer::Promote => new,
         }
     }
 }
@@ -428,6 +508,92 @@ mod tests {
             let json = serde_json::to_string(val).unwrap();
             let parsed: Value = serde_json::from_str(&json).unwrap();
             assert_eq!(&parsed, val);
+        }
+    }
+
+    // -- ResultReducer tests --
+
+    #[test]
+    fn reducer_replace() {
+        let existing = serde_json::json!("old");
+        let new = serde_json::json!("new");
+        assert_eq!(
+            ResultReducer::Replace.apply(Some(&existing), new.clone()),
+            new
+        );
+        assert_eq!(ResultReducer::Replace.apply(None, new.clone()), new);
+    }
+
+    #[test]
+    fn reducer_append_array_extends() {
+        let existing = serde_json::json!(["a", "b"]);
+        let result = ResultReducer::Append.apply(Some(&existing), serde_json::json!("c"));
+        assert_eq!(result, serde_json::json!(["a", "b", "c"]));
+    }
+
+    #[test]
+    fn reducer_append_scalar_wraps() {
+        let existing = serde_json::json!("scalar");
+        let result = ResultReducer::Append.apply(Some(&existing), serde_json::json!("new"));
+        assert_eq!(result, serde_json::json!(["scalar", "new"]));
+    }
+
+    #[test]
+    fn reducer_append_none_creates_singleton() {
+        let result = ResultReducer::Append.apply(None, serde_json::json!("only"));
+        assert_eq!(result, serde_json::json!(["only"]));
+    }
+
+    #[test]
+    fn reducer_merge_objects() {
+        let base = serde_json::json!({"a": 1, "b": 2});
+        let incoming = serde_json::json!({"b": 99, "c": 3});
+        let result = ResultReducer::Merge.apply(Some(&base), incoming);
+        assert_eq!(result, serde_json::json!({"a": 1, "b": 99, "c": 3}));
+    }
+
+    #[test]
+    fn reducer_merge_non_objects_falls_back_to_replace() {
+        let result = ResultReducer::Merge.apply(None, serde_json::json!("fallback"));
+        assert_eq!(result, serde_json::json!("fallback"));
+    }
+
+    #[test]
+    fn reducer_concat_strings() {
+        let a = serde_json::json!("hello");
+        let b = serde_json::json!("world");
+        let result = ResultReducer::Concat.apply(Some(&a), b);
+        assert_eq!(result, serde_json::json!("hello\nworld"));
+    }
+
+    #[test]
+    fn reducer_concat_arrays() {
+        let a = serde_json::json!([1, 2]);
+        let b = serde_json::json!([3, 4]);
+        let result = ResultReducer::Concat.apply(Some(&a), b);
+        assert_eq!(result, serde_json::json!([1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn reducer_promote_behaves_like_replace() {
+        let existing = serde_json::json!("old");
+        let new = serde_json::json!("new");
+        let result = ResultReducer::Promote.apply(Some(&existing), new.clone());
+        assert_eq!(result, new);
+    }
+
+    #[test]
+    fn reducer_serde_round_trip() {
+        for r in &[
+            ResultReducer::Replace,
+            ResultReducer::Append,
+            ResultReducer::Merge,
+            ResultReducer::Concat,
+            ResultReducer::Promote,
+        ] {
+            let json = serde_json::to_string(r).unwrap();
+            let parsed: ResultReducer = serde_json::from_str(&json).unwrap();
+            assert_eq!(&parsed, r);
         }
     }
 }

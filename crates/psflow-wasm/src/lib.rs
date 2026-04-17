@@ -59,7 +59,10 @@ pub struct SpanDto {
 
 impl From<Span> for SpanDto {
     fn from(s: Span) -> Self {
-        SpanDto { from: s.from, to: s.to }
+        SpanDto {
+            from: s.from,
+            to: s.to,
+        }
     }
 }
 
@@ -194,8 +197,7 @@ pub struct TraceResult {
 
 /// Internal trace parsing logic, testable without wasm_bindgen.
 fn parse_trace_internal(json: &str) -> Result<TraceResult, String> {
-    let trace: TraceJson =
-        serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let trace: TraceJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
 
     let events = trace
         .records
@@ -205,8 +207,14 @@ fn parse_trace_internal(json: &str) -> Result<TraceResult, String> {
             state: r.state.to_lowercase(),
             order: r.order,
             elapsed_ms: r.elapsed.as_ref().map(|d| d.as_ms()),
-            error: r.error.as_ref().map(|e| serde_json::to_string(e).unwrap_or_default()),
-            outputs_json: r.outputs.as_ref().map(|o| serde_json::to_string(o).unwrap_or_default()),
+            error: r
+                .error
+                .as_ref()
+                .map(|e| serde_json::to_string(e).unwrap_or_default()),
+            outputs_json: r
+                .outputs
+                .as_ref()
+                .map(|o| serde_json::to_string(o).unwrap_or_default()),
         })
         .collect();
 
@@ -262,7 +270,11 @@ graph TD
     #[test]
     fn parse_demo_returns_five_nodes() {
         let result = parse_mmd_internal(DEMO_MMD);
-        assert!(result.errors.is_empty(), "expected no errors: {:?}", result.errors);
+        assert!(
+            result.errors.is_empty(),
+            "expected no errors: {:?}",
+            result.errors
+        );
         assert_eq!(result.nodes.len(), 5);
     }
 
@@ -325,15 +337,27 @@ graph TD
         let find = |id: &str| result.nodes.iter().find(|n| n.id == id).unwrap();
 
         let c = find("C");
-        let guard = c.annotations.iter().find(|a| a.key == "config.guard").unwrap();
+        let guard = c
+            .annotations
+            .iter()
+            .find(|a| a.key == "config.guard")
+            .unwrap();
         assert_eq!(guard.value, "\"inputs.doubled > 50\"");
 
         let e = find("E");
-        let msg = e.annotations.iter().find(|a| a.key == "config.message").unwrap();
+        let msg = e
+            .annotations
+            .iter()
+            .find(|a| a.key == "config.message")
+            .unwrap();
         assert_eq!(msg.value, "\"Value was too small\"");
 
         let a = find("A");
-        let ov = a.annotations.iter().find(|a| a.key == "outputs.value").unwrap();
+        let ov = a
+            .annotations
+            .iter()
+            .find(|a| a.key == "outputs.value")
+            .unwrap();
         assert_eq!(ov.value, "\"I64\"");
     }
 
@@ -342,7 +366,11 @@ graph TD
         let result = parse_mmd_internal(DEMO_MMD);
         let offsets: Vec<usize> = result.nodes.iter().map(|n| n.definition.from).collect();
         for w in offsets.windows(2) {
-            assert!(w[0] <= w[1], "nodes should be sorted by definition.from: {:?}", offsets);
+            assert!(
+                w[0] <= w[1],
+                "nodes should be sorted by definition.from: {:?}",
+                offsets
+            );
         }
     }
 
@@ -361,7 +389,8 @@ graph TD
             assert!(
                 span_text.contains(&node.id),
                 "Node {} definition span should contain its ID, got: '{}'",
-                node.id, span_text
+                node.id,
+                span_text
             );
             // Span should be a single line (no embedded newlines)
             assert!(
@@ -411,12 +440,18 @@ graph TD
                 assert!(
                     ann.span.from <= ann.span.to,
                     "annotation span.from ({}) > span.to ({}) for {}::{}",
-                    ann.span.from, ann.span.to, node.id, ann.key
+                    ann.span.from,
+                    ann.span.to,
+                    node.id,
+                    ann.key
                 );
                 assert!(
                     ann.span.to <= source_len,
                     "annotation span.to ({}) exceeds source length ({}) for {}::{}",
-                    ann.span.to, source_len, node.id, ann.key
+                    ann.span.to,
+                    source_len,
+                    node.id,
+                    ann.key
                 );
             }
         }
@@ -441,7 +476,11 @@ graph TD
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         assert_eq!(result.nodes.len(), 2);
         for node in &result.nodes {
-            assert!(node.annotations.is_empty(), "node {} should have no annotations", node.id);
+            assert!(
+                node.annotations.is_empty(),
+                "node {} should have no annotations",
+                node.id
+            );
         }
     }
 

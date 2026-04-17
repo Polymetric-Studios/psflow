@@ -265,10 +265,7 @@ impl NodeHandler for SubgraphInvocationHandler {
                 .collect();
 
             // Parse context inheritance mode
-            let inheritance = match exec
-                .get("context_inheritance")
-                .and_then(|v| v.as_str())
-            {
+            let inheritance = match exec.get("context_inheritance").and_then(|v| v.as_str()) {
                 Some("snapshot") => ContextInheritance::Snapshot,
                 Some("isolated") => ContextInheritance::Isolated,
                 _ => ContextInheritance::ReadOnly, // default
@@ -327,7 +324,11 @@ async fn execute_child(
 ) -> Result<crate::execute::ExecutionResult, ExecutionError> {
     if source_nodes.is_empty() {
         return match parent_bb {
-            Some(bb) => executor.execute_with_parent(graph, handlers, bb, inheritance).await,
+            Some(bb) => {
+                executor
+                    .execute_with_parent(graph, handlers, bb, inheritance)
+                    .await
+            }
             None => executor.execute(graph, handlers).await,
         };
     }
@@ -494,7 +495,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing config.graph"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing config.graph"));
     }
 
     // -- Output collection from sink nodes --
@@ -536,8 +540,7 @@ mod tests {
             }),
         );
 
-        let handler =
-            SubgraphInvocationHandler::with_handlers(Arc::new(library), handlers);
+        let handler = SubgraphInvocationHandler::with_handlers(Arc::new(library), handlers);
 
         let mut node = Node::new("INVOKE", "Invoke");
         node.config = serde_json::json!({ "graph": "multi_out" });
@@ -557,13 +560,20 @@ mod tests {
     async fn invoke_multiple_source_nodes() {
         // Two source nodes: SRC_X and SRC_Y → MERGE → OUTPUT
         let mut g = Graph::new();
-        g.add_node(Node::new("SRC_X", "X").with_handler("pass")).unwrap();
-        g.add_node(Node::new("SRC_Y", "Y").with_handler("pass")).unwrap();
-        g.add_node(Node::new("MERGE", "Merge").with_handler("pass")).unwrap();
-        g.add_node(Node::new("OUTPUT", "Out").with_handler("pass")).unwrap();
-        g.add_edge(&"SRC_X".into(), "", &"MERGE".into(), "", None).unwrap();
-        g.add_edge(&"SRC_Y".into(), "", &"MERGE".into(), "", None).unwrap();
-        g.add_edge(&"MERGE".into(), "", &"OUTPUT".into(), "", None).unwrap();
+        g.add_node(Node::new("SRC_X", "X").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("SRC_Y", "Y").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("MERGE", "Merge").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("OUTPUT", "Out").with_handler("pass"))
+            .unwrap();
+        g.add_edge(&"SRC_X".into(), "", &"MERGE".into(), "", None)
+            .unwrap();
+        g.add_edge(&"SRC_Y".into(), "", &"MERGE".into(), "", None)
+            .unwrap();
+        g.add_edge(&"MERGE".into(), "", &"OUTPUT".into(), "", None)
+            .unwrap();
 
         let mut library = GraphLibrary::new();
         library.register("multi_src", g);
@@ -571,8 +581,7 @@ mod tests {
         let mut handlers = HandlerRegistry::new();
         handlers.insert("pass".into(), sync_handler(|_, inputs| Ok(inputs)));
 
-        let handler =
-            SubgraphInvocationHandler::with_handlers(Arc::new(library), handlers);
+        let handler = SubgraphInvocationHandler::with_handlers(Arc::new(library), handlers);
 
         let mut node = Node::new("INVOKE", "Invoke");
         node.config = serde_json::json!({ "graph": "multi_src" });
@@ -628,8 +637,7 @@ mod tests {
         let mut library = GraphLibrary::new();
         library.register("doubler", make_child_graph());
 
-        let handler =
-            SubgraphInvocationHandler::with_handlers(Arc::new(library), make_handlers());
+        let handler = SubgraphInvocationHandler::with_handlers(Arc::new(library), make_handlers());
 
         let mut node = Node::new("INVOKE", "Invoke");
         node.config = serde_json::json!({ "graph": "doubler" });
@@ -690,7 +698,10 @@ mod tests {
 
         // Should fail on missing graph, NOT on depth
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not found in library"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not found in library"));
 
         handler.active_depth.fetch_sub(2, Ordering::SeqCst);
     }
@@ -738,7 +749,8 @@ mod tests {
     #[tokio::test]
     async fn invoke_propagates_child_errors() {
         let mut g = Graph::new();
-        g.add_node(Node::new("FAIL", "Fail").with_handler("fail")).unwrap();
+        g.add_node(Node::new("FAIL", "Fail").with_handler("fail"))
+            .unwrap();
 
         let mut library = GraphLibrary::new();
         library.register("failing", g);
@@ -755,8 +767,7 @@ mod tests {
             }),
         );
 
-        let handler =
-            SubgraphInvocationHandler::with_handlers(Arc::new(library), handlers);
+        let handler = SubgraphInvocationHandler::with_handlers(Arc::new(library), handlers);
 
         let mut node = Node::new("INVOKE", "Invoke");
         node.config = serde_json::json!({ "graph": "failing" });
@@ -779,7 +790,8 @@ mod tests {
         let mut library = GraphLibrary::new();
         library.register("simple", {
             let mut g = Graph::new();
-            g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
+            g.add_node(Node::new("A", "A").with_handler("pass"))
+                .unwrap();
             g
         });
 
@@ -891,7 +903,8 @@ mod tests {
         use crate::execute::blackboard::BlackboardScope;
 
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("pass"))
+            .unwrap();
 
         let mut library = GraphLibrary::new();
         library.register("child", g);

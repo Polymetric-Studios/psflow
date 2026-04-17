@@ -501,14 +501,8 @@ mod tests {
         g.add_node(c).unwrap();
         g.add_edge(&"A".into(), "articles", &"B".into(), "articles", None)
             .unwrap();
-        g.add_edge(
-            &"B".into(),
-            "classified",
-            &"C".into(),
-            "classified",
-            None,
-        )
-        .unwrap();
+        g.add_edge(&"B".into(), "classified", &"C".into(), "classified", None)
+            .unwrap();
         g
     }
 
@@ -628,10 +622,14 @@ mod tests {
         g.add_node(Node::new("B", "B")).unwrap();
         g.add_node(Node::new("C", "C")).unwrap();
         g.add_node(Node::new("D", "D")).unwrap();
-        g.add_edge(&"A".into(), "out", &"B".into(), "in", None).unwrap();
-        g.add_edge(&"A".into(), "out", &"C".into(), "in", None).unwrap();
-        g.add_edge(&"B".into(), "out", &"D".into(), "in", None).unwrap();
-        g.add_edge(&"C".into(), "out", &"D".into(), "in", None).unwrap();
+        g.add_edge(&"A".into(), "out", &"B".into(), "in", None)
+            .unwrap();
+        g.add_edge(&"A".into(), "out", &"C".into(), "in", None)
+            .unwrap();
+        g.add_edge(&"B".into(), "out", &"D".into(), "in", None)
+            .unwrap();
+        g.add_edge(&"C".into(), "out", &"D".into(), "in", None)
+            .unwrap();
 
         // D's ancestors = {A, B, C}
         let ancestors_d = g.ancestors(&"D".into());
@@ -724,14 +722,8 @@ mod tests {
         let mut g = Graph::new();
         g.add_node(Node::new("A", "A")).unwrap();
         g.add_node(Node::new("B", "B")).unwrap();
-        g.add_edge(
-            &"A".into(),
-            "out",
-            &"B".into(),
-            "in",
-            Some("yes".into()),
-        )
-        .unwrap();
+        g.add_edge(&"A".into(), "out", &"B".into(), "in", Some("yes".into()))
+            .unwrap();
 
         let edges = g.edges();
         assert_eq!(edges[0].1.label, Some("yes".into()));
@@ -776,7 +768,10 @@ mod tests {
         g.add_node(Node::new("A", "Minimal")).unwrap();
 
         let json = serde_json::to_string(&g).unwrap();
-        assert!(!json.contains("\"config\""), "empty config should be skipped");
+        assert!(
+            !json.contains("\"config\""),
+            "empty config should be skipped"
+        );
         assert!(!json.contains("\"exec\""), "empty exec should be skipped");
 
         let g2: Graph = serde_json::from_str(&json).unwrap();
@@ -813,9 +808,11 @@ mod tests {
         for id in ["pred", "A", "B", "succ"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None)
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
-        g.add_edge(&"B".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"B".into(), "", &"succ".into(), "", None)
+            .unwrap();
 
         let sg = Subgraph {
             id: "sg".into(),
@@ -839,10 +836,14 @@ mod tests {
         for id in ["pred", "A", "B", "succ"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
-        g.add_edge(&"pred".into(), "", &"B".into(), "", None).unwrap();
-        g.add_edge(&"A".into(), "", &"succ".into(), "", None).unwrap();
-        g.add_edge(&"B".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None)
+            .unwrap();
+        g.add_edge(&"pred".into(), "", &"B".into(), "", None)
+            .unwrap();
+        g.add_edge(&"A".into(), "", &"succ".into(), "", None)
+            .unwrap();
+        g.add_edge(&"B".into(), "", &"succ".into(), "", None)
+            .unwrap();
 
         let sg = Subgraph {
             id: "sg".into(),
@@ -867,8 +868,10 @@ mod tests {
         for id in ["pred", "A", "succ"] {
             g.add_node(Node::new(id, id)).unwrap();
         }
-        g.add_edge(&"pred".into(), "", &"A".into(), "", None).unwrap();
-        g.add_edge(&"A".into(), "", &"succ".into(), "", None).unwrap();
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None)
+            .unwrap();
+        g.add_edge(&"A".into(), "", &"succ".into(), "", None)
+            .unwrap();
 
         let sg = Subgraph {
             id: "sg".into(),

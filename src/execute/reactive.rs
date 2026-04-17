@@ -7,9 +7,7 @@ use crate::execute::topological::{
     cancel_downstream, collect_inputs, handle_branch_decision, is_branch_blocked,
     PassthroughHandler,
 };
-use crate::execute::{
-    ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler,
-};
+use crate::execute::{ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler};
 use crate::graph::node::NodeId;
 use crate::graph::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -101,7 +99,10 @@ async fn execute_reactive(
     concurrency: ConcurrencyLimits,
 ) -> Result<ExecutionResult, ExecutionError> {
     let start = Instant::now();
-    let ctx = Arc::new(ExecutionContext::with_concurrency(cancel_token, concurrency));
+    let ctx = Arc::new(ExecutionContext::with_concurrency(
+        cancel_token,
+        concurrency,
+    ));
 
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
@@ -315,9 +316,9 @@ fn enqueue_ready_successors(
 mod tests {
     use super::*;
     use crate::execute::sync_handler;
+    use crate::execute::Outputs;
     use crate::graph::node::Node;
     use crate::graph::types::Value;
-    use crate::execute::Outputs;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
     fn trace_handler() -> Arc<dyn NodeHandler> {
@@ -346,9 +347,12 @@ mod tests {
     #[tokio::test]
     async fn reactive_linear_chain() {
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("trace")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("trace")).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("trace")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("trace"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("trace"))
+            .unwrap();
+        g.add_node(Node::new("C", "C").with_handler("trace"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
 
@@ -431,9 +435,12 @@ mod tests {
         let counter_c = Arc::new(AtomicUsize::new(0));
 
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("count_b")).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("count_c")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("count_b"))
+            .unwrap();
+        g.add_node(Node::new("C", "C").with_handler("count_c"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"A".into(), "", &"C".into(), "", None).unwrap();
 
@@ -474,7 +481,8 @@ mod tests {
     async fn reactive_error_cascades_downstream() {
         let mut g = Graph::new();
         g.add_node(Node::new("A", "A").with_handler("ok")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("fail")).unwrap();
+        g.add_node(Node::new("B", "B").with_handler("fail"))
+            .unwrap();
         g.add_node(Node::new("C", "C").with_handler("ok")).unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
@@ -507,7 +515,8 @@ mod tests {
     #[tokio::test]
     async fn reactive_global_cancellation() {
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("cancel_it")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("cancel_it"))
+            .unwrap();
         g.add_node(Node::new("B", "B").with_handler("ok")).unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
 
@@ -542,8 +551,10 @@ mod tests {
         let mut branch = Node::new("BR", "Branch").with_handler("pass");
         branch.config = serde_json::json!({ "guard": "inputs.flag == true" });
         g.add_node(branch).unwrap();
-        g.add_node(Node::new("YES", "Yes").with_handler("ok")).unwrap();
-        g.add_node(Node::new("NO", "No").with_handler("ok")).unwrap();
+        g.add_node(Node::new("YES", "Yes").with_handler("ok"))
+            .unwrap();
+        g.add_node(Node::new("NO", "No").with_handler("ok"))
+            .unwrap();
         g.add_edge(&"PROD".into(), "flag", &"BR".into(), "flag", None)
             .unwrap();
         g.add_edge(&"BR".into(), "", &"YES".into(), "", Some("yes".into()))
@@ -617,15 +628,13 @@ mod tests {
 
         let mut g = Graph::new();
         g.add_node(Node::new("A", "A")).unwrap();
-        let result = executor
-            .execute(&g, &HandlerRegistry::new())
-            .await
-            .unwrap();
+        let result = executor.execute(&g, &HandlerRegistry::new()).await.unwrap();
         assert_eq!(result.node_states["A"], NodeState::Completed);
 
         let mut g = Graph::new();
         g.add_node(Node::new("X", "X").with_handler("ok")).unwrap();
-        g.add_node(Node::new("Y", "Y").with_handler("fail")).unwrap();
+        g.add_node(Node::new("Y", "Y").with_handler("fail"))
+            .unwrap();
         g.add_node(Node::new("Z", "Z").with_handler("ok")).unwrap();
         g.add_edge(&"X".into(), "", &"Y".into(), "", None).unwrap();
         g.add_edge(&"Y".into(), "", &"Z".into(), "", None).unwrap();

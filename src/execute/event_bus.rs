@@ -60,9 +60,7 @@ impl EventSubscriber {
     pub async fn recv(&mut self) -> Result<ExecutionEvent, EventBusError> {
         match self.receiver.recv().await {
             Ok(event) => Ok(event),
-            Err(broadcast::error::RecvError::Lagged(count)) => {
-                Err(EventBusError::Lagged(count))
-            }
+            Err(broadcast::error::RecvError::Lagged(count)) => Err(EventBusError::Lagged(count)),
             Err(broadcast::error::RecvError::Closed) => Err(EventBusError::Closed),
         }
     }
@@ -72,9 +70,7 @@ impl EventSubscriber {
         match self.receiver.try_recv() {
             Ok(event) => Ok(event),
             Err(broadcast::error::TryRecvError::Empty) => Err(EventBusError::Empty),
-            Err(broadcast::error::TryRecvError::Lagged(count)) => {
-                Err(EventBusError::Lagged(count))
-            }
+            Err(broadcast::error::TryRecvError::Lagged(count)) => Err(EventBusError::Lagged(count)),
             Err(broadcast::error::TryRecvError::Closed) => Err(EventBusError::Closed),
         }
     }
@@ -129,7 +125,13 @@ mod tests {
         let e1 = sub.recv().await.unwrap();
         assert!(matches!(e1, ExecutionEvent::StateChanged { ref node_id, .. } if node_id == "A"));
         let e2 = sub.recv().await.unwrap();
-        assert!(matches!(e2, ExecutionEvent::StateChanged { to: NodeState::Running, .. }));
+        assert!(matches!(
+            e2,
+            ExecutionEvent::StateChanged {
+                to: NodeState::Running,
+                ..
+            }
+        ));
     }
 
     #[tokio::test]

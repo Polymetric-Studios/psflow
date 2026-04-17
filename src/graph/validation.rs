@@ -41,8 +41,10 @@ impl Graph {
         let sccs = tarjan_scc(&self.inner);
         for scc in sccs {
             if scc.len() > 1 {
-                let nodes: Vec<String> =
-                    scc.iter().map(|idx| self.inner[*idx].id.0.clone()).collect();
+                let nodes: Vec<String> = scc
+                    .iter()
+                    .map(|idx| self.inner[*idx].id.0.clone())
+                    .collect();
                 errors.push(GraphError::CycleDetected { nodes });
             }
         }
@@ -53,14 +55,8 @@ impl Graph {
             return;
         }
         for idx in self.inner.node_indices() {
-            let in_count = self
-                .inner
-                .edges_directed(idx, Direction::Incoming)
-                .count();
-            let out_count = self
-                .inner
-                .edges_directed(idx, Direction::Outgoing)
-                .count();
+            let in_count = self.inner.edges_directed(idx, Direction::Incoming).count();
+            let out_count = self.inner.edges_directed(idx, Direction::Outgoing).count();
             if in_count == 0 && out_count == 0 {
                 errors.push(GraphError::OrphanNode {
                     node_id: self.inner[idx].id.0.clone(),
@@ -212,9 +208,9 @@ mod tests {
 
         let errors = g.validate();
         assert!(
-            errors.iter().any(
-                |e| matches!(e, GraphError::OrphanNode { node_id } if node_id == "orphan")
-            ),
+            errors
+                .iter()
+                .any(|e| matches!(e, GraphError::OrphanNode { node_id } if node_id == "orphan")),
             "expected orphan error, got: {errors:?}",
         );
     }

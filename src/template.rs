@@ -40,10 +40,7 @@ enum Segment {
     /// Variable reference: `{inputs.key}` or `{ctx.key}`.
     Variable(String),
     /// Conditional block: `{#if var}...{/if}`.
-    Conditional {
-        var: String,
-        body: Vec<Segment>,
-    },
+    Conditional { var: String, body: Vec<Segment> },
 }
 
 /// A compiled prompt template.
@@ -106,11 +103,10 @@ fn parse_segments(input: &str, base_offset: usize) -> Result<Vec<Segment>, Templ
 
             // Find closing brace
             let start = pos + 1;
-            let close = find_closing_brace(&chars, start).ok_or(
-                TemplateError::UnclosedPlaceholder {
+            let close =
+                find_closing_brace(&chars, start).ok_or(TemplateError::UnclosedPlaceholder {
                     position: base_offset + pos,
-                },
-            )?;
+                })?;
 
             let content: String = chars[start..close].iter().collect();
             let content = content.trim();
@@ -121,11 +117,10 @@ fn parse_segments(input: &str, base_offset: usize) -> Result<Vec<Segment>, Templ
                 let after_tag = close + 1;
                 let remaining: String = chars[after_tag..].iter().collect();
 
-                let end_pos = find_matching_endif(&remaining).ok_or(
-                    TemplateError::UnclosedConditional {
+                let end_pos =
+                    find_matching_endif(&remaining).ok_or(TemplateError::UnclosedConditional {
                         tag: format!("{{#if {var}}}"),
-                    },
-                )?;
+                    })?;
 
                 let body_str = &remaining[..end_pos];
                 let body = parse_segments(body_str, base_offset + after_tag)?;
@@ -371,8 +366,7 @@ mod tests {
 
     #[test]
     fn conditional_block_truthy() {
-        let tpl =
-            PromptTemplate::compile("Start{#if inputs.flag} INCLUDED{/if} End").unwrap();
+        let tpl = PromptTemplate::compile("Start{#if inputs.flag} INCLUDED{/if} End").unwrap();
         let inputs = inputs_with(&[("flag", "yes")]);
         let result = tpl.render(&inputs, &Blackboard::new()).unwrap();
         assert_eq!(result, "Start INCLUDED End");
@@ -380,8 +374,7 @@ mod tests {
 
     #[test]
     fn conditional_block_falsy() {
-        let tpl =
-            PromptTemplate::compile("Start{#if inputs.flag} INCLUDED{/if} End").unwrap();
+        let tpl = PromptTemplate::compile("Start{#if inputs.flag} INCLUDED{/if} End").unwrap();
         let inputs = inputs_with(&[("flag", "false")]);
         let result = tpl.render(&inputs, &Blackboard::new()).unwrap();
         assert_eq!(result, "Start End");
@@ -389,20 +382,16 @@ mod tests {
 
     #[test]
     fn conditional_block_missing_var() {
-        let tpl =
-            PromptTemplate::compile("Start{#if inputs.missing} INCLUDED{/if} End").unwrap();
-        let result = tpl
-            .render(&Outputs::new(), &Blackboard::new())
-            .unwrap();
+        let tpl = PromptTemplate::compile("Start{#if inputs.missing} INCLUDED{/if} End").unwrap();
+        let result = tpl.render(&Outputs::new(), &Blackboard::new()).unwrap();
         assert_eq!(result, "Start End");
     }
 
     #[test]
     fn nested_conditionals() {
-        let tpl = PromptTemplate::compile(
-            "Start{#if inputs.a} A{#if inputs.b} AB{/if} after-B{/if} End",
-        )
-        .unwrap();
+        let tpl =
+            PromptTemplate::compile("Start{#if inputs.a} A{#if inputs.b} AB{/if} after-B{/if} End")
+                .unwrap();
 
         // Both truthy
         let inputs = inputs_with(&[("a", "yes"), ("b", "yes")]);
@@ -441,8 +430,7 @@ mod tests {
 
     #[test]
     fn variables_list() {
-        let tpl = PromptTemplate::compile("{inputs.a} {ctx.b} {#if inputs.c}inner{/if}")
-            .unwrap();
+        let tpl = PromptTemplate::compile("{inputs.a} {ctx.b} {#if inputs.c}inner{/if}").unwrap();
         let vars = tpl.variables();
         assert_eq!(vars, vec!["inputs.a", "ctx.b", "inputs.c"]);
     }

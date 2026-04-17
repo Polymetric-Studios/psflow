@@ -7,6 +7,10 @@ pub mod mermaid;
 #[cfg(feature = "runtime")]
 pub mod adapter;
 #[cfg(feature = "runtime")]
+pub mod blackboard;
+#[cfg(feature = "runtime")]
+pub mod debug_server;
+#[cfg(feature = "runtime")]
 pub mod execute;
 #[cfg(feature = "runtime")]
 pub mod handlers;
@@ -16,8 +20,6 @@ pub mod registry;
 pub mod scripting;
 #[cfg(feature = "runtime")]
 pub mod template;
-#[cfg(feature = "runtime")]
-pub mod debug_server;
 
 // Always-available re-exports
 pub use error::{GraphError, NodeError, PortTypeMismatchInfo};
@@ -25,7 +27,7 @@ pub use graph::edge::EdgeData;
 pub use graph::metadata::GraphMetadata;
 pub use graph::node::{Node, NodeId};
 pub use graph::port::Port;
-pub use graph::types::{PortType, Value};
+pub use graph::types::{PortType, ResultReducer, Value};
 pub use graph::{Graph, Subgraph, SubgraphDirective, SubgraphTopology};
 pub use mermaid::{export_mermaid, load_mermaid, MermaidError, Span};
 
@@ -34,8 +36,7 @@ pub use mermaid::{export_mermaid, load_mermaid, MermaidError, Span};
 pub use adapter::{
     AdapterCapabilities, AdapterRegistry, AiAdapter, AiRequest, AiResponse, ClaudeCliAdapter,
     ConversationConfig, ConversationHistory, ConversationMessage, MessageRole, MockAdapter,
-    TokenUsage,
-    CONVERSATION_HISTORY_KEY,
+    TokenUsage, CONVERSATION_HISTORY_KEY,
 };
 #[cfg(feature = "runtime")]
 pub use execute::blackboard::{Blackboard, BlackboardScope};
@@ -47,17 +48,16 @@ pub use execute::snapshot::ExecutionSnapshot;
 pub use execute::trace::{ExecutionTrace, RetryRecord, TraceRecord};
 #[cfg(feature = "runtime")]
 pub use execute::{
-    sync_handler, BackoffStrategy, CancellationToken, ConcurrencyLimits, EventBus,
-    EventBusError, EventSubscriber, ExecutionContext, ExecutionError, ExecutionEvent,
-    ExecutionResult, Executor, HandlerRegistry, LoopController, LoopIterator, LoopState,
-    NodeHandler, NodeState, Outputs, RetryConfig, SteppedExecutor, TickResult,
-    TopologicalExecutor,
+    sync_handler, BackoffStrategy, CancellationToken, ConcurrencyLimits, EventBus, EventBusError,
+    EventSubscriber, ExecutionContext, ExecutionError, ExecutionEvent, ExecutionResult, Executor,
+    HandlerKind, HandlerRegistry, LoopController, LoopIterator, LoopState, NodeHandler, NodeState,
+    Outputs, RetryConfig, SteppedExecutor, TickResult, TopologicalExecutor,
 };
 #[cfg(feature = "runtime")]
 pub use handlers::{
-    CatchHandler, DelayHandler, ErrorTransformHandler, FallbackHandler, GateHandler,
-    LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, RhaiHandler, RetryHandler,
-    SplitHandler, TransformHandler,
+    BreakHandler, CatchHandler, DelayHandler, ErrorTransformHandler, FallbackHandler, GateHandler,
+    LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, RetryHandler, RhaiHandler,
+    SelectHandler, SplitHandler, TransformHandler,
 };
 #[cfg(feature = "runtime")]
 pub use registry::NodeRegistry;

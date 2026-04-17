@@ -5,9 +5,7 @@ pub mod parse;
 
 pub use export::export_mermaid;
 pub use loader::load_mermaid;
-pub use parse::{
-    ParsedAnnotation, ParsedMermaid, ParsedNode, ParsedSubgraph, Span,
-};
+pub use parse::{ParsedAnnotation, ParsedMermaid, ParsedNode, ParsedSubgraph, Span};
 
 use thiserror::Error;
 

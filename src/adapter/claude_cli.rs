@@ -120,11 +120,7 @@ impl AiAdapter for ClaudeCliAdapter {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(NodeError::AdapterError {
                     adapter: "claude_cli".into(),
-                    message: format!(
-                        "claude exited with {}: {}",
-                        output.status,
-                        stderr.trim()
-                    ),
+                    message: format!("claude exited with {}: {}", output.status, stderr.trim()),
                 });
             }
 
@@ -199,7 +195,8 @@ impl AiAdapter for ClaudeCliAdapter {
         }
 
         // Build a judge prompt
-        let mut prompt = format!("Given these candidates, select the best one based on: {criteria}\n\n");
+        let mut prompt =
+            format!("Given these candidates, select the best one based on: {criteria}\n\n");
         for (i, candidate) in candidates.iter().enumerate() {
             prompt.push_str(&format!("Candidate {i}: {candidate}\n\n"));
         }
@@ -265,11 +262,11 @@ mod tests {
             .with_session("sess_123");
 
         assert_eq!(adapter.command, "/usr/local/bin/claude");
-        assert_eq!(adapter.default_model, Some("claude-sonnet-4-20250514".into()));
         assert_eq!(
-            *adapter.session_id.lock().unwrap(),
-            Some("sess_123".into())
+            adapter.default_model,
+            Some("claude-sonnet-4-20250514".into())
         );
+        assert_eq!(*adapter.session_id.lock().unwrap(), Some("sess_123".into()));
     }
 
     #[test]

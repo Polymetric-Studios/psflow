@@ -119,7 +119,14 @@ pub fn parse(input: &str) -> Result<ParsedMermaid, super::MermaidError> {
         let line_byte_start = byte_offset;
         let line_byte_end = byte_offset + raw_line.len();
         // Advance past this line + its newline character
-        byte_offset = line_byte_end + if input[line_byte_end..].starts_with('\n') { 1 } else if input[line_byte_end..].starts_with("\r\n") { 2 } else { 0 };
+        byte_offset = line_byte_end
+            + if input[line_byte_end..].starts_with('\n') {
+                1
+            } else if input[line_byte_end..].starts_with("\r\n") {
+                2
+            } else {
+                0
+            };
 
         if line.is_empty() {
             continue;
@@ -400,9 +407,7 @@ fn parse_node_ref(s: &str) -> Option<ParsedNode> {
     }
 
     // ID ends at first shape delimiter or whitespace
-    let id_end = s
-        .find(['[', '(', '{', '>', ' ', '\t'])
-        .unwrap_or(s.len());
+    let id_end = s.find(['[', '(', '{', '>', ' ', '\t']).unwrap_or(s.len());
     let id = &s[..id_end];
     if id.is_empty() {
         return None;
@@ -614,7 +619,10 @@ mod tests {
         let parsed = parse(input).unwrap();
         // Line 2: "    A[Fetch] --> B[Process]" starts at byte 9
         let a_span = parsed.nodes["A"].span;
-        assert_eq!(&input[a_span.from..a_span.to], "    A[Fetch] --> B[Process]");
+        assert_eq!(
+            &input[a_span.from..a_span.to],
+            "    A[Fetch] --> B[Process]"
+        );
         // B appears on the same edge line, so its span covers the same line
         assert_eq!(parsed.nodes["B"].span, a_span);
         // Line 3: "    B --> C[Store]" — but B already registered from line 2
@@ -628,7 +636,10 @@ mod tests {
         let parsed = parse(input).unwrap();
         let ann0 = &parsed.annotations[0];
         assert_eq!(ann0.target_id, "A");
-        assert_eq!(&input[ann0.span.from..ann0.span.to], "    %% @A handler: fetch");
+        assert_eq!(
+            &input[ann0.span.from..ann0.span.to],
+            "    %% @A handler: fetch"
+        );
         let ann1 = &parsed.annotations[1];
         assert_eq!(
             &input[ann1.span.from..ann1.span.to],
@@ -774,10 +785,7 @@ graph TD
         let err = parse(input).unwrap_err();
         match err {
             super::super::MermaidError::Parse { message, .. } => {
-                assert!(
-                    message.contains("non-comment line"),
-                    "got: {message}"
-                );
+                assert!(message.contains("non-comment line"), "got: {message}");
             }
             other => panic!("expected Parse error, got {other:?}"),
         }

@@ -1,5 +1,6 @@
 pub mod accumulator;
 pub(crate) mod common;
+pub mod control;
 pub mod error;
 pub mod file_io;
 pub mod http;
@@ -10,6 +11,7 @@ pub mod subgraph_invoke;
 pub mod utility;
 
 pub use accumulator::AccumulatorHandler;
+pub use control::{BreakHandler, SelectHandler};
 pub use error::{CatchHandler, ErrorTransformHandler, FallbackHandler, RetryHandler};
 pub use file_io::{GlobHandler, ReadFileHandler, WriteFileHandler};
 pub use http::HttpHandler;

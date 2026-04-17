@@ -48,11 +48,7 @@ graph TD
 ",
     );
 
-    let output = psflow()
-        .arg("--validate")
-        .arg(f.path())
-        .output()
-        .unwrap();
+    let output = psflow().arg("--validate").arg(f.path()).output().unwrap();
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("validation passed"));

@@ -78,9 +78,7 @@ impl RetryConfig {
             _ => BackoffStrategy::Fixed { delay_ms },
         };
 
-        let attempt_timeout_ms = retry
-            .get("attempt_timeout_ms")
-            .and_then(|v| v.as_u64());
+        let attempt_timeout_ms = retry.get("attempt_timeout_ms").and_then(|v| v.as_u64());
 
         let retry_on_timeout = retry
             .get("retry_on_timeout")
@@ -107,7 +105,11 @@ impl RetryConfig {
                 // Clamp exponent to avoid f64 overflow for large attempt counts
                 let clamped = attempt.min(63);
                 let delay = (*initial_delay_ms as f64) * multiplier.powi(clamped as i32);
-                let delay_ms = if delay.is_finite() { delay as u64 } else { *max_delay_ms };
+                let delay_ms = if delay.is_finite() {
+                    delay as u64
+                } else {
+                    *max_delay_ms
+                };
                 delay_ms.min(*max_delay_ms)
             }
         };
@@ -283,7 +285,9 @@ mod tests {
     #[test]
     fn parse_returns_none_for_no_retry() {
         assert!(RetryConfig::from_exec(&serde_json::json!({})).is_none());
-        assert!(RetryConfig::from_exec(&serde_json::json!({"retry": {"max_attempts": 1}})).is_none());
+        assert!(
+            RetryConfig::from_exec(&serde_json::json!({"retry": {"max_attempts": 1}})).is_none()
+        );
     }
 
     #[test]
@@ -358,9 +362,7 @@ mod tests {
             &config
         ));
         assert!(!is_retryable(
-            &NodeError::Cancelled {
-                reason: "x".into(),
-            },
+            &NodeError::Cancelled { reason: "x".into() },
             &config
         ));
     }

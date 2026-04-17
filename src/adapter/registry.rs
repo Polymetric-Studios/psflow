@@ -66,10 +66,11 @@ impl AdapterRegistry {
                 message: "adapter not registered".into(),
             })
         } else {
-            self.default_adapter().ok_or_else(|| NodeError::AdapterError {
-                adapter: "default".to_string(),
-                message: "no default adapter configured".into(),
-            })
+            self.default_adapter()
+                .ok_or_else(|| NodeError::AdapterError {
+                    adapter: "default".to_string(),
+                    message: "no default adapter configured".into(),
+                })
         }
     }
 

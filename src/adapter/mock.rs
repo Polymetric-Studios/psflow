@@ -34,7 +34,11 @@ impl MockAdapter {
     /// Add a pattern → response mapping.
     /// When a prompt contains `pattern` as a substring, `response` is returned.
     /// Add a pattern → response mapping (first-registered-wins on overlap).
-    pub fn with_response(mut self, pattern: impl Into<String>, response: impl Into<String>) -> Self {
+    pub fn with_response(
+        mut self,
+        pattern: impl Into<String>,
+        response: impl Into<String>,
+    ) -> Self {
         self.responses.push((pattern.into(), response.into()));
         self
     }
@@ -149,8 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn complete_with_structured_output() {
-        let adapter = MockAdapter::new()
-            .with_response("analyze", r#"{"score": 0.95}"#);
+        let adapter = MockAdapter::new().with_response("analyze", r#"{"score": 0.95}"#);
 
         let req = AiRequest {
             prompt: "analyze this".into(),

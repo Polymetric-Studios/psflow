@@ -171,30 +171,15 @@ impl ExecutionContext {
     }
 
     pub fn take_events(&self) -> Vec<ExecutionEvent> {
-        std::mem::take(
-            &mut *self
-                .events
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        )
+        std::mem::take(&mut *self.events.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     pub fn take_node_states(&self) -> HashMap<String, NodeState> {
-        std::mem::take(
-            &mut *self
-                .node_states
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        )
+        std::mem::take(&mut *self.node_states.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     pub fn take_node_outputs(&self) -> HashMap<String, Outputs> {
-        std::mem::take(
-            &mut *self
-                .node_outputs
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        )
+        std::mem::take(&mut *self.node_outputs.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     // -- Blackboard --
@@ -246,10 +231,7 @@ impl ExecutionContext {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        let bb = self
-            .blackboard
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let bb = self.blackboard.lock().unwrap_or_else(|e| e.into_inner());
         let blackboard = bb.to_snapshot();
         drop(bb);
         let branch_decisions = self
@@ -273,11 +255,7 @@ impl ExecutionContext {
     /// Interrupted nodes (Running/Pending) are reset to Idle for re-execution,
     /// and their stale outputs are cleared.
     pub fn from_snapshot(snapshot: crate::execute::snapshot::ExecutionSnapshot) -> Self {
-        Self::from_snapshot_with(
-            snapshot,
-            CancellationToken::new(),
-            ConcurrencyLimits::new(),
-        )
+        Self::from_snapshot_with(snapshot, CancellationToken::new(), ConcurrencyLimits::new())
     }
 
     /// Restore from a snapshot with specific cancel token and concurrency limits.
@@ -412,10 +390,7 @@ impl ExecutionContext {
     /// Returns `{node_id: Map{output_key: value, ...}, ...}` for all completed
     /// nodes in the subgraph. Used for parallel result aggregation where
     /// `{{results.{subgraph_id}}}` resolves to this map.
-    pub fn aggregate_subgraph_outputs(
-        &self,
-        node_ids: &[crate::graph::node::NodeId],
-    ) -> Outputs {
+    pub fn aggregate_subgraph_outputs(&self, node_ids: &[crate::graph::node::NodeId]) -> Outputs {
         use crate::graph::types::Value;
         use std::collections::BTreeMap;
 
@@ -816,7 +791,10 @@ mod tests {
         ctx.set_state("A", NodeState::Suspended).unwrap();
 
         let mut outputs = Outputs::new();
-        outputs.insert("result".into(), crate::graph::types::Value::String("done".into()));
+        outputs.insert(
+            "result".into(),
+            crate::graph::types::Value::String("done".into()),
+        );
 
         ctx.submit_result("A", outputs.clone()).unwrap();
 
@@ -857,11 +835,17 @@ mod tests {
 
         let mut keyed = HashMap::new();
         let mut out_a = Outputs::new();
-        out_a.insert("review".into(), crate::graph::types::Value::String("ux feedback".into()));
+        out_a.insert(
+            "review".into(),
+            crate::graph::types::Value::String("ux feedback".into()),
+        );
         keyed.insert("A".into(), out_a);
 
         let mut out_b = Outputs::new();
-        out_b.insert("review".into(), crate::graph::types::Value::String("visual feedback".into()));
+        out_b.insert(
+            "review".into(),
+            crate::graph::types::Value::String("visual feedback".into()),
+        );
         keyed.insert("B".into(), out_b);
 
         ctx.submit_results(keyed).unwrap();
@@ -879,7 +863,9 @@ mod tests {
         let b_out = ctx.get_outputs("B").unwrap();
         assert_eq!(
             b_out.get("review"),
-            Some(&crate::graph::types::Value::String("visual feedback".into()))
+            Some(&crate::graph::types::Value::String(
+                "visual feedback".into()
+            ))
         );
     }
 
@@ -923,10 +909,12 @@ mod tests {
 
         // Should have emitted at least a NodeCompleted and a StateChanged event
         let new_events = ctx.events_since(initial_event_count);
-        let has_completed = new_events.iter().any(|e| matches!(
-            e,
-            ExecutionEvent::NodeCompleted { node_id, .. } if node_id == "A"
-        ));
+        let has_completed = new_events.iter().any(|e| {
+            matches!(
+                e,
+                ExecutionEvent::NodeCompleted { node_id, .. } if node_id == "A"
+            )
+        });
         assert!(has_completed, "expected NodeCompleted event for A");
     }
 
@@ -938,7 +926,10 @@ mod tests {
         ctx.set_state("A", NodeState::Suspended).unwrap();
 
         let mut out = Outputs::new();
-        out.insert("partial".into(), crate::graph::types::Value::String("wip".into()));
+        out.insert(
+            "partial".into(),
+            crate::graph::types::Value::String("wip".into()),
+        );
         ctx.store_outputs("A", out);
 
         let snapshot = ctx.snapshot();

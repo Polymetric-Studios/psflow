@@ -158,15 +158,21 @@ async fn ws_reader(
 ) {
     while let Some(msg_result) = rx.next().await {
         match msg_result {
-            Ok(Message::Text(text)) => {
-                match serde_json::from_str::<ClientMsg>(&text) {
-                    Ok(ClientMsg::Step) => { let _ = cmd_tx.send(ControlCmd::Step).await; }
-                    Ok(ClientMsg::Resume) => { let _ = cmd_tx.send(ControlCmd::Resume).await; }
-                    Ok(ClientMsg::Pause) => { let _ = cmd_tx.send(ControlCmd::Pause).await; }
-                    Ok(ClientMsg::Cancel) => { let _ = cmd_tx.send(ControlCmd::Cancel).await; }
-                    Err(e) => warn!("invalid command: {e}"),
+            Ok(Message::Text(text)) => match serde_json::from_str::<ClientMsg>(&text) {
+                Ok(ClientMsg::Step) => {
+                    let _ = cmd_tx.send(ControlCmd::Step).await;
                 }
-            }
+                Ok(ClientMsg::Resume) => {
+                    let _ = cmd_tx.send(ControlCmd::Resume).await;
+                }
+                Ok(ClientMsg::Pause) => {
+                    let _ = cmd_tx.send(ControlCmd::Pause).await;
+                }
+                Ok(ClientMsg::Cancel) => {
+                    let _ = cmd_tx.send(ControlCmd::Cancel).await;
+                }
+                Err(e) => warn!("invalid command: {e}"),
+            },
             Ok(Message::Close(_)) => {
                 debug!("client sent close frame");
                 break;
@@ -241,7 +247,13 @@ async fn execution_loop(
                     }
                 }
                 Err(e) => {
-                    let _ = send(&mut ws_tx, &ServerMsg::Error { message: e.to_string() }).await;
+                    let _ = send(
+                        &mut ws_tx,
+                        &ServerMsg::Error {
+                            message: e.to_string(),
+                        },
+                    )
+                    .await;
                     return Err(e);
                 }
             }
@@ -253,24 +265,28 @@ async fn execution_loop(
             };
 
             match cmd {
-                ControlCmd::Step => {
-                    match do_tick(&executor, graph, handlers, &ctx).await {
-                        Ok(events) => {
-                            let complete = is_all_terminal(graph, &ctx);
-                            send_events(&mut ws_tx, events).await?;
+                ControlCmd::Step => match do_tick(&executor, graph, handlers, &ctx).await {
+                    Ok(events) => {
+                        let complete = is_all_terminal(graph, &ctx);
+                        send_events(&mut ws_tx, events).await?;
 
-                            if complete {
-                                send_complete(&mut ws_tx, &ctx).await?;
-                                return Ok(());
-                            }
-                            send(&mut ws_tx, &ServerMsg::Paused).await?;
+                        if complete {
+                            send_complete(&mut ws_tx, &ctx).await?;
+                            return Ok(());
                         }
-                        Err(e) => {
-                            let _ = send(&mut ws_tx, &ServerMsg::Error { message: e.to_string() }).await;
-                            return Err(e);
-                        }
+                        send(&mut ws_tx, &ServerMsg::Paused).await?;
                     }
-                }
+                    Err(e) => {
+                        let _ = send(
+                            &mut ws_tx,
+                            &ServerMsg::Error {
+                                message: e.to_string(),
+                            },
+                        )
+                        .await;
+                        return Err(e);
+                    }
+                },
                 ControlCmd::Resume => {
                     running = true;
                     send(&mut ws_tx, &ServerMsg::Resumed).await?;
@@ -312,10 +328,7 @@ async fn do_tick(
 fn convert_event(event: ExecutionEvent) -> Option<DebugEvent> {
     match event {
         ExecutionEvent::StateChanged {
-            node_id,
-            from,
-            to,
-            ..
+            node_id, from, to, ..
         } => Some(DebugEvent {
             node_id,
             from_state: format!("{from}"),
@@ -347,7 +360,9 @@ fn convert_event(event: ExecutionEvent) -> Option<DebugEvent> {
 }
 
 fn is_all_terminal(graph: &Graph, ctx: &Arc<ExecutionContext>) -> bool {
-    graph.nodes().all(|node| ctx.get_state(&node.id.0).is_terminal())
+    graph
+        .nodes()
+        .all(|node| ctx.get_state(&node.id.0).is_terminal())
 }
 
 async fn send(

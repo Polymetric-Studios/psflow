@@ -39,12 +39,18 @@ pub struct EventSender {
 
 impl EventSender {
     /// Send an event to a target node. Returns an error if the executor has shut down.
-    pub async fn send(&self, msg: EventMessage) -> Result<(), mpsc::error::SendError<EventMessage>> {
+    pub async fn send(
+        &self,
+        msg: EventMessage,
+    ) -> Result<(), mpsc::error::SendError<EventMessage>> {
         self.tx.send(msg).await
     }
 
     /// Try to send an event without waiting. Returns an error if the channel is full or closed.
-    pub fn try_send(&self, msg: EventMessage) -> Result<(), mpsc::error::TrySendError<EventMessage>> {
+    pub fn try_send(
+        &self,
+        msg: EventMessage,
+    ) -> Result<(), mpsc::error::TrySendError<EventMessage>> {
         self.tx.try_send(msg)
     }
 }
@@ -174,7 +180,10 @@ async fn execute_event_driven(
                 node_id: event.target_node.clone(),
                 error: NodeError::Failed {
                     source_message: None,
-                    message: format!("event target node '{}' not found in graph", event.target_node),
+                    message: format!(
+                        "event target node '{}' not found in graph",
+                        event.target_node
+                    ),
                     recoverable: false,
                 },
             });
@@ -194,14 +203,7 @@ async fn execute_event_driven(
         ctx.store_outputs(&event.target_node, event.data);
 
         // Fire the target node and propagate downstream reactively
-        propagate_from(
-            graph,
-            handlers,
-            &ctx,
-            &passthrough,
-            &target_id,
-        )
-        .await?;
+        propagate_from(graph, handlers, &ctx, &passthrough, &target_id).await?;
     }
 
     let elapsed = start.elapsed();
@@ -408,9 +410,9 @@ fn all_inputs_terminal(graph: &Graph, node_id: &NodeId, ctx: &ExecutionContext) 
 mod tests {
     use super::*;
     use crate::execute::sync_handler;
+    use crate::execute::Outputs;
     use crate::graph::node::Node;
     use crate::graph::types::Value;
-    use crate::execute::Outputs;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
     // -- Basic event-driven tests --
@@ -422,17 +424,12 @@ mod tests {
             .unwrap();
 
         let mut handlers = HandlerRegistry::new();
-        handlers.insert(
-            "echo".into(),
-            sync_handler(|_, inputs| Ok(inputs)),
-        );
+        handlers.insert("echo".into(), sync_handler(|_, inputs| Ok(inputs)));
 
         let (executor, sender) = EventDrivenExecutor::new();
         let token = executor.cancel_token().clone();
 
-        let exec_handle = tokio::spawn(async move {
-            executor.execute(&g, &handlers).await
-        });
+        let exec_handle = tokio::spawn(async move { executor.execute(&g, &handlers).await });
 
         // Send an event
         let mut data = Outputs::new();
@@ -490,9 +487,7 @@ mod tests {
         let (executor, sender) = EventDrivenExecutor::new();
         let token = executor.cancel_token().clone();
 
-        let exec_handle = tokio::spawn(async move {
-            executor.execute(&g, &handlers).await
-        });
+        let exec_handle = tokio::spawn(async move { executor.execute(&g, &handlers).await });
 
         let mut data = Outputs::new();
         data.insert("value".into(), Value::I64(21));
@@ -535,9 +530,7 @@ mod tests {
         let (executor, sender) = EventDrivenExecutor::new();
         let token = executor.cancel_token().clone();
 
-        let exec_handle = tokio::spawn(async move {
-            executor.execute(&g, &handlers).await
-        });
+        let exec_handle = tokio::spawn(async move { executor.execute(&g, &handlers).await });
 
         // Send 3 events
         for i in 0..3 {
@@ -568,16 +561,18 @@ mod tests {
 
         let (executor, sender) = EventDrivenExecutor::new();
 
-        let exec_handle = tokio::spawn(async move {
-            executor.execute(&g, &HandlerRegistry::new()).await
-        });
+        let exec_handle =
+            tokio::spawn(async move { executor.execute(&g, &HandlerRegistry::new()).await });
 
         // Drop the sender to close the channel
         drop(sender);
 
         // Executor should exit cleanly
         let result = exec_handle.await.unwrap().unwrap();
-        assert!(result.events.iter().any(|e| matches!(e, ExecutionEvent::ExecutionCompleted { .. })));
+        assert!(result
+            .events
+            .iter()
+            .any(|e| matches!(e, ExecutionEvent::ExecutionCompleted { .. })));
     }
 
     #[tokio::test]
@@ -588,9 +583,7 @@ mod tests {
         let (executor, sender) = EventDrivenExecutor::new();
         let token = executor.cancel_token().clone();
 
-        let exec_handle = tokio::spawn(async move {
-            executor.execute(&g, &handlers()).await
-        });
+        let exec_handle = tokio::spawn(async move { executor.execute(&g, &handlers()).await });
 
         // Send event to non-existent node
         sender
@@ -620,15 +613,17 @@ mod tests {
         let token = CancellationToken::new();
         let (executor, _sender) = EventDrivenExecutor::with_cancel(token.clone());
 
-        let exec_handle = tokio::spawn(async move {
-            executor.execute(&g, &HandlerRegistry::new()).await
-        });
+        let exec_handle =
+            tokio::spawn(async move { executor.execute(&g, &HandlerRegistry::new()).await });
 
         // Cancel immediately
         token.cancel();
 
         let result = exec_handle.await.unwrap().unwrap();
-        assert!(result.events.iter().any(|e| matches!(e, ExecutionEvent::ExecutionCompleted { .. })));
+        assert!(result
+            .events
+            .iter()
+            .any(|e| matches!(e, ExecutionEvent::ExecutionCompleted { .. })));
     }
 
     #[tokio::test]
@@ -658,9 +653,7 @@ mod tests {
         let (executor, sender) = EventDrivenExecutor::new();
         let token = executor.cancel_token().clone();
 
-        let exec_handle = tokio::spawn(async move {
-            executor.execute(&g, &handlers).await
-        });
+        let exec_handle = tokio::spawn(async move { executor.execute(&g, &handlers).await });
 
         // Send first event
         sender
@@ -694,9 +687,12 @@ mod tests {
         // A → B → C: event targets B (mid-graph), should execute B and C
         // A is never triggered
         let mut g = Graph::new();
-        g.add_node(Node::new("A", "A").with_handler("pass")).unwrap();
-        g.add_node(Node::new("B", "B").with_handler("pass")).unwrap();
-        g.add_node(Node::new("C", "C").with_handler("pass")).unwrap();
+        g.add_node(Node::new("A", "A").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("B", "B").with_handler("pass"))
+            .unwrap();
+        g.add_node(Node::new("C", "C").with_handler("pass"))
+            .unwrap();
         g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
         g.add_edge(&"B".into(), "", &"C".into(), "", None).unwrap();
 
@@ -706,9 +702,7 @@ mod tests {
         let (executor, sender) = EventDrivenExecutor::new();
         let token = executor.cancel_token().clone();
 
-        let exec_handle = tokio::spawn(async move {
-            executor.execute(&g, &handlers).await
-        });
+        let exec_handle = tokio::spawn(async move { executor.execute(&g, &handlers).await });
 
         let mut data = Outputs::new();
         data.insert("value".into(), Value::I64(99));

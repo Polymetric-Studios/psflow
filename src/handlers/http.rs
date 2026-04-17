@@ -55,14 +55,15 @@ impl NodeHandler for HttpHandler {
             }
 
             // Parse config
-            let url_template = config
-                .get("url")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| NodeError::Failed {
-                    source_message: None,
-                    message: format!("node '{node_id}': missing config.url"),
-                    recoverable: false,
-                })?;
+            let url_template =
+                config
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| NodeError::Failed {
+                        source_message: None,
+                        message: format!("node '{node_id}': missing config.url"),
+                        recoverable: false,
+                    })?;
 
             let method = config
                 .get("method")
@@ -90,7 +91,10 @@ impl NodeHandler for HttpHandler {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
-            let body_template = config.get("body").and_then(|v| v.as_str()).map(String::from);
+            let body_template = config
+                .get("body")
+                .and_then(|v| v.as_str())
+                .map(String::from);
 
             // Interpolate templates
             let url = interpolate(url_template, &inputs);
@@ -214,11 +218,11 @@ fn is_private_host(host: &str) -> bool {
                 v4.is_loopback()           // 127.0.0.0/8
                     || v4.is_private()      // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
                     || v4.is_link_local()   // 169.254.0.0/16
-                    || v4.is_unspecified()  // 0.0.0.0
+                    || v4.is_unspecified() // 0.0.0.0
             }
             std::net::IpAddr::V6(v6) => {
                 v6.is_loopback()           // ::1
-                    || v6.is_unspecified()  // ::
+                    || v6.is_unspecified() // ::
             }
         };
     }
@@ -237,7 +241,10 @@ mod tests {
             .execute(&node, Outputs::new(), CancellationToken::new())
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing config.url"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing config.url"));
     }
 
     #[tokio::test]
@@ -251,7 +258,10 @@ mod tests {
             .execute(&node, Outputs::new(), CancellationToken::new())
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unsupported HTTP method"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported HTTP method"));
     }
 
     #[tokio::test]

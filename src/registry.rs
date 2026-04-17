@@ -1,4 +1,4 @@
-use crate::execute::{HandlerRegistry, NodeHandler};
+use crate::execute::{ExecutionContext, HandlerRegistry, NodeHandler};
 use crate::graph::Graph;
 use crate::scripting::engine::ScriptEngine;
 use std::collections::HashMap;
@@ -23,14 +23,20 @@ impl NodeRegistry {
     /// including the `"rhai"` script handler backed by the given engine.
     ///
     /// Does not include wrapper handlers (`catch`, `fallback`, `retry`) or
-    /// context-dependent handlers (`accumulator`) since those require runtime arguments.
+    /// context-dependent handlers (`accumulator`, `break`, `select`,
+    /// `subgraph_invoke`, `human_input`, `llm_call`) since those require
+    /// runtime arguments. See [`NodeRegistry::with_defaults_full`] for a
+    /// registry that includes handlers needing an [`ExecutionContext`].
     pub fn with_defaults(engine: Arc<ScriptEngine>) -> Self {
         use crate::handlers::*;
 
         let mut reg = Self::new();
 
         // Utility handlers
-        reg.register("passthrough", Arc::new(PassthroughHandler) as Arc<dyn NodeHandler>);
+        reg.register(
+            "passthrough",
+            Arc::new(PassthroughHandler) as Arc<dyn NodeHandler>,
+        );
         reg.register("transform", Arc::new(TransformHandler));
         reg.register("delay", Arc::new(DelayHandler));
         reg.register("log", Arc::new(LogHandler));
@@ -47,6 +53,39 @@ impl NodeRegistry {
 
         // Scripting
         reg.register("rhai", Arc::new(RhaiHandler::new(engine)));
+
+        reg
+    }
+
+    /// Create a registry with the stateless defaults from [`with_defaults`]
+    /// plus context-dependent handlers that need [`ExecutionContext`] for
+    /// blackboard access.
+    ///
+    /// Adds: `accumulator`, `break`, `select`.
+    ///
+    /// Does NOT add handlers whose construction requires resources beyond an
+    /// `ExecutionContext`:
+    ///
+    /// - `llm_call` — requires an `AiAdapter`; embedders pick their own.
+    /// - `human_input` — returns a receiver that must be owned by the operator
+    ///   loop; embedders call `HumanInputHandler::new()` themselves.
+    /// - `retry` / `catch` / `fallback` — wrap a specific inner handler and
+    ///   are constructed per-node by the embedder.
+    /// - `subgraph_invoke` — requires a `GraphLibrary` and a deferred
+    ///   `HandlerRegistrySlot`.
+    ///
+    /// Embedders layer those on top of the returned registry.
+    pub fn with_defaults_full(engine: Arc<ScriptEngine>, ctx: Arc<ExecutionContext>) -> Self {
+        use crate::handlers::*;
+
+        let mut reg = Self::with_defaults(engine);
+
+        reg.register(
+            "accumulator",
+            Arc::new(AccumulatorHandler::new(ctx.clone())) as Arc<dyn NodeHandler>,
+        );
+        reg.register("break", Arc::new(BreakHandler::new(ctx.clone())));
+        reg.register("select", Arc::new(SelectHandler::new(ctx)));
 
         reg
     }
@@ -196,5 +235,46 @@ mod tests {
         reg.register("h", sync_handler(|_, inputs| Ok(inputs)));
         let hr = reg.into_handler_registry();
         assert!(hr.contains_key("h"));
+    }
+
+    #[test]
+    fn with_defaults_registers_stateless_handlers() {
+        let engine = Arc::new(ScriptEngine::with_defaults());
+        let reg = NodeRegistry::with_defaults(engine);
+
+        for name in [
+            "passthrough",
+            "transform",
+            "delay",
+            "log",
+            "merge",
+            "split",
+            "gate",
+            "error_transform",
+            "http",
+            "read_file",
+            "write_file",
+            "glob",
+            "rhai",
+        ] {
+            assert!(reg.contains(name), "missing handler: {name}");
+        }
+    }
+
+    #[test]
+    fn with_defaults_full_adds_context_handlers() {
+        let engine = Arc::new(ScriptEngine::with_defaults());
+        let ctx = Arc::new(ExecutionContext::new());
+        let reg = NodeRegistry::with_defaults_full(engine, ctx);
+
+        // All the stateless defaults are still there
+        assert!(reg.contains("passthrough"));
+        assert!(reg.contains("gate"));
+        assert!(reg.contains("rhai"));
+
+        // Plus the context-dependent ones
+        assert!(reg.contains("accumulator"));
+        assert!(reg.contains("break"));
+        assert!(reg.contains("select"));
     }
 }

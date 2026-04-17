@@ -333,9 +333,7 @@ mod tests {
             cancel_clone.cancel();
         });
 
-        let ast = engine
-            .compile("let i = 0; loop { i += 1; } i")
-            .unwrap();
+        let ast = engine.compile("let i = 0; loop { i += 1; } i").unwrap();
         let result = engine.eval_ast(&mut scope, &ast, &cancel);
         assert!(result.is_err());
     }
@@ -398,7 +396,9 @@ mod tests {
         let cancel = CancellationToken::new();
         let mut scope = Scope::new();
 
-        let ast = engine.compile("import \"something\" as m; m::foo()").unwrap();
+        let ast = engine
+            .compile("import \"something\" as m; m::foo()")
+            .unwrap();
         let result = engine.eval_ast(&mut scope, &ast, &cancel);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();

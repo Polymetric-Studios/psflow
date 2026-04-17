@@ -209,8 +209,7 @@ fn value_to_string(v: &crate::graph::types::Value) -> String {
 fn parse_literal(s: &str) -> String {
     // Strip surrounding quotes if present (must be at least 2 chars for open+close)
     if s.len() >= 2
-        && ((s.starts_with('"') && s.ends_with('"'))
-            || (s.starts_with('\'') && s.ends_with('\'')))
+        && ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')))
     {
         s[1..s.len() - 1].to_string()
     } else {
@@ -283,9 +282,7 @@ pub async fn evaluate_race_criterion_llm(
     candidate_outputs: &[String],
     adapter: &dyn crate::adapter::AiAdapter,
 ) -> Result<usize, NodeError> {
-    adapter
-        .judge(candidate_outputs, criteria)
-        .await
+    adapter.judge(candidate_outputs, criteria).await
 }
 
 /// Evaluate a loop continuation condition via LLM adapter.
@@ -457,11 +454,14 @@ pub async fn execute_parallel(
             let _local = local_permit;
             let _global = global_permit;
             inner_handle.await.unwrap_or_else(|e| {
-                ("panic".to_string(), Err(NodeError::Failed {
-                    source_message: None,
-                    message: format!("task panic: {e}"),
-                    recoverable: false,
-                }))
+                (
+                    "panic".to_string(),
+                    Err(NodeError::Failed {
+                        source_message: None,
+                        message: format!("task panic: {e}"),
+                        recoverable: false,
+                    }),
+                )
             })
         });
         handles.push(handle);
@@ -504,7 +504,9 @@ pub async fn execute_race_with_adapter(
 
     // Check if any node has criterion_llm — if so, run all candidates then judge
     let criterion_llm = node_ids.iter().find_map(|id| {
-        graph.node(id).and_then(|n| n.exec.get("criterion_llm").cloned())
+        graph
+            .node(id)
+            .and_then(|n| n.exec.get("criterion_llm").cloned())
     });
 
     if let (Some(criterion_config), Some(adapter)) = (&criterion_llm, adapter) {
@@ -528,8 +530,7 @@ pub async fn execute_race_with_adapter(
             continue;
         }
 
-        let handle =
-            spawn_node_task(node_id.clone(), graph, handlers, ctx, passthrough.clone())?;
+        let handle = spawn_node_task(node_id.clone(), graph, handlers, ctx, passthrough.clone())?;
         task_ids.push(node_id.clone());
         futures.push(handle);
     }
@@ -546,8 +547,8 @@ pub async fn execute_race_with_adapter(
     while !remaining.is_empty() {
         let (result, _index, rest) = select_all(remaining).await;
 
-        let (id_str, outcome) = result
-            .map_err(|e| ExecutionError::ValidationFailed(format!("task panic: {e}")))?;
+        let (id_str, outcome) =
+            result.map_err(|e| ExecutionError::ValidationFailed(format!("task panic: {e}")))?;
 
         match outcome {
             Ok(outputs) => {
@@ -661,11 +662,14 @@ pub async fn execute_loop_with_adapter(
                         Ok(result) => result,
                         Err(_) => {
                             // Fallback to deterministic guard
-                            if let Some(fallback) = llm_config.get("fallback").and_then(|v| v.as_str()) {
+                            if let Some(fallback) =
+                                llm_config.get("fallback").and_then(|v| v.as_str())
+                            {
                                 let bb = ctx.blackboard();
                                 let result = evaluate_guard(fallback, &Outputs::new(), &bb);
                                 drop(bb);
-                                result.unwrap_or(GuardResult::Bool(false)) == GuardResult::Bool(true)
+                                result.unwrap_or(GuardResult::Bool(false))
+                                    == GuardResult::Bool(true)
                             } else {
                                 false // No fallback, stop the loop
                             }
@@ -798,9 +802,9 @@ async fn execute_single_node(
     ctx: &Arc<ExecutionContext>,
     passthrough: &Arc<dyn NodeHandler>,
 ) -> Result<Result<Outputs, NodeError>, ExecutionError> {
-    let node = graph.node(node_id).ok_or_else(|| {
-        ExecutionError::ValidationFailed(format!("node '{}' not found", node_id))
-    })?;
+    let node = graph
+        .node(node_id)
+        .ok_or_else(|| ExecutionError::ValidationFailed(format!("node '{}' not found", node_id)))?;
 
     let handler: Arc<dyn NodeHandler> = node
         .handler
@@ -829,7 +833,15 @@ async fn execute_single_node(
     // Core execution: retry wraps handler calls, node timeout wraps the entire sequence
     let execute_fn = async {
         if let Some(ref rc) = retry_config {
-            super::retry::execute_with_retry_ctx(&handler, node, inputs, cancel.clone(), rc, Some(ctx)).await
+            super::retry::execute_with_retry_ctx(
+                &handler,
+                node,
+                inputs,
+                cancel.clone(),
+                rc,
+                Some(ctx),
+            )
+            .await
         } else {
             handler.execute(node, inputs, cancel.clone()).await
         }
@@ -881,9 +893,9 @@ fn spawn_node_task(
     ctx: &Arc<ExecutionContext>,
     passthrough: Arc<dyn NodeHandler>,
 ) -> Result<NodeTaskHandle, ExecutionError> {
-    let node = graph.node(&node_id).ok_or_else(|| {
-        ExecutionError::ValidationFailed(format!("node '{}' not found", node_id))
-    })?;
+    let node = graph
+        .node(&node_id)
+        .ok_or_else(|| ExecutionError::ValidationFailed(format!("node '{}' not found", node_id)))?;
 
     let handler: Arc<dyn NodeHandler> = node
         .handler
@@ -1302,11 +1314,7 @@ mod tests {
         // ctx.flag resolves via Rhai (ctx is a Map in scope), not legacy fallback
         let inputs = Outputs::new();
         let mut bb = Blackboard::new();
-        bb.set(
-            "flag".into(),
-            Value::Bool(true),
-            BlackboardScope::Global,
-        );
+        bb.set("flag".into(), Value::Bool(true), BlackboardScope::Global);
 
         assert_eq!(
             evaluate_guard("ctx.flag", &inputs, &bb).unwrap(),
@@ -1505,11 +1513,7 @@ mod tests {
         let mut inputs = Outputs::new();
         inputs.insert("data".into(), Value::String("test_value".into()));
 
-        let result = render_llm_prompt(
-            "Process {inputs.data} in {ctx.mode} mode",
-            &inputs,
-            &ctx,
-        );
+        let result = render_llm_prompt("Process {inputs.data} in {ctx.mode} mode", &inputs, &ctx);
 
         assert_eq!(result, "Process test_value in fast mode");
     }
@@ -1643,9 +1647,15 @@ mod tests {
 
         let handlers = HandlerRegistry::new();
         let winner = execute_race_with_adapter(
-            &node_ids, &graph, &handlers, &ctx, &passthrough,
+            &node_ids,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
             Some(&adapter),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // Adapter judge() returns 0 → first candidate (A) should win
         assert!(winner.is_some());
@@ -1681,9 +1691,16 @@ mod tests {
 
         let handlers = HandlerRegistry::new();
         execute_loop_with_adapter(
-            &node_ids, &config, &graph, &handlers, &ctx, &passthrough,
+            &node_ids,
+            &config,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
             Some(&adapter),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // Adapter said "no" on first check → node should never have completed
         let state = ctx.get_state("L");
@@ -1704,7 +1721,11 @@ mod tests {
         // Set a blackboard flag to control the fallback guard
         {
             let mut bb = ctx.blackboard();
-            bb.set("keep_going".into(), Value::Bool(false), BlackboardScope::Global);
+            bb.set(
+                "keep_going".into(),
+                Value::Bool(false),
+                BlackboardScope::Global,
+            );
         }
 
         let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| Ok(Outputs::new()));
@@ -1724,9 +1745,16 @@ mod tests {
         let handlers = HandlerRegistry::new();
         // No adapter → falls back to deterministic guard which reads ctx.keep_going (false)
         execute_loop_with_adapter(
-            &node_ids, &config, &graph, &handlers, &ctx, &passthrough,
+            &node_ids,
+            &config,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
             None,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // Fallback guard is false → 0 iterations → node stays idle
         let state = ctx.get_state("L");
