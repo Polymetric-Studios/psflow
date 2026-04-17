@@ -2,6 +2,7 @@ use crate::execute::blackboard::Blackboard;
 use crate::execute::Outputs;
 use crate::graph::types::Value;
 use std::fmt;
+use std::sync::Arc;
 
 /// Error from template compilation or rendering.
 #[derive(Debug, Clone, PartialEq)]
@@ -281,6 +282,57 @@ fn collect_variables<'a>(segments: &'a [Segment], vars: &mut Vec<&'a str>) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// TemplateResolver trait
+// ---------------------------------------------------------------------------
+
+/// Abstraction over template engines so embedders can plug in their own
+/// template syntax without forking psflow handlers.
+///
+/// Built-in handlers that need to resolve templates (e.g. `http`, `shell`,
+/// `read_file`) hold an `Arc<dyn TemplateResolver>` obtained from the
+/// registry at construction time. psflow ships [`PromptTemplateResolver`]
+/// as the default implementation, backed by [`PromptTemplate`]. Downstream
+/// crates (e.g. `ergon-core`) can implement this trait over their richer
+/// engines and inject the adapter via
+/// [`crate::registry::NodeRegistry::with_defaults_full`].
+///
+/// The trait contract mirrors [`PromptTemplate::render`]: compile the
+/// template on the fly, render it against the node's `inputs` map and the
+/// shared `blackboard`, and return either a plain string or a
+/// [`TemplateError`].
+pub trait TemplateResolver: Send + Sync {
+    fn render(
+        &self,
+        template: &str,
+        inputs: &Outputs,
+        blackboard: &Blackboard,
+    ) -> Result<String, TemplateError>;
+}
+
+/// Default [`TemplateResolver`] backed by psflow's own [`PromptTemplate`].
+///
+/// Compiles the template on every call — embedders in hot loops should
+/// cache a compiled template themselves or implement a smarter resolver.
+#[derive(Default, Debug, Clone, Copy)]
+pub struct PromptTemplateResolver;
+
+impl TemplateResolver for PromptTemplateResolver {
+    fn render(
+        &self,
+        template: &str,
+        inputs: &Outputs,
+        blackboard: &Blackboard,
+    ) -> Result<String, TemplateError> {
+        PromptTemplate::compile(template)?.render(inputs, blackboard)
+    }
+}
+
+/// Convenience constructor for the default resolver packaged as a trait object.
+pub fn default_resolver() -> Arc<dyn TemplateResolver> {
+    Arc::new(PromptTemplateResolver)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,6 +485,29 @@ mod tests {
         let tpl = PromptTemplate::compile("{inputs.a} {ctx.b} {#if inputs.c}inner{/if}").unwrap();
         let vars = tpl.variables();
         assert_eq!(vars, vec!["inputs.a", "ctx.b", "inputs.c"]);
+    }
+
+    #[test]
+    fn default_resolver_renders_via_prompt_template() {
+        let resolver = PromptTemplateResolver;
+        let inputs = inputs_with(&[("name", "World")]);
+        let out = resolver
+            .render("Hello, {inputs.name}!", &inputs, &Blackboard::new())
+            .unwrap();
+        assert_eq!(out, "Hello, World!");
+    }
+
+    #[test]
+    fn default_resolver_reports_missing_variable() {
+        let resolver = PromptTemplateResolver;
+        let err = resolver
+            .render(
+                "Hello, {inputs.missing}!",
+                &Outputs::new(),
+                &Blackboard::new(),
+            )
+            .unwrap_err();
+        assert!(matches!(err, TemplateError::MissingVariable { .. }));
     }
 
     #[test]

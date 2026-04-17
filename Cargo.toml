@@ -5,6 +5,11 @@ members = [".", "crates/psflow-wasm"]
 name = "psflow"
 required-features = ["runtime"]
 
+[[bin]]
+name = "psflow-manifest"
+path = "src/bin/manifest.rs"
+required-features = ["runtime"]
+
 [package]
 name = "psflow"
 version = "0.1.0"
@@ -13,12 +18,13 @@ description = "Domain-agnostic process flow control and execution framework"
 
 [features]
 default = ["runtime"]
-runtime = ["dep:clap", "dep:futures", "dep:glob", "dep:reqwest", "dep:rhai", "dep:tokio", "dep:tokio-util", "dep:tokio-tungstenite", "dep:tracing", "dep:tracing-subscriber"]
+runtime = ["dep:clap", "dep:futures", "dep:glob", "dep:jmespath", "dep:reqwest", "dep:rhai", "dep:tokio", "dep:tokio-util", "dep:tokio-tungstenite", "dep:tracing", "dep:tracing-subscriber"]
 
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"], optional = true }
 futures = { version = "0.3.32", optional = true }
 glob = { version = "0.3", optional = true }
+jmespath = { version = "0.5", features = ["sync"], optional = true }
 petgraph = "0.6"
 reqwest = { version = "0.12", features = ["json"], optional = true }
 rhai = { version = "1", features = ["sync", "serde"], optional = true }

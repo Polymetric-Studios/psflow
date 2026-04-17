@@ -60,6 +60,119 @@ pub enum HandlerKind {
     Trigger,
 }
 
+/// Self-describing metadata for a [`NodeHandler`].
+///
+/// Handlers implement [`NodeHandler::schema`] to surface their configuration
+/// keys, expected inputs, and produced outputs so tooling (docs generators,
+/// graph editors, validators) can reflect over the registry without running
+/// the workflow.
+///
+/// The shape mirrors a minimal JSON-schema-flavoured description — every
+/// property carries a name, a type-hint string, whether it is required, and
+/// a short human-readable description. The simplicity is intentional: the
+/// full JSON Schema spec is overkill for catalogue-style tooling, and we
+/// serialise directly to a JSON object via serde.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HandlerSchema {
+    /// Canonical handler name (registry key).
+    pub name: String,
+    /// Human-readable summary.
+    pub description: String,
+    /// Configuration keys read from `node.config` at execution time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub config: Vec<SchemaField>,
+    /// Named input ports the handler consumes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<SchemaField>,
+    /// Named output ports the handler produces.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<SchemaField>,
+}
+
+impl HandlerSchema {
+    /// Build an opaque placeholder schema — only the name is known. Used as
+    /// the default when a handler has not implemented `schema()` yet.
+    pub fn opaque(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: "no schema provided".to_string(),
+            config: Vec::new(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        }
+    }
+
+    /// Start a new schema with the given name and description.
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            config: Vec::new(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        }
+    }
+
+    pub fn with_config(mut self, field: SchemaField) -> Self {
+        self.config.push(field);
+        self
+    }
+
+    pub fn with_input(mut self, field: SchemaField) -> Self {
+        self.inputs.push(field);
+        self
+    }
+
+    pub fn with_output(mut self, field: SchemaField) -> Self {
+        self.outputs.push(field);
+        self
+    }
+}
+
+/// A single named field within a [`HandlerSchema`].
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SchemaField {
+    pub name: String,
+    /// Type hint — free-form string (`"string"`, `"integer"`, `"map"`,
+    /// `"string|array<string>"`, etc.). Not validated — consumed by tooling.
+    #[serde(rename = "type")]
+    pub ty: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Optional default value as JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<serde_json::Value>,
+}
+
+impl SchemaField {
+    pub fn new(name: impl Into<String>, ty: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ty: ty.into(),
+            required: false,
+            description: String::new(),
+            default: None,
+        }
+    }
+
+    pub fn required(mut self) -> Self {
+        self.required = true;
+        self
+    }
+
+    pub fn describe(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
+        self
+    }
+
+    pub fn default(mut self, value: serde_json::Value) -> Self {
+        self.default = Some(value);
+        self
+    }
+}
+
 /// A node handler that processes inputs and produces outputs.
 ///
 /// The `cancel` token enables cooperative cancellation — handlers should check
@@ -79,6 +192,19 @@ pub trait NodeHandler: Send + Sync {
     /// handlers that should be classified as triggers.
     fn kind(&self) -> HandlerKind {
         HandlerKind::Deterministic
+    }
+
+    /// Self-describe the handler's configuration, inputs, and outputs.
+    ///
+    /// Default: an opaque placeholder carrying only the registry name. Override
+    /// on built-in handlers to expose schema metadata for tooling (catalogue
+    /// generators, validators, graph editors).
+    ///
+    /// The `name` argument is the registry key this handler is registered
+    /// under — handlers can be registered under multiple names, so the schema
+    /// is parameterised by name rather than baked into the type.
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::opaque(name)
     }
 }
 

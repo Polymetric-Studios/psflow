@@ -1,5 +1,5 @@
 use crate::error::NodeError;
-use crate::execute::{CancellationToken, NodeHandler, Outputs};
+use crate::execute::{CancellationToken, HandlerSchema, NodeHandler, Outputs, SchemaField};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use crate::handlers::common::{interpolate, value_to_json};
@@ -201,6 +201,38 @@ impl NodeHandler for HttpHandler {
 
             Ok(outputs)
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "Make an HTTP request")
+            .with_config(
+                SchemaField::new("url", "string")
+                    .required()
+                    .describe("URL template with {key} interpolation"),
+            )
+            .with_config(
+                SchemaField::new("method", "string")
+                    .describe("HTTP method")
+                    .default(serde_json::json!("GET")),
+            )
+            .with_config(SchemaField::new("headers", "map<string,string>"))
+            .with_config(SchemaField::new("body", "string"))
+            .with_config(
+                SchemaField::new("body_json", "boolean")
+                    .describe("Serialise inputs map as JSON body")
+                    .default(serde_json::json!(false)),
+            )
+            .with_config(
+                SchemaField::new("timeout_ms", "integer").default(serde_json::json!(30_000)),
+            )
+            .with_config(
+                SchemaField::new("allow_private", "boolean")
+                    .describe("Allow requests to private/loopback IPs")
+                    .default(serde_json::json!(false)),
+            )
+            .with_output(SchemaField::new("status", "integer"))
+            .with_output(SchemaField::new("body", "string"))
+            .with_output(SchemaField::new("headers", "map<string,string>"))
     }
 }
 

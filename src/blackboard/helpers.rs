@@ -232,12 +232,7 @@ pub fn pop_loop_vars(bb: &mut Blackboard) {
 /// Replace the top loop-stack entry with new iteration values.
 ///
 /// Useful for step-through iterators that advance without push/pop churn.
-pub fn update_loop_vars(
-    bb: &mut Blackboard,
-    item: serde_json::Value,
-    index: usize,
-    total: usize,
-) {
+pub fn update_loop_vars(bb: &mut Blackboard, item: serde_json::Value, index: usize, total: usize) {
     let mut stack = read_loop_stack(bb);
     if let Some(top) = stack.last_mut() {
         *top = loop_vars_to_value(&LoopVars {
@@ -455,11 +450,17 @@ mod tests {
         );
 
         let view = build_context_maps(&bb);
-        assert_eq!(view.loop_vars.as_ref().unwrap().item, serde_json::json!("B"));
+        assert_eq!(
+            view.loop_vars.as_ref().unwrap().item,
+            serde_json::json!("B")
+        );
 
         pop_loop_vars(&mut bb);
         let view = build_context_maps(&bb);
-        assert_eq!(view.loop_vars.as_ref().unwrap().item, serde_json::json!("A"));
+        assert_eq!(
+            view.loop_vars.as_ref().unwrap().item,
+            serde_json::json!("A")
+        );
 
         pop_loop_vars(&mut bb);
         let view = build_context_maps(&bb);

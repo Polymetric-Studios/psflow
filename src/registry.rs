@@ -1,6 +1,7 @@
-use crate::execute::{ExecutionContext, HandlerRegistry, NodeHandler};
+use crate::execute::{ExecutionContext, HandlerRegistry, HandlerSchema, NodeHandler};
 use crate::graph::Graph;
 use crate::scripting::engine::ScriptEngine;
+use crate::template::TemplateResolver;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -27,7 +28,23 @@ impl NodeRegistry {
     /// `subgraph_invoke`, `human_input`, `llm_call`) since those require
     /// runtime arguments. See [`NodeRegistry::with_defaults_full`] for a
     /// registry that includes handlers needing an [`ExecutionContext`].
+    ///
+    /// The returned registry uses psflow's default
+    /// [`crate::template::PromptTemplateResolver`] for handlers that resolve
+    /// templates via [`crate::template::TemplateResolver`]. Embedders wanting
+    /// a richer template engine should use
+    /// [`NodeRegistry::with_defaults_and_resolver`] instead.
     pub fn with_defaults(engine: Arc<ScriptEngine>) -> Self {
+        Self::with_defaults_and_resolver(engine, crate::template::default_resolver())
+    }
+
+    /// Same as [`with_defaults`], but lets the embedder supply its own
+    /// [`TemplateResolver`] so built-in handlers that accept templated
+    /// config (e.g. `shell`) resolve them through the embedder's engine.
+    pub fn with_defaults_and_resolver(
+        engine: Arc<ScriptEngine>,
+        resolver: Arc<dyn TemplateResolver>,
+    ) -> Self {
         use crate::handlers::*;
 
         let mut reg = Self::new();
@@ -50,9 +67,15 @@ impl NodeRegistry {
         reg.register("read_file", Arc::new(ReadFileHandler));
         reg.register("write_file", Arc::new(WriteFileHandler));
         reg.register("glob", Arc::new(GlobHandler));
+        reg.register("shell", Arc::new(ShellHandler::new(resolver.clone())));
+        reg.register("json_transform", Arc::new(JsonTransformHandler));
 
         // Scripting
         reg.register("rhai", Arc::new(RhaiHandler::new(engine)));
+
+        // The resolver argument is held by handlers that need it; no direct
+        // registry-level storage is necessary.
+        let _ = resolver;
 
         reg
     }
@@ -75,10 +98,26 @@ impl NodeRegistry {
     ///   `HandlerRegistrySlot`.
     ///
     /// Embedders layer those on top of the returned registry.
+    ///
+    /// Uses psflow's default [`crate::template::PromptTemplateResolver`] for
+    /// templated-config built-ins. See
+    /// [`NodeRegistry::with_defaults_full_and_resolver`] for the variant that
+    /// takes an embedder-supplied resolver.
     pub fn with_defaults_full(engine: Arc<ScriptEngine>, ctx: Arc<ExecutionContext>) -> Self {
+        Self::with_defaults_full_and_resolver(engine, ctx, crate::template::default_resolver())
+    }
+
+    /// Full defaults with an explicit [`TemplateResolver`] — the composition
+    /// of [`with_defaults_and_resolver`] and the context-dependent handlers
+    /// from [`with_defaults_full`].
+    pub fn with_defaults_full_and_resolver(
+        engine: Arc<ScriptEngine>,
+        ctx: Arc<ExecutionContext>,
+        resolver: Arc<dyn TemplateResolver>,
+    ) -> Self {
         use crate::handlers::*;
 
-        let mut reg = Self::with_defaults(engine);
+        let mut reg = Self::with_defaults_and_resolver(engine, resolver);
 
         reg.register(
             "accumulator",
@@ -88,6 +127,32 @@ impl NodeRegistry {
         reg.register("select", Arc::new(SelectHandler::new(ctx)));
 
         reg
+    }
+
+    /// Emit a manifest of schema metadata for every registered handler.
+    ///
+    /// Walks the registry, calls [`NodeHandler::schema`] on each handler, and
+    /// returns the result as a JSON value shaped as:
+    ///
+    /// ```json
+    /// {
+    ///   "handlers": [
+    ///     { "name": "...", "description": "...", "config": [...], ... },
+    ///     ...
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Consumed by the `psflow-manifest` binary (and downstream tooling like
+    /// Ergon's MCP handler catalogue).
+    pub fn manifest(&self) -> serde_json::Value {
+        let mut schemas: Vec<HandlerSchema> = self
+            .handlers
+            .iter()
+            .map(|(name, handler)| handler.schema(name))
+            .collect();
+        schemas.sort_by(|a, b| a.name.cmp(&b.name));
+        serde_json::json!({ "handlers": schemas })
     }
 
     /// Register a handler by name. Overwrites any existing handler with the same name.
@@ -256,9 +321,26 @@ mod tests {
             "write_file",
             "glob",
             "rhai",
+            "shell",
+            "json_transform",
         ] {
             assert!(reg.contains(name), "missing handler: {name}");
         }
+    }
+
+    #[test]
+    fn manifest_lists_all_registered_handlers() {
+        let engine = Arc::new(ScriptEngine::with_defaults());
+        let reg = NodeRegistry::with_defaults(engine);
+        let manifest = reg.manifest();
+        let handlers = manifest.get("handlers").and_then(|v| v.as_array()).unwrap();
+        let names: std::collections::HashSet<String> = handlers
+            .iter()
+            .filter_map(|h| h.get("name").and_then(|n| n.as_str()).map(str::to_owned))
+            .collect();
+        assert!(names.contains("shell"));
+        assert!(names.contains("json_transform"));
+        assert!(names.contains("http"));
     }
 
     #[test]

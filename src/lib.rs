@@ -50,16 +50,19 @@ pub use execute::trace::{ExecutionTrace, RetryRecord, TraceRecord};
 pub use execute::{
     sync_handler, BackoffStrategy, CancellationToken, ConcurrencyLimits, EventBus, EventBusError,
     EventSubscriber, ExecutionContext, ExecutionError, ExecutionEvent, ExecutionResult, Executor,
-    HandlerKind, HandlerRegistry, LoopController, LoopIterator, LoopState, NodeHandler, NodeState,
-    Outputs, RetryConfig, SteppedExecutor, TickResult, TopologicalExecutor,
+    HandlerKind, HandlerRegistry, HandlerSchema, LoopController, LoopIterator, LoopState,
+    NodeHandler, NodeState, Outputs, RetryConfig, SchemaField, SteppedExecutor, TickResult,
+    TopologicalExecutor,
 };
 #[cfg(feature = "runtime")]
 pub use handlers::{
     BreakHandler, CatchHandler, DelayHandler, ErrorTransformHandler, FallbackHandler, GateHandler,
-    LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler, RetryHandler, RhaiHandler,
-    SelectHandler, SplitHandler, TransformHandler,
+    JsonTransformHandler, LlmCallHandler, LogHandler, MergeHandler, PassthroughHandler,
+    RetryHandler, RhaiHandler, SelectHandler, ShellHandler, SplitHandler, TransformHandler,
 };
 #[cfg(feature = "runtime")]
 pub use registry::NodeRegistry;
 #[cfg(feature = "runtime")]
-pub use template::{PromptTemplate, TemplateError};
+pub use template::{
+    default_resolver, PromptTemplate, PromptTemplateResolver, TemplateError, TemplateResolver,
+};
