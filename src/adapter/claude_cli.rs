@@ -158,6 +158,7 @@ impl AiAdapter for ClaudeCliAdapter {
                         .get("output_tokens")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0) as usize,
+                    ..Default::default()
                 }
             } else {
                 TokenUsage::default()

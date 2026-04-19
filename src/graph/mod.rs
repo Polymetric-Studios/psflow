@@ -303,7 +303,11 @@ impl Graph {
     /// Analyze a subgraph's boundary: which nodes have cross-boundary edges.
     ///
     /// Entry nodes have incoming edges from outside the subgraph.
-    /// Exit nodes have outgoing edges to outside the subgraph.
+    /// Exit nodes have outgoing edges to outside the subgraph OR are sinks
+    /// within the subgraph (no in-subgraph successors). Treating in-subgraph
+    /// sinks as exits correctly handles tail-position subgraphs (no external
+    /// successor) so that loop controllers recognise the last body node —
+    /// not the entry — as the iteration-advance signal.
     /// A single-node body will appear as both entry and exit.
     pub fn subgraph_topology(&self, sg: &Subgraph) -> SubgraphTopology {
         let all_nodes = sg.all_node_ids();
@@ -322,9 +326,13 @@ impl Graph {
         let exit_nodes = all_nodes
             .iter()
             .filter(|nid| {
-                self.successors(nid)
-                    .iter()
-                    .any(|succ| !members.contains(&succ.id))
+                let succs = self.successors(nid);
+                // External exit: at least one successor outside the subgraph.
+                let has_external = succs.iter().any(|succ| !members.contains(&succ.id));
+                // Internal-sink exit: no in-subgraph successors (covers tail-position
+                // subgraphs where the last body node has no external successor either).
+                let has_internal = succs.iter().any(|succ| members.contains(&succ.id));
+                has_external || !has_internal
             })
             .cloned()
             .collect();
@@ -887,8 +895,12 @@ mod tests {
     }
 
     #[test]
-    fn subgraph_topology_isolated_no_cross_boundary_edges() {
-        // A --> B (both inside subgraph, no external edges)
+    fn subgraph_topology_isolated_treats_in_subgraph_sinks_as_exits() {
+        // A --> B (both inside subgraph, no external edges).
+        // A has no external predecessors, so no entries.
+        // B has no in-subgraph successors, so it is an in-subgraph sink and
+        // must surface as an exit — this is what lets tail-position loop
+        // subgraphs advance on the last body node rather than the entry.
         let mut g = Graph::new();
         g.add_node(Node::new("A", "A")).unwrap();
         g.add_node(Node::new("B", "B")).unwrap();
@@ -904,6 +916,34 @@ mod tests {
 
         let topo = g.subgraph_topology(&sg);
         assert!(topo.entry_nodes.is_empty());
-        assert!(topo.exit_nodes.is_empty());
+        assert_eq!(topo.exit_nodes, vec![NodeId::new("B")]);
+    }
+
+    #[test]
+    fn subgraph_topology_tail_loop_exits_on_last_body_node() {
+        // pred --> A --> B (A and B inside loop, no edge leaves B — tail position).
+        // Without the sink-as-exit rule, exit_nodes would be empty and
+        // `LoopController::from_subgraphs` would fall back to `[entry] == [A]`,
+        // which advances the loop when A finishes and prematurely resets B.
+        // With the rule, B is correctly the exit.
+        let mut g = Graph::new();
+        for id in ["pred", "A", "B"] {
+            g.add_node(Node::new(id, id)).unwrap();
+        }
+        g.add_edge(&"pred".into(), "", &"A".into(), "", None)
+            .unwrap();
+        g.add_edge(&"A".into(), "", &"B".into(), "", None).unwrap();
+
+        let sg = Subgraph {
+            id: "sg".into(),
+            label: "loop: tail".into(),
+            directive: SubgraphDirective::Loop,
+            nodes: vec!["A".into(), "B".into()],
+            children: Vec::new(),
+        };
+
+        let topo = g.subgraph_topology(&sg);
+        assert_eq!(topo.entry_nodes, vec![NodeId::new("A")]);
+        assert_eq!(topo.exit_nodes, vec![NodeId::new("B")]);
     }
 }

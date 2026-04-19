@@ -90,6 +90,7 @@ impl AiAdapter for MockAdapter {
                 usage: TokenUsage {
                     input_tokens: req.prompt.len() / 4, // rough estimate
                     output_tokens: 10,
+                    ..Default::default()
                 },
                 latency_ms: start.elapsed().as_millis() as u64,
             })

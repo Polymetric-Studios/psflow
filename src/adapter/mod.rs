@@ -1,8 +1,10 @@
+pub mod anthropic_api;
 pub mod claude_cli;
 pub mod conversation;
 pub mod mock;
 pub mod registry;
 
+pub use anthropic_api::AnthropicApiAdapter;
 pub use claude_cli::ClaudeCliAdapter;
 pub use conversation::{
     ConversationConfig, ConversationHistory, ConversationMessage, MessageRole,
@@ -70,10 +72,80 @@ impl AdapterCapabilities {
     }
 }
 
+/// Prompt-cache control marker placed on a content block.
+///
+/// Maps to the Anthropic Messages API `cache_control` field. Adapters that
+/// do not support prompt caching ignore this.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheControl {
+    /// No cache marker — do not cache this block.
+    #[default]
+    None,
+    /// Ephemeral cache with default TTL (5 minutes on Anthropic).
+    Ephemeral,
+    /// Ephemeral cache with extended TTL (e.g. "1h"). Requires the
+    /// corresponding beta header at the adapter level.
+    EphemeralWithTtl {
+        /// TTL string accepted by the backend (e.g. "1h").
+        ttl: String,
+    },
+}
+
+impl CacheControl {
+    /// True when this control requests no caching.
+    pub fn is_none(&self) -> bool {
+        matches!(self, CacheControl::None)
+    }
+}
+
+fn cache_control_is_none(cc: &CacheControl) -> bool {
+    cc.is_none()
+}
+
+/// A single content block inside a prompt or system message.
+///
+/// When `cache_control` is not `None`, the adapter is expected to place a
+/// cache breakpoint at this block. Content up to and including this block
+/// becomes cacheable on supported backends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptBlock {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "cache_control_is_none")]
+    pub cache_control: CacheControl,
+}
+
+impl PromptBlock {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            cache_control: CacheControl::None,
+        }
+    }
+
+    pub fn cached(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            cache_control: CacheControl::Ephemeral,
+        }
+    }
+
+    pub fn cached_with_ttl(text: impl Into<String>, ttl: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            cache_control: CacheControl::EphemeralWithTtl { ttl: ttl.into() },
+        }
+    }
+}
+
 /// Request sent to an AI adapter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiRequest {
     /// The rendered prompt text.
+    ///
+    /// When `prompt_blocks` is set, that structured representation takes
+    /// precedence and this flat text is used only as a fallback for adapters
+    /// that don't understand content blocks.
     pub prompt: String,
     /// Variables available for reference (already interpolated into prompt).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -95,6 +167,21 @@ pub struct AiRequest {
     /// Stateful adapters (e.g., Claude CLI in `continue` mode) may ignore this.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conversation_history: Vec<conversation::ConversationMessage>,
+    /// Optional structured user-turn content. When present, replaces `prompt`
+    /// for cache-aware adapters. Each block may carry a `cache_control`
+    /// marker indicating a prompt-cache breakpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_blocks: Option<Vec<PromptBlock>>,
+    /// Optional system message, as structured blocks. When present, cache-
+    /// aware adapters emit this as the top-level `system` field with
+    /// per-block cache_control markers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<Vec<PromptBlock>>,
+    /// When non-`None`, cache-aware adapters mark the last message in
+    /// `conversation_history` with this cache_control. Used to cache an
+    /// entire prior-turn history as a single ephemeral prefix.
+    #[serde(default, skip_serializing_if = "cache_control_is_none")]
+    pub conversation_cache_control: CacheControl,
 }
 
 impl AiRequest {
@@ -108,7 +195,51 @@ impl AiRequest {
             stop_sequences: Vec::new(),
             model: None,
             conversation_history: Vec::new(),
+            prompt_blocks: None,
+            system: None,
+            conversation_cache_control: CacheControl::None,
         }
+    }
+
+    /// Populate `prompt_blocks` with a cached prefix + an uncached suffix,
+    /// and set the flat `prompt` to the concatenation for fallback adapters.
+    ///
+    /// Cache-aware adapters emit a `cache_control: ephemeral` marker on the
+    /// prefix block. Adapters that ignore `prompt_blocks` see the original
+    /// concatenated text via `self.prompt`.
+    pub fn with_cached_prefix(
+        mut self,
+        prefix: impl Into<String>,
+        suffix: impl Into<String>,
+    ) -> Self {
+        let prefix = prefix.into();
+        let suffix = suffix.into();
+        self.prompt = format!("{prefix}{suffix}");
+        self.prompt_blocks = Some(vec![
+            PromptBlock::cached(prefix),
+            PromptBlock::text(suffix),
+        ]);
+        self
+    }
+
+    /// Set structured prompt blocks. Consumers that set `prompt_blocks`
+    /// should also ensure `prompt` contains an equivalent concatenation so
+    /// non-cache-aware adapters stay functional.
+    pub fn with_prompt_blocks(mut self, blocks: Vec<PromptBlock>) -> Self {
+        self.prompt_blocks = Some(blocks);
+        self
+    }
+
+    /// Set the system message as structured blocks.
+    pub fn with_system_blocks(mut self, blocks: Vec<PromptBlock>) -> Self {
+        self.system = Some(blocks);
+        self
+    }
+
+    /// Mark the conversation history's last message as a cache breakpoint.
+    pub fn with_conversation_cache(mut self, control: CacheControl) -> Self {
+        self.conversation_cache_control = control;
+        self
     }
 
     pub fn with_temperature(mut self, temp: f32) -> Self {
@@ -147,6 +278,15 @@ pub struct AiResponse {
 pub struct TokenUsage {
     pub input_tokens: usize,
     pub output_tokens: usize,
+    /// Tokens served from the prompt cache (Anthropic's
+    /// `cache_read_input_tokens`). `None` when the adapter doesn't report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<usize>,
+    /// Tokens written into the prompt cache on this call (Anthropic's
+    /// `cache_creation_input_tokens`). `None` when the adapter doesn't
+    /// report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<usize>,
 }
 
 /// Core trait for AI backends.
@@ -249,6 +389,93 @@ mod tests {
     }
 
     #[test]
+    fn prompt_block_cached_sets_ephemeral() {
+        let block = PromptBlock::cached("prefix");
+        assert_eq!(block.cache_control, CacheControl::Ephemeral);
+    }
+
+    #[test]
+    fn prompt_block_text_has_no_cache() {
+        let block = PromptBlock::text("body");
+        assert!(block.cache_control.is_none());
+    }
+
+    #[test]
+    fn prompt_block_cached_with_ttl() {
+        let block = PromptBlock::cached_with_ttl("prefix", "1h");
+        assert_eq!(
+            block.cache_control,
+            CacheControl::EphemeralWithTtl { ttl: "1h".into() }
+        );
+    }
+
+    #[test]
+    fn ai_request_with_cached_prefix_populates_blocks_and_flat_prompt() {
+        let req = AiRequest::new("").with_cached_prefix("PREFIX", "SUFFIX");
+        assert_eq!(req.prompt, "PREFIXSUFFIX");
+        let blocks = req.prompt_blocks.as_ref().expect("prompt_blocks set");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "PREFIX");
+        assert_eq!(blocks[0].cache_control, CacheControl::Ephemeral);
+        assert_eq!(blocks[1].text, "SUFFIX");
+        assert!(blocks[1].cache_control.is_none());
+    }
+
+    #[test]
+    fn ai_request_with_conversation_cache() {
+        let req = AiRequest::new("hi").with_conversation_cache(CacheControl::Ephemeral);
+        assert_eq!(req.conversation_cache_control, CacheControl::Ephemeral);
+    }
+
+    #[test]
+    fn ai_request_serde_round_trip_preserves_cache_fields() {
+        let req = AiRequest::new("")
+            .with_cached_prefix("big static prefix", "dynamic tail")
+            .with_conversation_cache(CacheControl::EphemeralWithTtl { ttl: "1h".into() });
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: AiRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.prompt, "big static prefixdynamic tail");
+        assert_eq!(parsed.prompt_blocks.as_ref().unwrap().len(), 2);
+        assert_eq!(
+            parsed.conversation_cache_control,
+            CacheControl::EphemeralWithTtl { ttl: "1h".into() }
+        );
+    }
+
+    #[test]
+    fn ai_request_backwards_compatible_without_cache_fields() {
+        // An old-shape JSON (no prompt_blocks/system/conversation_cache_control)
+        // must still deserialize.
+        let json = r#"{"prompt":"hi"}"#;
+        let parsed: AiRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.prompt, "hi");
+        assert!(parsed.prompt_blocks.is_none());
+        assert!(parsed.system.is_none());
+        assert!(parsed.conversation_cache_control.is_none());
+    }
+
+    #[test]
+    fn token_usage_cache_fields_default_none() {
+        let usage = TokenUsage::default();
+        assert!(usage.cache_read_input_tokens.is_none());
+        assert!(usage.cache_creation_input_tokens.is_none());
+    }
+
+    #[test]
+    fn token_usage_serde_preserves_cache_fields() {
+        let usage = TokenUsage {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: Some(5000),
+            cache_creation_input_tokens: Some(0),
+        };
+        let json = serde_json::to_string(&usage).unwrap();
+        let parsed: TokenUsage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.cache_read_input_tokens, Some(5000));
+        assert_eq!(parsed.cache_creation_input_tokens, Some(0));
+    }
+
+    #[test]
     fn ai_response_serde_round_trip() {
         let resp = AiResponse {
             text: "response text".into(),
@@ -256,6 +483,7 @@ mod tests {
             usage: TokenUsage {
                 input_tokens: 10,
                 output_tokens: 20,
+                ..Default::default()
             },
             latency_ms: 150,
         };

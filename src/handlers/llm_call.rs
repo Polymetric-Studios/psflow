@@ -1,4 +1,4 @@
-use crate::adapter::{AiAdapter, AiRequest};
+use crate::adapter::{AiAdapter, AiRequest, CacheControl};
 use crate::error::NodeError;
 use crate::execute::blackboard::Blackboard;
 use crate::execute::{CancellationToken, ExecutionContext, NodeHandler, Outputs};
@@ -9,6 +9,20 @@ use crate::template::PromptTemplate;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
+
+/// Sentinel string a prompt template places at the cache boundary point.
+///
+/// When `config.cache_prefix: true` is set and a rendered prompt contains
+/// exactly one occurrence of this marker, the handler splits the prompt into
+/// `[prefix, suffix]` and builds `AiRequest::prompt_blocks` with the prefix
+/// marked `CacheControl::Ephemeral`. The marker itself is stripped.
+///
+/// The marker is chosen to not collide with psflow's `PromptTemplate`
+/// escape syntax (`{{` → `{`): angle-bracket delimiters survive rendering
+/// untouched.
+///
+/// See `20260418-171453-psflow-anthropic-adapter-design.md` §2.3.
+pub const CACHE_BOUNDARY_SENTINEL: &str = "<<<cache_boundary>>>";
 
 /// Node handler that delegates to an AI adapter via a prompt template.
 ///
@@ -159,9 +173,38 @@ impl NodeHandler for LlmCallHandler {
                 Vec::new()
             };
 
-            // Build the AI request
-            let mut req = AiRequest::new(rendered);
+            // Build the AI request. If `config.cache_prefix: true` is set and
+            // the rendered prompt contains the `{{cache_boundary}}` sentinel,
+            // split the prompt into a cached prefix + uncached suffix and
+            // populate `prompt_blocks`. Otherwise fall back to flat prompt.
+            let cache_prefix = config
+                .get("cache_prefix")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            let mut req = if cache_prefix {
+                if let Some((prefix, suffix)) = rendered.split_once(CACHE_BOUNDARY_SENTINEL) {
+                    AiRequest::new(String::new())
+                        .with_cached_prefix(prefix.to_owned(), suffix.to_owned())
+                } else {
+                    // No sentinel — no-op; ship the flat prompt as-is.
+                    AiRequest::new(rendered)
+                }
+            } else {
+                AiRequest::new(rendered)
+            };
+
             req.conversation_history = conversation_messages;
+
+            // `cache_conversation: true` marks the last message of the
+            // conversation history as an ephemeral cache breakpoint.
+            if config
+                .get("cache_conversation")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                req.conversation_cache_control = CacheControl::Ephemeral;
+            }
 
             if let Some(temp) = config.get("temperature").and_then(|v| v.as_f64()) {
                 req.temperature = Some(temp as f32);
@@ -255,6 +298,18 @@ impl NodeHandler for LlmCallHandler {
                 "_usage_output_tokens".into(),
                 Value::I64(response.usage.output_tokens as i64),
             );
+            if let Some(read) = response.usage.cache_read_input_tokens {
+                outputs.insert(
+                    "_usage_cache_read_input_tokens".into(),
+                    Value::I64(read as i64),
+                );
+            }
+            if let Some(created) = response.usage.cache_creation_input_tokens {
+                outputs.insert(
+                    "_usage_cache_creation_input_tokens".into(),
+                    Value::I64(created as i64),
+                );
+            }
             outputs.insert("_latency_ms".into(), Value::I64(response.latency_ms as i64));
 
             Ok(outputs)
@@ -630,6 +685,251 @@ mod tests {
                 .iter()
                 .any(|m| m.node_id.as_deref() == Some("B")),
             "parallel branch B's messages should be excluded"
+        );
+    }
+
+    // -- Prompt cache wiring tests (§5–§7 prerequisite) --
+    //
+    // See `20260418-171453-psflow-anthropic-adapter-design.md` §2.3.
+
+    /// Adapter that captures the last `AiRequest` it received. Used to assert
+    /// the handler's cache-config → `AiRequest` translation without relying on
+    /// a live HTTP adapter.
+    struct CapturingAdapter {
+        captured: std::sync::Mutex<Option<AiRequest>>,
+        cache_usage: (Option<usize>, Option<usize>),
+    }
+
+    impl CapturingAdapter {
+        fn new() -> Self {
+            Self {
+                captured: std::sync::Mutex::new(None),
+                cache_usage: (None, None),
+            }
+        }
+        fn with_cache_usage(
+            mut self,
+            cache_read: Option<usize>,
+            cache_creation: Option<usize>,
+        ) -> Self {
+            self.cache_usage = (cache_read, cache_creation);
+            self
+        }
+        fn taken(&self) -> AiRequest {
+            self.captured.lock().unwrap().take().expect("request captured")
+        }
+    }
+
+    impl crate::adapter::AiAdapter for CapturingAdapter {
+        fn complete(
+            &self,
+            req: AiRequest,
+        ) -> Pin<Box<dyn Future<Output = Result<crate::adapter::AiResponse, NodeError>> + Send + '_>>
+        {
+            *self.captured.lock().unwrap() = Some(req);
+            let (cache_read, cache_creation) = self.cache_usage;
+            Box::pin(async move {
+                Ok(crate::adapter::AiResponse {
+                    text: "captured".into(),
+                    structured: None,
+                    usage: crate::adapter::TokenUsage {
+                        input_tokens: 10,
+                        output_tokens: 20,
+                        cache_read_input_tokens: cache_read,
+                        cache_creation_input_tokens: cache_creation,
+                    },
+                    latency_ms: 0,
+                })
+            })
+        }
+        fn judge(
+            &self,
+            _candidates: &[String],
+            _criteria: &str,
+        ) -> Pin<Box<dyn Future<Output = Result<usize, NodeError>> + Send + '_>> {
+            Box::pin(async { Ok(0) })
+        }
+        fn capabilities(&self) -> &crate::adapter::AdapterCapabilities {
+            use std::sync::OnceLock;
+            static CAPS: OnceLock<crate::adapter::AdapterCapabilities> = OnceLock::new();
+            CAPS.get_or_init(|| crate::adapter::AdapterCapabilities {
+                tool_use: false,
+                structured_output: false,
+                vision: false,
+                conversation_history: true,
+                max_tokens: None,
+            })
+        }
+        fn name(&self) -> &str {
+            "capturing"
+        }
+    }
+
+    #[tokio::test]
+    async fn cache_prefix_false_leaves_flat_prompt() {
+        let adapter = Arc::new(CapturingAdapter::new());
+        let handler = LlmCallHandler::new(adapter.clone());
+
+        let mut node = Node::new("LLM_CP_OFF", "No cache");
+        node.config = serde_json::json!({
+            "prompt": "PREFIX <<<cache_boundary>>> SUFFIX",
+            "cache_prefix": false,
+        });
+
+        handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        let req = adapter.taken();
+        assert!(
+            req.prompt_blocks.is_none(),
+            "cache_prefix:false must not produce prompt_blocks"
+        );
+        // Sentinel is not stripped — it's just a literal string when caching is off.
+        assert!(req.prompt.contains(CACHE_BOUNDARY_SENTINEL));
+    }
+
+    #[tokio::test]
+    async fn cache_prefix_true_with_sentinel_splits_into_blocks() {
+        let adapter = Arc::new(CapturingAdapter::new());
+        let handler = LlmCallHandler::new(adapter.clone());
+
+        let mut node = Node::new("LLM_CP_ON", "Cache on");
+        node.config = serde_json::json!({
+            "prompt": "CACHED_PREFIX_TEXT<<<cache_boundary>>>UNCACHED_SUFFIX_TEXT",
+            "cache_prefix": true,
+        });
+
+        handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        let req = adapter.taken();
+        let blocks = req.prompt_blocks.expect("prompt_blocks populated");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "CACHED_PREFIX_TEXT");
+        assert_eq!(blocks[0].cache_control, CacheControl::Ephemeral);
+        assert_eq!(blocks[1].text, "UNCACHED_SUFFIX_TEXT");
+        assert_eq!(blocks[1].cache_control, CacheControl::None);
+        // The flat prompt is the concatenation for fallback adapters.
+        assert_eq!(req.prompt, "CACHED_PREFIX_TEXTUNCACHED_SUFFIX_TEXT");
+    }
+
+    #[tokio::test]
+    async fn cache_prefix_true_without_sentinel_is_noop() {
+        let adapter = Arc::new(CapturingAdapter::new());
+        let handler = LlmCallHandler::new(adapter.clone());
+
+        let mut node = Node::new("LLM_CP_NOSENTINEL", "Missing sentinel");
+        node.config = serde_json::json!({
+            "prompt": "no sentinel here",
+            "cache_prefix": true,
+        });
+
+        handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        let req = adapter.taken();
+        assert!(
+            req.prompt_blocks.is_none(),
+            "cache_prefix:true without sentinel must not populate prompt_blocks"
+        );
+        assert_eq!(req.prompt, "no sentinel here");
+    }
+
+    #[tokio::test]
+    async fn cache_conversation_false_leaves_control_none() {
+        let adapter = Arc::new(CapturingAdapter::new());
+        let handler = LlmCallHandler::new(adapter.clone());
+
+        let mut node = Node::new("LLM_CC_OFF", "No conv cache");
+        node.config = serde_json::json!({
+            "prompt": "hi",
+            "cache_conversation": false,
+        });
+
+        handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        let req = adapter.taken();
+        assert_eq!(req.conversation_cache_control, CacheControl::None);
+    }
+
+    #[tokio::test]
+    async fn cache_conversation_true_marks_ephemeral() {
+        let adapter = Arc::new(CapturingAdapter::new());
+        let handler = LlmCallHandler::new(adapter.clone());
+
+        let mut node = Node::new("LLM_CC_ON", "Conv cache");
+        node.config = serde_json::json!({
+            "prompt": "hi",
+            "cache_conversation": true,
+        });
+
+        handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        let req = adapter.taken();
+        assert_eq!(req.conversation_cache_control, CacheControl::Ephemeral);
+    }
+
+    #[tokio::test]
+    async fn cache_metrics_surface_on_outputs_when_reported() {
+        // Adapter reports cache_read=5000 / cache_creation=0 — the handler
+        // must surface both as `_usage_cache_*_input_tokens` outputs.
+        let adapter = Arc::new(
+            CapturingAdapter::new().with_cache_usage(Some(5000), Some(0)),
+        );
+        let handler = LlmCallHandler::new(adapter);
+
+        let mut node = Node::new("LLM_METRIC", "With cache metrics");
+        node.config = serde_json::json!({ "prompt": "x" });
+
+        let result = handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.get("_usage_cache_read_input_tokens"),
+            Some(&Value::I64(5000))
+        );
+        assert_eq!(
+            result.get("_usage_cache_creation_input_tokens"),
+            Some(&Value::I64(0))
+        );
+    }
+
+    #[tokio::test]
+    async fn cache_metrics_absent_when_adapter_does_not_report() {
+        // Default mock/capturing adapter reports None for cache fields — the
+        // handler must omit the cache output keys entirely.
+        let adapter = Arc::new(CapturingAdapter::new());
+        let handler = LlmCallHandler::new(adapter);
+
+        let mut node = Node::new("LLM_NOMETRIC", "No cache metrics");
+        node.config = serde_json::json!({ "prompt": "x" });
+
+        let result = handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert!(
+            !result.contains_key("_usage_cache_read_input_tokens"),
+            "cache read key must be absent when adapter reports None"
+        );
+        assert!(
+            !result.contains_key("_usage_cache_creation_input_tokens"),
+            "cache creation key must be absent when adapter reports None"
         );
     }
 }
