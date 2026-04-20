@@ -716,7 +716,11 @@ mod tests {
             self
         }
         fn taken(&self) -> AiRequest {
-            self.captured.lock().unwrap().take().expect("request captured")
+            self.captured
+                .lock()
+                .unwrap()
+                .take()
+                .expect("request captured")
         }
     }
 
@@ -885,9 +889,7 @@ mod tests {
     async fn cache_metrics_surface_on_outputs_when_reported() {
         // Adapter reports cache_read=5000 / cache_creation=0 — the handler
         // must surface both as `_usage_cache_*_input_tokens` outputs.
-        let adapter = Arc::new(
-            CapturingAdapter::new().with_cache_usage(Some(5000), Some(0)),
-        );
+        let adapter = Arc::new(CapturingAdapter::new().with_cache_usage(Some(5000), Some(0)));
         let handler = LlmCallHandler::new(adapter);
 
         let mut node = Node::new("LLM_METRIC", "With cache metrics");

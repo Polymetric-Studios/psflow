@@ -215,10 +215,7 @@ impl AiRequest {
         let prefix = prefix.into();
         let suffix = suffix.into();
         self.prompt = format!("{prefix}{suffix}");
-        self.prompt_blocks = Some(vec![
-            PromptBlock::cached(prefix),
-            PromptBlock::text(suffix),
-        ]);
+        self.prompt_blocks = Some(vec![PromptBlock::cached(prefix), PromptBlock::text(suffix)]);
         self
     }
 

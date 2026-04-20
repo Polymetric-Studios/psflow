@@ -175,7 +175,9 @@ struct AnthropicMessagesResponse {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum AnthropicContentBlock {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     #[serde(other)]
     Other,
 }
@@ -313,7 +315,10 @@ fn translate_request(
     })
 }
 
-fn build_blocks<'a>(blocks: &'a [PromptBlock], needs_ext: &mut bool) -> Vec<AnthropicTextBlock<'a>> {
+fn build_blocks<'a>(
+    blocks: &'a [PromptBlock],
+    needs_ext: &mut bool,
+) -> Vec<AnthropicTextBlock<'a>> {
     blocks
         .iter()
         .map(|b| {
@@ -341,8 +346,7 @@ impl AiAdapter for AnthropicApiAdapter {
         Box::pin(async move {
             let start = Instant::now();
 
-            let translated =
-                translate_request(&req, self.default_model.as_deref())?;
+            let translated = translate_request(&req, self.default_model.as_deref())?;
 
             let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
             let mut builder = self
@@ -364,13 +368,10 @@ impl AiAdapter for AnthropicApiAdapter {
 
             let status = resp.status();
             let headers = resp.headers().clone();
-            let body_bytes = resp
-                .bytes()
-                .await
-                .map_err(|e| NodeError::AdapterError {
-                    adapter: ADAPTER_NAME.into(),
-                    message: format!("failed to read response body: {e}"),
-                })?;
+            let body_bytes = resp.bytes().await.map_err(|e| NodeError::AdapterError {
+                adapter: ADAPTER_NAME.into(),
+                message: format!("failed to read response body: {e}"),
+            })?;
 
             let latency_ms = start.elapsed().as_millis() as u64;
 
@@ -463,9 +464,7 @@ impl AiAdapter for AnthropicApiAdapter {
             if idx >= num {
                 return Err(NodeError::AdapterError {
                     adapter: ADAPTER_NAME.into(),
-                    message: format!(
-                        "judge returned index {idx} but only {num} candidates exist"
-                    ),
+                    message: format!("judge returned index {idx} but only {num} candidates exist"),
                 });
             }
             Ok(idx)
@@ -523,9 +522,7 @@ fn http_error(
     match status.as_u16() {
         401 | 403 => NodeError::AdapterError {
             adapter: ADAPTER_NAME.into(),
-            message: format!(
-                "auth error ({status}); check ANTHROPIC_API_KEY: {server_message}"
-            ),
+            message: format!("auth error ({status}); check ANTHROPIC_API_KEY: {server_message}"),
         },
         404 => NodeError::AdapterError {
             adapter: ADAPTER_NAME.into(),
