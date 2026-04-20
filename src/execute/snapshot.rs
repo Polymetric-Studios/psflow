@@ -43,7 +43,7 @@ impl ExecutionSnapshot {
     pub fn save(&self, path: &std::path::Path) -> Result<(), std::io::Error> {
         let json = self
             .to_json()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(|e| std::io::Error::other(e))?;
         std::fs::write(path, json)
     }
 

@@ -240,11 +240,7 @@ fn translate_request(
     let mut needs_ext = false;
 
     // System blocks
-    let system = if let Some(blocks) = &req.system {
-        Some(build_blocks(blocks, &mut needs_ext))
-    } else {
-        None
-    };
+    let system = req.system.as_ref().map(|blocks| build_blocks(blocks, &mut needs_ext));
 
     // Conversation history → messages, with optional cache marker on last.
     let mut messages: Vec<AnthropicMessage> = Vec::new();
@@ -364,7 +360,7 @@ impl AiAdapter for AnthropicApiAdapter {
                 .json(&translated.body)
                 .send()
                 .await
-                .map_err(|e| network_error(e))?;
+                .map_err(network_error)?;
 
             let status = resp.status();
             let headers = resp.headers().clone();

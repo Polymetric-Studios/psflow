@@ -535,12 +535,9 @@ pub(crate) async fn handle_branch_decision(
             let bb = ctx.blackboard();
             let result = control::evaluate_guard(fallback, outputs, &bb);
             drop(bb);
-            match result {
-                Ok(guard_result) => {
-                    ctx.set_branch_decision(node_id, guard_result.edge_label().to_string());
-                    return;
-                }
-                Err(_) => {}
+            if let Ok(guard_result) = result {
+                ctx.set_branch_decision(node_id, guard_result.edge_label().to_string());
+                return;
             }
         }
     }

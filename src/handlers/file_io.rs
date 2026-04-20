@@ -178,7 +178,7 @@ impl NodeHandler for WriteFileHandler {
                 }
             }
 
-            let bytes = content.as_bytes().len() as i64;
+            let bytes = content.len() as i64;
             tokio::fs::write(&path, &content)
                 .await
                 .map_err(|e| NodeError::Failed {
