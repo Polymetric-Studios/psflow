@@ -107,7 +107,10 @@ pub async fn run_debug_server(
     info!(%peer, "debugger connected");
     eprintln!("debugger connected from {peer}");
 
-    // Validate origin header to prevent cross-origin WebSocket hijacking
+    // Validate origin header to prevent cross-origin WebSocket hijacking.
+    // The Err variant type is fixed by tokio_tungstenite's callback contract;
+    // we can't box it without breaking that signature.
+    #[allow(clippy::result_large_err)]
     let ws_stream = tokio_tungstenite::accept_hdr_async(stream, |req: &Request, resp: Response| {
         if let Some(origin) = req.headers().get("origin") {
             let origin_str = origin.to_str().unwrap_or("");

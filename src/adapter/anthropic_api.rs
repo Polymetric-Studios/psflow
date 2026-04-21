@@ -240,7 +240,10 @@ fn translate_request(
     let mut needs_ext = false;
 
     // System blocks
-    let system = req.system.as_ref().map(|blocks| build_blocks(blocks, &mut needs_ext));
+    let system = req
+        .system
+        .as_ref()
+        .map(|blocks| build_blocks(blocks, &mut needs_ext));
 
     // Conversation history → messages, with optional cache marker on last.
     let mut messages: Vec<AnthropicMessage> = Vec::new();
