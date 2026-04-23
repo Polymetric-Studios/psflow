@@ -299,7 +299,7 @@ mod tests {
             Some(&Value::String("Failed".into()))
         );
         assert_eq!(result.get("recoverable"), Some(&Value::Bool(true)));
-        assert!(result.get("error").is_some());
+        assert!(result.contains_key("error"));
     }
 
     #[test]

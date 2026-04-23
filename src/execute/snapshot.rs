@@ -241,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_resume_integration() {
-        use crate::execute::{sync_handler, Executor, HandlerRegistry, TopologicalExecutor};
+        use crate::execute::{sync_handler, HandlerRegistry, TopologicalExecutor};
         use crate::graph::node::Node;
         use crate::graph::Graph;
 

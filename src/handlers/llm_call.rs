@@ -468,11 +468,12 @@ mod tests {
             .unwrap();
 
         // Check history has 1 exchange (2 messages)
-        let bb = ctx.blackboard();
-        let history = bb
-            .get(CONVERSATION_HISTORY_KEY, &BlackboardScope::Global)
-            .and_then(ConversationHistory::from_value)
-            .unwrap();
+        let history = {
+            let bb = ctx.blackboard();
+            bb.get(CONVERSATION_HISTORY_KEY, &BlackboardScope::Global)
+                .and_then(ConversationHistory::from_value)
+                .unwrap()
+        };
         assert_eq!(history.len(), 2);
         assert_eq!(
             history.messages[0].role,
@@ -483,7 +484,6 @@ mod tests {
             history.messages[1].role,
             crate::adapter::conversation::MessageRole::Assistant
         );
-        drop(bb);
 
         // Second LLM call
         let mut node2 = Node::new("LLM_B", "Second");

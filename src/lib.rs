@@ -7,6 +7,8 @@ pub mod mermaid;
 #[cfg(feature = "runtime")]
 pub mod adapter;
 #[cfg(feature = "runtime")]
+pub mod auth;
+#[cfg(feature = "runtime")]
 pub mod blackboard;
 #[cfg(feature = "runtime")]
 pub mod debug_server;
@@ -20,6 +22,8 @@ pub mod registry;
 pub mod scripting;
 #[cfg(feature = "runtime")]
 pub mod template;
+#[cfg(feature = "runtime")]
+pub mod validation;
 
 // Always-available re-exports
 pub use error::{GraphError, NodeError, PortTypeMismatchInfo};

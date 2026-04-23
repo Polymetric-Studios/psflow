@@ -63,7 +63,8 @@ impl NodeRegistry {
         reg.register("error_transform", Arc::new(ErrorTransformHandler));
 
         // Integration handlers
-        reg.register("http", Arc::new(HttpHandler));
+        reg.register("http", Arc::new(HttpHandler::stateless()));
+        reg.register("ws", Arc::new(WebSocketHandler::stateless()));
         reg.register("read_file", Arc::new(ReadFileHandler));
         reg.register("write_file", Arc::new(WriteFileHandler));
         reg.register("glob", Arc::new(GlobHandler));
@@ -124,7 +125,11 @@ impl NodeRegistry {
             Arc::new(AccumulatorHandler::new(ctx.clone())) as Arc<dyn NodeHandler>,
         );
         reg.register("break", Arc::new(BreakHandler::new(ctx.clone())));
-        reg.register("select", Arc::new(SelectHandler::new(ctx)));
+        reg.register("select", Arc::new(SelectHandler::new(ctx.clone())));
+        // Override the stateless HTTP + WS handlers with context-bound ones so
+        // that `config.auth` can resolve against the graph's auth registry.
+        reg.register("http", Arc::new(HttpHandler::new(ctx.clone())));
+        reg.register("ws", Arc::new(WebSocketHandler::new(ctx)));
 
         reg
     }
@@ -317,6 +322,7 @@ mod tests {
             "gate",
             "error_transform",
             "http",
+            "ws",
             "read_file",
             "write_file",
             "glob",

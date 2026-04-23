@@ -214,8 +214,8 @@ mod tests {
         for i in 0..10 {
             history.push_exchange(
                 &format!("N{i}"),
-                &"x".repeat(100), // ~26 tokens each
-                &"y".repeat(100),
+                "x".repeat(100), // ~26 tokens each
+                "y".repeat(100),
             );
         }
 

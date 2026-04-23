@@ -18,15 +18,16 @@ description = "Domain-agnostic process flow control and execution framework"
 
 [features]
 default = ["runtime"]
-runtime = ["dep:clap", "dep:futures", "dep:glob", "dep:jmespath", "dep:reqwest", "dep:rhai", "dep:tokio", "dep:tokio-util", "dep:tokio-tungstenite", "dep:tracing", "dep:tracing-subscriber"]
+runtime = ["dep:clap", "dep:futures", "dep:glob", "dep:http", "dep:jmespath", "dep:reqwest", "dep:rhai", "dep:tokio", "dep:tokio-util", "dep:tokio-tungstenite", "dep:tracing", "dep:tracing-subscriber"]
 
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"], optional = true }
 futures = { version = "0.3.32", optional = true }
 glob = { version = "0.3", optional = true }
+http = { version = "1", optional = true }
 jmespath = { version = "0.5", features = ["sync"], optional = true }
 petgraph = "0.6"
-reqwest = { version = "0.12", features = ["json"], optional = true }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"], optional = true }
 rhai = { version = "1", features = ["sync", "serde"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -36,8 +37,15 @@ tokio-tungstenite = { version = "0.26", optional = true }
 tokio-util = { version = "0.7.18", features = ["rt"], optional = true }
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+async-trait = "0.1"
+zeroize = { version = "1", features = ["derive"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+jsonschema = { version = "0.46", default-features = false }
 
 [dev-dependencies]
 pretty_assertions = "1"
 proptest = "1"
 tempfile = "3"
+wiremock = "0.6"

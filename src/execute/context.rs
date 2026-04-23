@@ -1,3 +1,4 @@
+use crate::auth::{AuthState, AuthStrategyRegistry, NullSecretResolver, SecretResolver};
 use crate::error::NodeError;
 use crate::execute::blackboard::Blackboard;
 use crate::execute::concurrency::ConcurrencyLimits;
@@ -5,7 +6,7 @@ use crate::execute::event::ExecutionEvent;
 use crate::execute::lifecycle::NodeState;
 use crate::execute::Outputs;
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Instant;
 use tracing::trace;
 
@@ -27,6 +28,15 @@ pub struct ExecutionContext {
     /// Tracks branch decisions: maps branch node ID to the selected edge label.
     branch_decisions: Mutex<HashMap<String, String>>,
     concurrency: ConcurrencyLimits,
+    /// Host-provided secret lookup. Defaults to
+    /// [`NullSecretResolver`] (always errors) until the host installs one.
+    secret_resolver: Arc<dyn SecretResolver>,
+    /// Graph-scoped auth strategy instances. Populated from
+    /// `GraphMetadata.auth` at graph load time. When absent, auth references
+    /// fail validation.
+    auth_registry: Arc<OnceLock<AuthStrategyRegistry>>,
+    /// Per-run mutable auth state (cookie jars, etc.).
+    auth_state: Arc<AuthState>,
 }
 
 impl ExecutionContext {
@@ -39,7 +49,39 @@ impl ExecutionContext {
             blackboard: Mutex::new(Blackboard::new()),
             branch_decisions: Mutex::new(HashMap::new()),
             concurrency: ConcurrencyLimits::new(),
+            secret_resolver: Arc::new(NullSecretResolver),
+            auth_registry: Arc::new(OnceLock::new()),
+            auth_state: Arc::new(AuthState::new()),
         }
+    }
+
+    /// Install a host-provided secret resolver on this context.
+    pub fn with_secret_resolver(mut self, resolver: Arc<dyn SecretResolver>) -> Self {
+        self.secret_resolver = resolver;
+        self
+    }
+
+    pub fn set_secret_resolver(&mut self, resolver: Arc<dyn SecretResolver>) {
+        self.secret_resolver = resolver;
+    }
+
+    pub fn secret_resolver(&self) -> Arc<dyn SecretResolver> {
+        self.secret_resolver.clone()
+    }
+
+    /// Install the graph-scoped auth registry. Called once during graph
+    /// load. Subsequent installs are ignored (the first wins) so a shared
+    /// context cannot be mutated mid-run.
+    pub fn install_auth_registry(&self, registry: AuthStrategyRegistry) {
+        let _ = self.auth_registry.set(registry);
+    }
+
+    pub fn auth_registry(&self) -> Option<&AuthStrategyRegistry> {
+        self.auth_registry.get()
+    }
+
+    pub fn auth_state(&self) -> Arc<AuthState> {
+        self.auth_state.clone()
     }
 
     pub fn with_cancel(token: CancellationToken) -> Self {
@@ -298,6 +340,9 @@ impl ExecutionContext {
             blackboard: Mutex::new(Blackboard::from_snapshot(snapshot.blackboard)),
             branch_decisions: Mutex::new(snapshot.branch_decisions),
             concurrency,
+            secret_resolver: Arc::new(NullSecretResolver),
+            auth_registry: Arc::new(OnceLock::new()),
+            auth_state: Arc::new(AuthState::new()),
         }
     }
 
@@ -733,7 +778,7 @@ mod tests {
             Value::Map(m) => assert_eq!(m["result"], Value::String("from_b".into())),
             other => panic!("expected Map, got {other:?}"),
         }
-        assert!(agg.get("C").is_none());
+        assert!(!agg.contains_key("C"));
     }
 
     #[test]

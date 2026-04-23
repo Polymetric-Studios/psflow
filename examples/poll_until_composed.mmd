@@ -1,0 +1,58 @@
+graph TD
+    subgraph poll_loop ["loop: poll"]
+        INVOKE[Invoke Subgraph] --> PREDICATE{Status Done?}
+        PREDICATE -->|no| SLEEP[Sleep]
+        PREDICATE -->|yes| DONE[Done]
+        SLEEP --> INVOKE
+    end
+
+    START[Start] --> INVOKE
+    DONE --> RESULT[Result]
+
+    %% --- Start ---
+
+    %% @START handler: rhai
+    %% @START config.script: "#{ attempt: 0 }"
+    %% @START outputs.attempt: "I64"
+
+    %% --- Loop body ---
+
+    %% Simulate a polling target: returns status="pending" for the first 2
+    %% attempts, then "ready". In a real graph this would be handler: invoke
+    %% pointing at a named graph in the GraphLibrary.
+    %% @INVOKE handler: rhai
+    %% @INVOKE config.script: |
+    %%   let attempt = inputs.attempt + 1;
+    %%   let status = if attempt >= 3 { "ready" } else { "pending" };
+    %%   #{ status: status, attempt: attempt }
+    %% @INVOKE inputs.attempt: "I64"
+    %% @INVOKE outputs.status: "String"
+    %% @INVOKE outputs.attempt: "I64"
+
+    %% Branch: exits loop on success OR falls through to SLEEP to continue.
+    %% @PREDICATE handler: branch
+    %% @PREDICATE config.guard: "inputs.status == \"ready\""
+
+    %% Fixed 500 ms backoff between polls.
+    %% @SLEEP handler: delay
+    %% @SLEEP config.delay_ms: 500
+
+    %% Max-attempts cap: INVOKE carries the attempt counter; the loop's
+    %% built-in max_iterations safety net (default 1000) is the backstop.
+    %% To make the cap explicit, set exec.loop_max_iterations on the entry node.
+    %% @INVOKE exec.loop_max_iterations: 5
+
+    %% --- Terminal ---
+
+    %% @DONE handler: passthrough
+    %% @DONE inputs.status: "String"
+    %% @DONE inputs.attempt: "I64"
+    %% @DONE outputs.status: "String"
+    %% @DONE outputs.attempt: "I64"
+
+    %% @RESULT handler: rhai
+    %% @RESULT config.script: "#{ final_status: inputs.status, attempts_used: inputs.attempt }"
+    %% @RESULT inputs.status: "String"
+    %% @RESULT inputs.attempt: "I64"
+    %% @RESULT outputs.final_status: "String"
+    %% @RESULT outputs.attempts_used: "I64"

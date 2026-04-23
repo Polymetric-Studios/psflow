@@ -1,3 +1,4 @@
+pub mod auth_decl;
 pub mod edge;
 pub mod metadata;
 pub mod node;

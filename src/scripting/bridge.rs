@@ -129,15 +129,15 @@ mod tests {
 
     #[test]
     fn f32_through_f64_round_trip() {
-        let v = Value::F32(3.14);
+        let v = Value::F32(2.5);
         let d = value_to_dynamic(&v);
         // Widened to f64
         let f = d.as_float().unwrap();
-        assert!((f - 3.14f64).abs() < 0.001);
+        assert!((f - 2.5f64).abs() < 0.001);
         // Back to f32 (truncated)
         let back = dynamic_to_value(d);
         match back {
-            Value::F32(f) => assert!((f - 3.14).abs() < 0.01),
+            Value::F32(f) => assert!((f - 2.5).abs() < 0.01),
             other => panic!("expected F32, got {other:?}"),
         }
     }

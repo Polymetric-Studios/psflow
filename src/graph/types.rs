@@ -415,7 +415,7 @@ mod tests {
         assert_eq!(Value::String("hi".into()).port_type(), PortType::String);
         assert_eq!(Value::Bool(true).port_type(), PortType::Bool);
         assert_eq!(Value::I64(42).port_type(), PortType::I64);
-        assert_eq!(Value::F32(3.14).port_type(), PortType::F32);
+        assert_eq!(Value::F32(2.5).port_type(), PortType::F32);
         assert_eq!(Value::Null.port_type(), PortType::Any);
         assert_eq!(
             Value::Domain {
@@ -432,7 +432,7 @@ mod tests {
         assert!(Value::String("hi".into()).matches_type(&PortType::String));
         assert!(Value::Bool(true).matches_type(&PortType::Bool));
         assert!(Value::I64(42).matches_type(&PortType::I64));
-        assert!(Value::F32(3.14).matches_type(&PortType::F32));
+        assert!(Value::F32(2.5).matches_type(&PortType::F32));
     }
 
     #[test]
@@ -500,7 +500,7 @@ mod tests {
             Value::String("hello".into()),
             Value::Bool(true),
             Value::I64(42),
-            Value::F32(3.14),
+            Value::F32(2.5),
             Value::Null,
             Value::Vec(vec![Value::I64(1), Value::I64(2)]),
         ];

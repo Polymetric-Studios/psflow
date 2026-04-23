@@ -71,6 +71,9 @@ fn apply_graph_annotation(meta: &mut GraphMetadata, ann: &ParsedAnnotation) {
         "default_executor" => meta.default_executor = s,
         "required_adapter" => meta.required_adapter = s,
         "author" => meta.author = s,
+        key if key.starts_with("auth.") => {
+            apply_auth_annotation(meta, &key[5..], value);
+        }
         key => {
             // Unknown keys go into extras with dot-path expansion
             let mut wrapper = serde_json::Value::Object(std::mem::take(&mut meta.extras));
@@ -81,6 +84,49 @@ fn apply_graph_annotation(meta: &mut GraphMetadata, ann: &ParsedAnnotation) {
                 _ => unreachable!(),
             };
         }
+    }
+}
+
+/// Handle `%% @graph auth.<name>.<field>: <value>` annotations.
+///
+/// Recognised fields per strategy:
+///   - `type`        — discriminator string (e.g. `"bearer"`)
+///   - `params`      — JSON value (object); whole-object set per annotation
+///   - `params.<path>` — nested assignment inside params (dot-path expansion)
+///   - `secrets.<role>` — logical name bound to the given role
+fn apply_auth_annotation(
+    meta: &mut crate::graph::metadata::GraphMetadata,
+    rest: &str,
+    value: serde_json::Value,
+) {
+    let (name, tail) = match rest.split_once('.') {
+        Some((n, t)) => (n.to_string(), t),
+        None => return,
+    };
+    let entry = meta
+        .auth
+        .entry(name)
+        .or_insert_with(|| crate::graph::auth_decl::AuthStrategyDecl::new(""));
+
+    if tail == "type" {
+        entry.type_ = match value {
+            serde_json::Value::String(s) => s,
+            other => other.to_string(),
+        };
+    } else if tail == "params" {
+        entry.params = value;
+    } else if let Some(path) = tail.strip_prefix("params.") {
+        // Ensure params is an object before nesting
+        if !entry.params.is_object() {
+            entry.params = serde_json::Value::Object(serde_json::Map::new());
+        }
+        set_nested(&mut entry.params, path, value);
+    } else if let Some(role) = tail.strip_prefix("secrets.") {
+        let logical = match value {
+            serde_json::Value::String(s) => s,
+            other => other.to_string(),
+        };
+        entry.secrets.insert(role.to_string(), logical);
     }
 }
 
@@ -176,7 +222,7 @@ mod tests {
     fn parse_value_types() {
         assert_eq!(parse_value("\"hello\""), serde_json::json!("hello"));
         assert_eq!(parse_value("42"), serde_json::json!(42));
-        assert_eq!(parse_value("3.14"), serde_json::json!(3.14));
+        assert_eq!(parse_value("2.5"), serde_json::json!(2.5));
         assert_eq!(parse_value("true"), serde_json::json!(true));
         assert_eq!(parse_value("false"), serde_json::json!(false));
         assert_eq!(parse_value("null"), serde_json::Value::Null);
@@ -208,5 +254,31 @@ mod tests {
         let mut target = serde_json::json!({});
         set_nested(&mut target, "key", serde_json::json!("value"));
         assert_eq!(target, serde_json::json!({"key": "value"}));
+    }
+
+    #[test]
+    fn auth_annotations_populate_metadata() {
+        let input = r#"
+graph TD
+    A --> B
+
+    %% @graph auth.api.type: "bearer"
+    %% @graph auth.api.secrets.token: "my_api_key"
+    %% @graph auth.signer.type: "hmac"
+    %% @graph auth.signer.params.algorithm: "sha256"
+    %% @graph auth.signer.secrets.key_id: "kid_name"
+    %% @graph auth.signer.secrets.secret: "secret_name"
+"#;
+        let graph = crate::mermaid::load_mermaid(input).unwrap();
+        let auth = &graph.metadata().auth;
+        let api = auth.get("api").expect("api strategy declared");
+        assert_eq!(api.type_, "bearer");
+        assert_eq!(api.secrets.get("token").unwrap(), "my_api_key");
+
+        let signer = auth.get("signer").expect("signer strategy declared");
+        assert_eq!(signer.type_, "hmac");
+        assert_eq!(signer.params["algorithm"], "sha256");
+        assert_eq!(signer.secrets.get("key_id").unwrap(), "kid_name");
+        assert_eq!(signer.secrets.get("secret").unwrap(), "secret_name");
     }
 }

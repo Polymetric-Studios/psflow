@@ -1538,7 +1538,7 @@ mod tests {
     async fn loop_subgraph_repeats() {
         // A node in a loop subgraph with loop_count: 3
         // The node increments a counter each iteration
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::AtomicUsize;
 
         let counter = Arc::new(AtomicUsize::new(0));
 
@@ -1794,7 +1794,7 @@ mod tests {
 
     #[tokio::test]
     async fn concurrency_limit_respected() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::AtomicUsize;
 
         let concurrent = Arc::new(AtomicUsize::new(0));
         let max_seen = Arc::new(AtomicUsize::new(0));
@@ -1859,7 +1859,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_concurrency_limit_allows_full_parallelism() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::AtomicUsize;
 
         let max_seen = Arc::new(AtomicUsize::new(0));
         let concurrent = Arc::new(AtomicUsize::new(0));

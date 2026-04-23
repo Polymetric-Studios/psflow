@@ -392,7 +392,7 @@ mod tests {
         let mut inputs = Outputs::new();
         inputs.insert("data".into(), Value::String("custom key".into()));
 
-        let result = WriteFileHandler
+        let _result = WriteFileHandler
             .execute(&node, inputs, CancellationToken::new())
             .await
             .unwrap();

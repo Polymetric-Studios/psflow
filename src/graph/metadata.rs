@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Graph-level metadata parsed from `%% @graph` annotations.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -28,6 +29,13 @@ pub struct GraphMetadata {
     /// psflow needing to know about them.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extras: serde_json::Map<String, serde_json::Value>,
+    /// Named auth strategies declared at graph scope. Handlers reference
+    /// them by name via `config.auth`. Keys are graph-local strategy
+    /// names; values carry the type discriminator, params, and role→
+    /// logical-name secret map. See `auth::AuthStrategy` for the runtime
+    /// contract.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub auth: BTreeMap<String, crate::graph::auth_decl::AuthStrategyDecl>,
 }
 
 #[cfg(test)]
