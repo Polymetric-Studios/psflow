@@ -133,7 +133,9 @@ Sends the current per-run jar as a `Cookie:` header; absorbs `Set-Cookie` from e
 
 | Param | Type | Default | Notes |
 |---|---|---|---|
-| `params.domain` | string | — | Informational only; no automatic domain filtering |
+| `params.domain` | string | — | Enforced domain scope. When set, `apply` fails loudly if the request host does not match; `observe_response` ignores cookies whose `Domain=` attribute doesn't match. |
+
+**Domain matching semantics:** `domain: example.com` matches `example.com` and any `*.example.com` subdomain (standard suffix-match). IP address literals match exactly — no subdomain logic. Matching is case-insensitive; port is ignored. Omit `domain` to accept any host (backward-compatible default).
 
 No required secrets. Pre-seeded sessions are not supported via the params surface.
 
