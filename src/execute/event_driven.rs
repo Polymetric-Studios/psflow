@@ -8,7 +8,8 @@ use crate::execute::topological::{
     PassthroughHandler,
 };
 use crate::execute::{
-    ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler, Outputs,
+    auto_install_auth_registry, ExecutionError, ExecutionResult, Executor, HandlerRegistry,
+    NodeHandler, Outputs,
 };
 use crate::graph::node::NodeId;
 use crate::graph::Graph;
@@ -148,6 +149,7 @@ async fn execute_event_driven(
         concurrency,
     ));
 
+    auto_install_auth_registry(graph, &ctx)?;
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
     let passthrough: Arc<dyn NodeHandler> = Arc::new(PassthroughHandler);

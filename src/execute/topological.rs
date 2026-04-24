@@ -5,7 +5,8 @@ use crate::execute::control;
 use crate::execute::event::ExecutionEvent;
 use crate::execute::lifecycle::NodeState;
 use crate::execute::{
-    ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler, Outputs,
+    auto_install_auth_registry, ExecutionError, ExecutionResult, Executor, HandlerRegistry,
+    NodeHandler, Outputs,
 };
 use crate::graph::node::NodeId;
 use crate::graph::{Graph, SubgraphDirective};
@@ -139,6 +140,7 @@ async fn execute_impl_from_context(
         "execution resumed"
     );
 
+    auto_install_auth_registry(graph, &ctx)?;
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
     execute_core(graph, handlers, ctx, adapter, start).await
@@ -179,6 +181,7 @@ async fn execute_impl_with_blackboard(
         ))
     };
 
+    auto_install_auth_registry(graph, &ctx)?;
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
     execute_core(graph, handlers, ctx, adapter, start).await

@@ -10,7 +10,7 @@ use psflow::auth::{
     AuthApplyCtx, AuthError, AuthStrategy, AuthStrategyDecl, AuthStrategyRegistry, SecretResolver,
     StaticSecretResolver,
 };
-use psflow::execute::{CancellationToken, ExecutionContext, NodeHandler, Outputs};
+use psflow::execute::{CancellationToken, ExecutionContext, ExecutionError, NodeHandler, Outputs};
 use psflow::graph::node::Node;
 use psflow::graph::Graph;
 use psflow::handlers::HttpHandler;
@@ -326,4 +326,126 @@ async fn retry_reinvokes_auth_apply_and_observe_each_attempt() {
     assert_eq!(apply_count.load(Ordering::SeqCst), 2);
     // observe_response() must also run on the failed 503, not only the final 200.
     assert_eq!(observe_count.load(Ordering::SeqCst), 2);
+}
+
+// ── Auto-install tests ────────────────────────────────────────────────────────
+
+/// Build a graph with a declared bearer strategy, call `auto_install_auth_registry`
+/// (as executors now do at run start), then exercise the HTTP handler — WITHOUT
+/// any manual `install_auth_registry` call.
+#[tokio::test]
+async fn auto_install_injects_bearer_header_without_manual_registry_call() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/auto"))
+        .and(header("authorization", "Bearer auto-secret"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("OK"))
+        .mount(&server)
+        .await;
+
+    let resolver = Arc::new(StaticSecretResolver::new());
+    resolver.insert_flat("auto_key", "auto-secret");
+
+    let mut ctx = ExecutionContext::new();
+    ctx.set_secret_resolver(resolver);
+    let ctx = Arc::new(ctx);
+
+    // Build a graph with declared auth — no manual install_auth_registry.
+    let mut graph = Graph::new();
+    graph.metadata_mut().auth.insert(
+        "api_auth".into(),
+        AuthStrategyDecl::new("bearer").with_secret("token", "auto_key"),
+    );
+    let mut node = Node::new("H", "Http");
+    node.config = serde_json::json!({
+        "url": format!("{}/auto", server.uri()),
+        "method": "GET",
+        "allow_private": true,
+        "auth": "api_auth",
+    });
+    graph.add_node(node.clone()).unwrap();
+
+    // Simulate what every executor now does at run start.
+    psflow::execute::auto_install_auth_registry(&graph, &ctx)
+        .expect("auto-install must succeed for a valid graph");
+
+    // Registry must now be present.
+    assert!(
+        ctx.auth_registry().is_some(),
+        "auto_install_auth_registry must install the registry"
+    );
+
+    let handler = psflow::handlers::HttpHandler::new(ctx);
+    let out = handler
+        .execute(&node, Outputs::new(), CancellationToken::new())
+        .await
+        .unwrap();
+    match out.get("status").unwrap() {
+        psflow::Value::I64(n) => assert_eq!(*n, 200),
+        other => panic!("expected i64 status, got {other:?}"),
+    }
+}
+
+/// When the embedder has already called `install_auth_registry` before the
+/// executor runs, `auto_install_auth_registry` must be a no-op — the
+/// embedder's registry is authoritative and is left untouched.
+#[tokio::test]
+async fn auto_install_is_noop_when_registry_already_present() {
+    // Embedder installs a pre-built registry with a known instance.
+    let ctx = Arc::new(ExecutionContext::new());
+
+    let mut pre_installed = AuthStrategyRegistry::with_builtins();
+    let mut decls = std::collections::BTreeMap::new();
+    decls.insert(
+        "embedder_strategy".into(),
+        AuthStrategyDecl::new("bearer").with_secret("token", "some_key"),
+    );
+    pre_installed.build_from_decls(&decls).unwrap();
+    ctx.install_auth_registry(pre_installed);
+
+    // Graph also declares auth (different name) — auto-install should NOT
+    // overwrite the embedder's registry.
+    let mut graph = Graph::new();
+    graph.metadata_mut().auth.insert(
+        "other_strategy".into(),
+        AuthStrategyDecl::new("bearer").with_secret("token", "other_key"),
+    );
+
+    psflow::execute::auto_install_auth_registry(&graph, &ctx)
+        .expect("no-op auto-install must not error");
+
+    // Embedder's instance is still there; the graph-declared "other_strategy"
+    // was NOT added (the registry was not replaced).
+    let reg = ctx.auth_registry().expect("registry must still be present");
+    assert!(
+        reg.contains("embedder_strategy"),
+        "embedder strategy must survive"
+    );
+    assert!(
+        !reg.contains("other_strategy"),
+        "auto-install must not clobber embedder registry"
+    );
+}
+
+/// When a graph declares a strategy with an unknown type, the executor must
+/// fail at load time (before any node runs), not mid-execution.
+#[tokio::test]
+async fn auto_install_fails_for_unknown_strategy_type() {
+    let ctx = Arc::new(ExecutionContext::new());
+
+    let mut graph = Graph::new();
+    graph
+        .metadata_mut()
+        .auth
+        .insert("bad".into(), AuthStrategyDecl::new("no_such_type"));
+
+    let err = psflow::execute::auto_install_auth_registry(&graph, &ctx)
+        .expect_err("must fail when strategy type is unknown");
+
+    assert!(
+        matches!(err, ExecutionError::ValidationFailed(_)),
+        "expected ValidationFailed, got {err:?}"
+    );
+    // No registry should have been installed.
+    assert!(ctx.auth_registry().is_none());
 }

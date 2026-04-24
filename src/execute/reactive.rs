@@ -7,7 +7,10 @@ use crate::execute::topological::{
     cancel_downstream, collect_inputs, handle_branch_decision, is_branch_blocked,
     PassthroughHandler,
 };
-use crate::execute::{ExecutionError, ExecutionResult, Executor, HandlerRegistry, NodeHandler};
+use crate::execute::{
+    auto_install_auth_registry, ExecutionError, ExecutionResult, Executor, HandlerRegistry,
+    NodeHandler,
+};
 use crate::graph::node::NodeId;
 use crate::graph::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -104,6 +107,7 @@ async fn execute_reactive(
         concurrency,
     ));
 
+    auto_install_auth_registry(graph, &ctx)?;
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
     if graph.node_count() == 0 {

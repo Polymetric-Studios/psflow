@@ -8,7 +8,7 @@ The network slice (commit `45bdfe8a`) shipped auth, HTTP gap-fill, validation, b
 
 ## 2. Auth layer
 
-- [ ] **Auto-install `AuthStrategyRegistry` from `GraphMetadata.auth`** — executors currently don't construct the registry from declared strategies; embedders must call `ctx.install_auth_registry(...)`. Add an `Executor::with_graph` (or equivalent) hook so registry installation is automatic when a graph declares auth.
+- [x] ~~**Auto-install `AuthStrategyRegistry` from `GraphMetadata.auth`** — executors currently don't construct the registry from declared strategies; embedders must call `ctx.install_auth_registry(...)`. Add an `Executor::with_graph` (or equivalent) hook so registry installation is automatic when a graph declares auth.~~ (done)
 - [ ] **HMAC header coverage audit** — the canonical string signs only headers set by the handler plus the key-id header because `reqwest::RequestBuilder` doesn't expose previously-set headers without `try_clone+build`. Decide whether to adopt the `try_clone+build` inspection path before any vendor-specific strategy (SigV4, Stripe, etc.) is added. Flagged in `src/auth/strategies/hmac.rs`.
 - [ ] **`observe_response` semantics on retries** — currently fires on every attempt (correct for cookie jar rotating session cookies). Consider whether strategies that treat `observe_response` as "final" need an opt-in `observe_each_attempt: bool` or similar, or whether "final-only" is a separate hook. No known consumer yet.
 - [ ] **Composite strategy built-in** — design doc §8 locked "one strategy per node". If layered auth (e.g. bearer + HMAC) ever lands, ship it as a `Composite` built-in that wraps an ordered list, rather than reopening node-level chaining.

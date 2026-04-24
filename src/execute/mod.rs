@@ -27,6 +27,7 @@ pub use retry::{BackoffStrategy, RetryConfig};
 pub use stepped::{SteppedExecutor, TickResult};
 pub use topological::TopologicalExecutor;
 
+use crate::auth::AuthStrategyRegistry;
 use crate::error::NodeError;
 use crate::graph::node::Node;
 use crate::graph::types::Value;
@@ -242,6 +243,38 @@ pub enum ExecutionError {
     HandlerNotFound { node_id: String, handler: String },
     #[error("cancelled")]
     Cancelled,
+}
+
+/// Auto-install an [`AuthStrategyRegistry`] on `ctx` from the graph's declared
+/// auth strategies, if the graph has any and the embedder has not already
+/// installed a registry.
+///
+/// **No-op conditions** (both are silent no-ops):
+/// - `graph.metadata().auth` is empty — graph declares no auth strategies.
+/// - `ctx.auth_registry()` is already `Some` — embedder pre-installed a
+///   registry; that registry is authoritative and is left untouched.
+///
+/// **Error condition**: if a declared strategy references an unknown type or
+/// has an invalid role binding, returns `ExecutionError::ValidationFailed`
+/// before any node runs.
+pub fn auto_install_auth_registry(
+    graph: &Graph,
+    ctx: &ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let auth = &graph.metadata().auth;
+    if auth.is_empty() {
+        return Ok(());
+    }
+    // Embedder already installed — leave it alone.
+    if ctx.auth_registry().is_some() {
+        return Ok(());
+    }
+    let mut registry = AuthStrategyRegistry::with_builtins();
+    registry
+        .build_from_decls(auth)
+        .map_err(|e| ExecutionError::ValidationFailed(e.to_string()))?;
+    ctx.install_auth_registry(registry);
+    Ok(())
 }
 
 /// Create a handler from a synchronous closure (cancel token ignored).
