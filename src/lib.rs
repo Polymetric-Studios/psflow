@@ -33,7 +33,7 @@ pub use graph::node::{Node, NodeId};
 pub use graph::port::Port;
 pub use graph::types::{PortType, ResultReducer, Value};
 pub use graph::{Graph, Subgraph, SubgraphDirective, SubgraphTopology};
-pub use mermaid::{export_mermaid, load_mermaid, MermaidError, Span};
+pub use mermaid::{export_mermaid, load_mermaid, MermaidError, MermaidErrors, Span};
 
 // Runtime-only re-exports
 #[cfg(feature = "runtime")]

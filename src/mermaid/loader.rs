@@ -2,7 +2,7 @@ use crate::graph::node::{Node, NodeId};
 use crate::graph::{Graph, Subgraph, SubgraphDirective};
 use crate::mermaid::annotation::apply_annotations;
 use crate::mermaid::parse::{self, ParsedSubgraph};
-use crate::mermaid::MermaidError;
+use crate::mermaid::{MermaidError, MermaidErrors};
 
 /// Parse an annotated Mermaid file and produce a fully typed Graph.
 ///
@@ -11,11 +11,11 @@ use crate::mermaid::MermaidError;
 /// 2. Applies `%% @` annotations (handler, ports, config, exec)
 /// 3. Resolves edge port connections by name/type matching
 /// 4. Parses subgraph labels into execution directives
-pub fn load_mermaid(input: &str) -> Result<Graph, Vec<MermaidError>> {
-    let parsed = parse::parse(input).map_err(|e| vec![e])?;
+pub fn load_mermaid(input: &str) -> Result<Graph, MermaidErrors> {
+    let parsed = parse::parse(input).map_err(MermaidErrors::from)?;
     let mut graph = Graph::new();
     graph.metadata_mut().direction = Some(parsed.direction.as_str().to_string());
-    let mut errors = Vec::new();
+    let mut errors: Vec<MermaidError> = Vec::new();
 
     // 1. Add all discovered nodes
     for pnode in parsed.nodes.values() {
@@ -24,7 +24,7 @@ pub fn load_mermaid(input: &str) -> Result<Graph, Vec<MermaidError>> {
         }
     }
     if !errors.is_empty() {
-        return Err(errors);
+        return Err(MermaidErrors::from(errors));
     }
 
     // 2. Apply annotations (sets handlers, ports, config, exec)
@@ -54,7 +54,7 @@ pub fn load_mermaid(input: &str) -> Result<Graph, Vec<MermaidError>> {
     if errors.is_empty() {
         Ok(graph)
     } else {
-        Err(errors)
+        Err(MermaidErrors::from(errors))
     }
 }
 

@@ -18,6 +18,8 @@ Add psflow and the tokio runtime to your `Cargo.toml`:
 [dependencies]
 psflow = { path = "../psflow", features = ["runtime"] }
 tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+async-trait = "0.1"
 ```
 
 psflow's `runtime` feature pulls in `reqwest`, `rhai`, `tokio-tungstenite`, and everything else the network handlers need. You do not need to add those crates directly.
@@ -96,6 +98,7 @@ use psflow::{
     execute::{auto_install_auth_registry, ExecutionContext, TopologicalExecutor},
     registry::NodeRegistry,
     scripting::engine::ScriptEngine,
+    Executor,
 };
 use std::sync::Arc;
 
@@ -127,8 +130,8 @@ async fn main() -> anyhow::Result<()> {
         .execute(&graph, &handlers)
         .await?;
 
-    // result.outputs is a map from node ID to Outputs.
-    let fetch_out = result.outputs.get("Fetch").expect("Fetch node ran");
+    // result.node_outputs is a map from node ID to Outputs.
+    let fetch_out = result.node_outputs.get("Fetch").expect("Fetch node ran");
     println!("status: {:?}", fetch_out.get("status"));
     println!("body:   {:?}", fetch_out.get("body"));
 
@@ -156,7 +159,13 @@ If the bearer token was incorrect the server returns a non-2xx status. The node 
 
 ---
 
-## 7. Next steps
+## 7. Testing locally
+
+psflow's HTTP handler blocks loopback and private-range IPs by default. If you want to verify the quickstart against a local mock server (e.g. `http://localhost:8080`), add `%% @Fetch config.allow_private: true` to the graph. Without it, requests to `127.0.0.1` or `192.168.x.x` fail at the handler level before a connection is attempted.
+
+---
+
+## 8. Next steps
 
 - For the full list of config keys per handler — HTTP body shapes, retry, redirect, validation, body_sink, WS, poll_until — see [docs/mermaid-annotation-reference.md](./mermaid-annotation-reference.md).
 - For other auth strategies (`static_header`, `hmac`, `cookie_jar`) and their params, see the same reference doc, section 2.

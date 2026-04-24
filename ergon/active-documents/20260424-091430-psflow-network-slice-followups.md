@@ -55,3 +55,14 @@ The network slice (commit `45bdfe8a`) shipped auth, HTTP gap-fill, validation, b
 - Permessage-deflate / compression extensions — not in the proposal.
 - Resumable HTTP downloads, content-length honoring, progress callbacks — explicit YAGNI on `body_sink`.
 - Node-level HTTP retry (covered by HTTP-scoped retry in workstream 6).
+
+## 10. Quickstart cold-test findings
+
+Six real issues found during a cold-test of `docs/host-integration-quickstart.md` and the `load_mermaid` API surface.
+
+- [x] ~~`load_mermaid` returns `Result<Graph, Vec<MermaidError>>`; `Vec<MermaidError>` does not implement `std::error::Error`, so callers cannot use `?`. Introduced `MermaidErrors(Vec<MermaidError>)` newtype with `Display`, `Error`, `Deref<Target=[MermaidError]>`, `IntoIterator`, `From<Vec<MermaidError>>`, and `From<MermaidError>`.~~ (done)
+- [x] ~~`async-trait = "0.1"` missing from the Cargo.toml snippet; the `SecretResolver` example uses `#[async_trait]`.~~ (done)
+- [x] ~~`anyhow = "1"` missing from the Cargo.toml snippet; `main()` returns `anyhow::Result<()>`.~~ (done)
+- [x] ~~`Executor` trait missing from the `use psflow::{...}` import; `.execute()` is a trait method and fails to resolve without the trait in scope.~~ (done)
+- [x] ~~`result.outputs` should be `result.node_outputs` — the actual field name on `ExecutionResult`.~~ (done)
+- [x] ~~psflow HTTP handler blocks loopback/private IPs by default with no mention in the quickstart; added a "Testing locally" note explaining `config.allow_private: true`.~~ (done)

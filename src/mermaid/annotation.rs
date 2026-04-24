@@ -28,7 +28,7 @@ pub fn apply_annotations(
     graph: &mut Graph,
     annotations: &[ParsedAnnotation],
 ) -> Result<(), Vec<MermaidError>> {
-    let mut errors = Vec::new();
+    let mut errors: Vec<MermaidError> = Vec::new();
 
     for ann in annotations {
         if ann.target_id == "graph" {
