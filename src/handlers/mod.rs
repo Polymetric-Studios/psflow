@@ -30,4 +30,4 @@ pub use utility::{
     DelayHandler, GateHandler, LogHandler, MergeHandler, PassthroughHandler, SplitHandler,
     TransformHandler,
 };
-pub use websocket::WebSocketHandler;
+pub use websocket::{WebSocketHandler, WS_HANDLER_NAME};

@@ -2,6 +2,7 @@ use super::decl::AuthStrategyDecl;
 use super::error::AuthError;
 use super::strategies;
 use super::strategy::AuthStrategy;
+use crate::handlers::websocket::WS_HANDLER_NAME;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -125,7 +126,7 @@ impl AuthStrategyRegistry {
     ///   registered type and satisfy `required_roles`.
     /// - Every node whose `config.auth` is set must reference a declared
     ///   strategy name.
-    /// - Any node whose handler is `"ws"` (the WebSocket handler name) and
+    /// - Any node whose handler is [`WS_HANDLER_NAME`] and
     ///   whose `config.auth` is set must reference a strategy whose type
     ///   supports the WS handshake surface. Detected at load time so that
     ///   graph authors do not wait for a runtime handshake error.
@@ -146,7 +147,7 @@ impl AuthStrategyRegistry {
             // WS-compatibility check: only run on nodes that actually use the
             // WS handler. Other handlers resolve auth against their own
             // transport — no need to cross-check here.
-            if node.handler.as_deref() == Some("ws") {
+            if node.handler.as_deref() == Some(WS_HANDLER_NAME) {
                 // Build a transient instance to query `supports_ws()` without
                 // holding instance state at load time.
                 if let Some(factory) = self.factories.get(&decl.type_) {

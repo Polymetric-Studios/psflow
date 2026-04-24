@@ -51,7 +51,7 @@ const ERROR_BODY_SNIPPET_CAP: usize = 4096;
 /// - `config.allow_private`: Allow requests to private/loopback IPs (default: false).
 /// - `config.auth`: Name of a graph-scoped auth strategy (from
 ///   `GraphMetadata.auth`). Looked up at execution time.
-/// - `config.redirect`: Redirect policy. `"none"`, `{ "limited": n }`, or `"default"` (reqwest default of 10).
+/// - `config.redirect`: Redirect policy. `"none"`, `{ "max": n }`, or `"default"` (reqwest default of 10).
 /// - `config.retry`: HTTP-scoped retry policy. `{ max_attempts, backoff: "fixed"|"exponential",
 ///   delay_ms, multiplier, max_delay_ms, retry_on: [...] }`. `retry_on` accepts status codes,
 ///   the string `"5xx"`, and/or `"connection_error"`.
@@ -364,14 +364,11 @@ impl RedirectCfg {
             };
         }
         if let Some(obj) = v.as_object() {
-            if let Some(n) = obj.get("limited").and_then(|n| n.as_u64()) {
-                return Ok(Self::Limited(n as usize));
-            }
             if let Some(n) = obj.get("max").and_then(|n| n.as_u64()) {
                 return Ok(Self::Limited(n as usize));
             }
         }
-        Err("redirect must be \"none\", \"default\", or { \"limited\": N }".into())
+        Err("redirect must be \"none\", \"default\", or { \"max\": N }".into())
     }
 
     fn into_policy(self) -> RedirectPolicy {
@@ -1187,7 +1184,7 @@ impl NodeHandler for HttpHandler {
             )
             .with_config(
                 SchemaField::new("redirect", "string|object")
-                    .describe("Redirect policy: \"none\", \"default\", or { limited: N }"),
+                    .describe("Redirect policy: \"none\", \"default\", or { max: N }"),
             )
             .with_config(
                 SchemaField::new("retry", "object").describe(
@@ -1676,7 +1673,7 @@ mod tests {
             RedirectCfg::Default
         ));
         assert!(matches!(
-            RedirectCfg::from_config(Some(&serde_json::json!({"limited": 3}))).unwrap(),
+            RedirectCfg::from_config(Some(&serde_json::json!({"max": 3}))).unwrap(),
             RedirectCfg::Limited(3)
         ));
         assert!(RedirectCfg::from_config(Some(&serde_json::json!("weird"))).is_err());

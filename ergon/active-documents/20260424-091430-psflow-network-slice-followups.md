@@ -15,7 +15,7 @@ The network slice (commit `45bdfe8a`) shipped auth, HTTP gap-fill, validation, b
 
 ## 3. HTTP handler polish
 
-- [ ] **Prune redirect config synonyms** — `redirect` accepts both `"limited": n` and `"max": n`. Pick one before consumer use so the annotation surface doesn't fork.
+- [x] ~~**Prune redirect config synonyms** — `redirect` accepts both `"limited": n` and `"max": n`. Pick one before consumer use so the annotation surface doesn't fork.~~ (done: kept `max`, removed `limited`)
 - [ ] **Exponential backoff + jitter on `poll_until`** — not in minimum surface; extension candidate if/when a consumer hits a rate-limited polling target.
 
 ## 4. Validation module
@@ -27,7 +27,7 @@ The network slice (commit `45bdfe8a`) shipped auth, HTTP gap-fill, validation, b
 
 - [ ] **Surface `TerminationReason::ValidationError`** — defined but unreachable under current semantics (fail mode returns `Err`; passthrough mode continues). Add an explicit surfacing path if embedders want to branch on validation-driven termination without intercepting the `Failed` variant.
 - [ ] **`close_on_terminate` flush guarantee** — best-effort under `tokio::select!` races on timeout/cancellation. Consider an explicit drain-and-flush path if a consumer hits a server that strictly requires a graceful close.
-- [ ] **Thread `WS_HANDLER_NAME` const through call sites** — currently the literal `"ws"` is used in `src/registry.rs` and `AuthStrategyRegistry::validate_graph`. Small polish.
+- [x] ~~**Thread `WS_HANDLER_NAME` const through call sites** — currently the literal `"ws"` is used in `src/registry.rs` and `AuthStrategyRegistry::validate_graph`. Small polish.~~ (done)
 - [ ] **Subprotocol support** — skipped in workstream 5 unless trivial. If a consumer needs one, `tokio-tungstenite` config takes it; extend the config surface then.
 
 ## 6. poll_until and subgraph semantics
