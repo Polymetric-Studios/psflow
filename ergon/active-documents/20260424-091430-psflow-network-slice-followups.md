@@ -12,6 +12,7 @@ The network slice (commit `45bdfe8a`) shipped auth, HTTP gap-fill, validation, b
 - [ ] **HMAC header coverage audit** — the canonical string signs only headers set by the handler plus the key-id header because `reqwest::RequestBuilder` doesn't expose previously-set headers without `try_clone+build`. Decide whether to adopt the `try_clone+build` inspection path before any vendor-specific strategy (SigV4, Stripe, etc.) is added. Flagged in `src/auth/strategies/hmac.rs`.
 - [ ] **`observe_response` semantics on retries** — currently fires on every attempt (correct for cookie jar rotating session cookies). Consider whether strategies that treat `observe_response` as "final" need an opt-in `observe_each_attempt: bool` or similar, or whether "final-only" is a separate hook. No known consumer yet.
 - [ ] **Composite strategy built-in** — design doc §8 locked "one strategy per node". If layered auth (e.g. bearer + HMAC) ever lands, ship it as a `Composite` built-in that wraps an ordered list, rather than reopening node-level chaining.
+- [ ] **`cookie_jar.domain` is informational only** — surfaced while writing the annotation reference. The design note implied domain-based filtering; the implementation takes the field but doesn't scope cookies by it. Either implement filtering or drop the field. Documented as-is for now.
 
 ## 3. HTTP handler polish
 
@@ -41,8 +42,8 @@ The network slice (commit `45bdfe8a`) shipped auth, HTTP gap-fill, validation, b
 
 ## 8. Documentation / examples
 
-- [ ] **Host-integration quickstart** — example showing an embedder wiring `SecretResolver` + `AuthStrategyRegistry` into `ExecutionContext`, plus a minimal graph using bearer auth over HTTP.
-- [ ] **Mermaid annotation cheat-sheet for new config surfaces** — auth declarations, retry/backoff config, multipart, body_sink, validation, WebSocket termination, poll_until. Existing `config.<key>=<value>` passthrough handles the parsing, but a concise reference reduces trial-and-error for graph authors.
+- [x] ~~**Host-integration quickstart** — example showing an embedder wiring `SecretResolver` + `AuthStrategyRegistry` into `ExecutionContext`, plus a minimal graph using bearer auth over HTTP.~~ (done: `docs/host-integration-quickstart.md`)
+- [x] ~~**Mermaid annotation cheat-sheet for new config surfaces** — auth declarations, retry/backoff config, multipart, body_sink, validation, WebSocket termination, poll_until. Existing `config.<key>=<value>` passthrough handles the parsing, but a concise reference reduces trial-and-error for graph authors.~~ (done: `docs/mermaid-annotation-reference.md`)
 
 ## 9. Out of scope (recorded, not tasks)
 

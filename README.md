@@ -206,6 +206,13 @@ let result = executor.resume(&graph, &handlers, snapshot).await?;
 
 Completed nodes are skipped on resume. Interrupted nodes are re-executed. Blackboard state, branch decisions, and outputs are preserved.
 
+## Documentation
+
+| Document | Audience |
+|---|---|
+| [Host Integration Quickstart](docs/host-integration-quickstart.md) | Rust engineer embedding psflow for the first time — covers `SecretResolver`, auth wiring, and running a graph |
+| [Mermaid Annotation Reference](docs/mermaid-annotation-reference.md) | Graph authors — full config key reference for `http`, `ws`, `poll_until`, and auth strategy declarations |
+
 ## License
 
 Proprietary -- Polymetric Studios
