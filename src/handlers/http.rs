@@ -1,10 +1,12 @@
 use crate::auth::{AuthApplyCtx, AuthError, AuthStrategy};
 use crate::error::NodeError;
+use crate::execute::validation::{ValidationIssue, ValidationIssueKind};
 use crate::execute::{
     CancellationToken, ExecutionContext, HandlerSchema, NodeHandler, Outputs, SchemaField,
 };
 use crate::graph::node::Node;
 use crate::graph::types::Value;
+use crate::graph::Graph;
 use crate::handlers::common::{interpolate, value_to_json};
 use crate::template::{PromptTemplateResolver, TemplateResolver};
 use crate::validation::{CompiledValidator, FailureMode, ValidationConfig, ValidationOutcome};
@@ -1149,6 +1151,34 @@ impl NodeHandler for HttpHandler {
         })
     }
 
+    fn validate_node(
+        &self,
+        node: &Node,
+        _graph: &Graph,
+        _ctx: &ExecutionContext,
+    ) -> Result<(), Vec<ValidationIssue>> {
+        let mut issues = Vec::new();
+        let config = &node.config;
+
+        // `body_sink` and `validation` are mutually exclusive: validation
+        // needs a buffered body, body_sink streams to disk without
+        // buffering. Surface at graph-load time rather than mid-run.
+        if config.get("body_sink").is_some() && config.get("validation").is_some() {
+            issues.push(ValidationIssue::new(
+                String::new(),
+                String::new(),
+                ValidationIssueKind::Incompatibility,
+                "`body_sink` and `validation` are mutually exclusive — validation needs the parsed body, body_sink streams it to disk without buffering",
+            ));
+        }
+
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(issues)
+        }
+    }
+
     fn schema(&self, name: &str) -> HandlerSchema {
         HandlerSchema::new(name, "Make an HTTP request")
             .with_config(
@@ -2285,6 +2315,42 @@ mod tests {
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("mutually exclusive"), "msg: {msg}");
+    }
+
+    #[test]
+    fn validate_node_flags_body_sink_validation_incompat() {
+        let mut node = Node::new("H", "Http");
+        node.config = serde_json::json!({
+            "url": "http://example.com",
+            "body_sink": { "file": { "path": "/tmp/out.bin" } },
+            "validation": { "inline": { "type": "object" } }
+        });
+        node.handler = Some("http".into());
+        let graph = crate::graph::Graph::new();
+        let ctx = crate::execute::ExecutionContext::new();
+        let issues = HttpHandler::stateless()
+            .validate_node(&node, &graph, &ctx)
+            .expect_err("expected incompat issue");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            issues[0].kind,
+            crate::execute::ValidationIssueKind::Incompatibility
+        );
+        assert!(issues[0].message.contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn validate_node_accepts_body_sink_alone() {
+        let mut node = Node::new("H", "Http");
+        node.config = serde_json::json!({
+            "url": "http://example.com",
+            "body_sink": { "file": { "path": "/tmp/out.bin" } }
+        });
+        let graph = crate::graph::Graph::new();
+        let ctx = crate::execute::ExecutionContext::new();
+        assert!(HttpHandler::stateless()
+            .validate_node(&node, &graph, &ctx)
+            .is_ok());
     }
 
     #[tokio::test]

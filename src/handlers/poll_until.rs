@@ -31,12 +31,14 @@
 //! on `timed_out`.
 
 use crate::error::NodeError;
+use crate::execute::validation::{ValidationIssue, ValidationIssueKind};
 use crate::execute::{
     CancellationToken, ExecutionContext, HandlerRegistry, HandlerSchema, NodeHandler, Outputs,
     SchemaField,
 };
 use crate::graph::node::{Node, NodeId};
 use crate::graph::types::Value;
+use crate::graph::Graph;
 use crate::handlers::subgraph_invoke::{GraphLibrary, SubgraphInvocationHandler};
 use crate::scripting::bridge::value_to_dynamic;
 use crate::scripting::engine::ScriptEngine;
@@ -318,6 +320,61 @@ impl NodeHandler for PollUntilHandler {
         })
     }
 
+    fn validate_node(
+        &self,
+        node: &Node,
+        _graph: &Graph,
+        _ctx: &ExecutionContext,
+    ) -> Result<(), Vec<ValidationIssue>> {
+        let mut issues = Vec::new();
+
+        // Shape first. Without a parsed config there's nothing further to
+        // check.
+        let cfg = match PollUntilConfig::from_json(&node.config) {
+            Ok(c) => c,
+            Err(e) => {
+                issues.push(ValidationIssue::new(
+                    String::new(),
+                    String::new(),
+                    ValidationIssueKind::Config,
+                    e,
+                ));
+                return Err(issues);
+            }
+        };
+
+        // Subgraph referenced by name must exist in the library.
+        if self.library.get(&cfg.graph_name).is_none() {
+            issues.push(ValidationIssue::new(
+                String::new(),
+                String::new(),
+                ValidationIssueKind::MissingReference,
+                format!("config.graph '{}' not found in library", cfg.graph_name),
+            ));
+        }
+
+        // Predicate must compile. Uses the same cache the runtime path
+        // reads so `execute()` doesn't recompile.
+        let predicate_cache = PredicateCache {
+            engine: &self.script_engine,
+            cache: &self.predicate_asts,
+        };
+        if let Err(e) = predicate_cache.get_or_compile(&cfg.predicate_src) {
+            issues.push(ValidationIssue::new(
+                String::new(),
+                String::new(),
+                ValidationIssueKind::ScriptCompile,
+                e,
+            ));
+        }
+
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(issues)
+        }
+    }
+
     fn schema(&self, name: &str) -> HandlerSchema {
         HandlerSchema::new(
             name,
@@ -508,6 +565,67 @@ mod tests {
             .block_on(h.execute(&node, Outputs::new(), CancellationToken::new()))
             .expect_err("should fail");
         assert!(err.to_string().contains("not found in library"));
+    }
+
+    #[test]
+    fn validate_node_flags_missing_subgraph() {
+        let lib = GraphLibrary::new();
+        let engine = default_script_engine();
+        let h = PollUntilHandler::with_handlers(Arc::new(lib), HandlerRegistry::new(), engine);
+
+        let mut node = Node::new("P", "P");
+        node.config = serde_json::json!({
+            "graph": "nope",
+            "predicate": "true",
+            "max_attempts": 1,
+            "delay_ms": 0,
+        });
+        let graph = Graph::new();
+        let ctx = ExecutionContext::new();
+        let issues = h.validate_node(&node, &graph, &ctx).unwrap_err();
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i.kind, ValidationIssueKind::MissingReference)));
+    }
+
+    #[test]
+    fn validate_node_flags_bad_predicate_and_missing_subgraph() {
+        // Collect-all behaviour: both issues reported together.
+        let lib = GraphLibrary::new();
+        let engine = default_script_engine();
+        let h = PollUntilHandler::with_handlers(Arc::new(lib), HandlerRegistry::new(), engine);
+
+        let mut node = Node::new("P", "P");
+        node.config = serde_json::json!({
+            "graph": "nope",
+            "predicate": "let x = ;; garbage",
+            "max_attempts": 1,
+            "delay_ms": 0,
+        });
+        let graph = Graph::new();
+        let ctx = ExecutionContext::new();
+        let issues = h.validate_node(&node, &graph, &ctx).unwrap_err();
+        assert_eq!(issues.len(), 2);
+    }
+
+    #[test]
+    fn validate_node_caches_predicate_for_runtime() {
+        let mut lib = GraphLibrary::new();
+        lib.register("g", counter_graph());
+        let engine = default_script_engine();
+        let h = PollUntilHandler::with_handlers(Arc::new(lib), HandlerRegistry::new(), engine);
+
+        let mut node = Node::new("P", "P");
+        node.config = serde_json::json!({
+            "graph": "g",
+            "predicate": "output.done",
+            "max_attempts": 1,
+            "delay_ms": 0,
+        });
+        let graph = Graph::new();
+        let ctx = ExecutionContext::new();
+        h.validate_node(&node, &graph, &ctx).unwrap();
+        assert_eq!(h.predicate_asts.lock().unwrap().len(), 1);
     }
 
     #[test]

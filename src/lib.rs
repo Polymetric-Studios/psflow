@@ -52,11 +52,12 @@ pub use execute::snapshot::ExecutionSnapshot;
 pub use execute::trace::{ExecutionTrace, RetryRecord, TraceRecord};
 #[cfg(feature = "runtime")]
 pub use execute::{
-    auto_install_auth_registry, sync_handler, BackoffStrategy, CancellationToken,
+    auto_install_auth_registry, sync_handler, validate_graph, BackoffStrategy, CancellationToken,
     ConcurrencyLimits, EventBus, EventBusError, EventSubscriber, ExecutionContext, ExecutionError,
     ExecutionEvent, ExecutionResult, Executor, HandlerKind, HandlerRegistry, HandlerSchema,
     LoopController, LoopIterator, LoopState, NodeHandler, NodeState, Outputs, RetryConfig,
-    SchemaField, SteppedExecutor, TickResult, TopologicalExecutor,
+    SchemaField, SteppedExecutor, TickResult, TopologicalExecutor, ValidationIssue,
+    ValidationIssueKind, ValidationReport,
 };
 #[cfg(feature = "runtime")]
 pub use handlers::{

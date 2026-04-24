@@ -150,6 +150,7 @@ async fn execute_event_driven(
     ));
 
     auto_install_auth_registry(graph, &ctx)?;
+    crate::execute::validation::validate_graph(graph, handlers, &ctx)?;
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
     let passthrough: Arc<dyn NodeHandler> = Arc::new(PassthroughHandler);

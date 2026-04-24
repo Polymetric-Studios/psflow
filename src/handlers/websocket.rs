@@ -19,11 +19,13 @@
 
 use crate::auth::{AuthApplyCtx, AuthError, AuthStrategy};
 use crate::error::NodeError;
+use crate::execute::validation::{ValidationIssue, ValidationIssueKind};
 use crate::execute::{
     CancellationToken, ExecutionContext, HandlerSchema, NodeHandler, Outputs, SchemaField,
 };
 use crate::graph::node::Node;
 use crate::graph::types::Value;
+use crate::graph::Graph;
 use crate::handlers::common::interpolate;
 use crate::scripting::bridge::value_to_dynamic;
 use crate::scripting::engine::ScriptEngine;
@@ -1012,6 +1014,49 @@ impl NodeHandler for WebSocketHandler {
         })
     }
 
+    fn validate_node(
+        &self,
+        node: &Node,
+        _graph: &Graph,
+        _ctx: &ExecutionContext,
+    ) -> Result<(), Vec<ValidationIssue>> {
+        let mut issues = Vec::new();
+
+        // Surface config-shape errors first.
+        let cfg = match WebSocketConfig::from_json(&node.config) {
+            Ok(c) => c,
+            Err(e) => {
+                issues.push(ValidationIssue::new(
+                    String::new(),
+                    String::new(),
+                    ValidationIssueKind::Config,
+                    e,
+                ));
+                return Err(issues);
+            }
+        };
+
+        // Pre-compile the termination predicate so Rhai syntax errors fire
+        // before any network hop. Uses the same cache the runtime path
+        // reads, so `execute()` does not recompile.
+        if let Some(src) = &cfg.terminate.predicate {
+            if let Err(e) = compile_predicate(&self.script_engine, &self.predicate_asts, src) {
+                issues.push(ValidationIssue::new(
+                    String::new(),
+                    String::new(),
+                    ValidationIssueKind::ScriptCompile,
+                    e,
+                ));
+            }
+        }
+
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(issues)
+        }
+    }
+
     fn schema(&self, name: &str) -> HandlerSchema {
         HandlerSchema::new(name, "Open a WebSocket connection, optionally send init frames, and stream received frames until a termination trigger fires.")
             .with_config(
@@ -1206,6 +1251,48 @@ fn value_to_json(v: &Value) -> serde_json::Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn validate_node_flags_bad_predicate() {
+        let h = WebSocketHandler::stateless();
+        let mut node = Node::new("W", "Ws");
+        node.config = json!({
+            "url": "wss://example.com",
+            "terminate": { "on_predicate": "let x = ;; garbage" }
+        });
+        let graph = Graph::new();
+        let ctx = ExecutionContext::new();
+        let issues = h.validate_node(&node, &graph, &ctx).unwrap_err();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].kind, ValidationIssueKind::ScriptCompile);
+    }
+
+    #[test]
+    fn validate_node_flags_bad_config_shape() {
+        let h = WebSocketHandler::stateless();
+        // missing config.url
+        let mut node = Node::new("W", "Ws");
+        node.config = json!({});
+        let graph = Graph::new();
+        let ctx = ExecutionContext::new();
+        let issues = h.validate_node(&node, &graph, &ctx).unwrap_err();
+        assert_eq!(issues[0].kind, ValidationIssueKind::Config);
+    }
+
+    #[test]
+    fn validate_node_caches_predicate_for_runtime() {
+        let h = WebSocketHandler::stateless();
+        let mut node = Node::new("W", "Ws");
+        node.config = json!({
+            "url": "wss://example.com",
+            "terminate": { "on_predicate": "frame_index > 3" }
+        });
+        let graph = Graph::new();
+        let ctx = ExecutionContext::new();
+        h.validate_node(&node, &graph, &ctx).unwrap();
+        // Runtime reads from the same cache.
+        assert_eq!(h.predicate_asts.lock().unwrap().len(), 1);
+    }
 
     #[test]
     fn parse_init_frames_string_variants() {

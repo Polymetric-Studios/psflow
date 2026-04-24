@@ -13,6 +13,7 @@ pub mod snapshot;
 pub mod stepped;
 pub mod topological;
 pub mod trace;
+pub mod validation;
 
 pub use blackboard::{Blackboard, BlackboardScope, ContextInheritance};
 pub use concurrency::ConcurrencyLimits;
@@ -26,6 +27,7 @@ pub use reactive::ReactiveExecutor;
 pub use retry::{BackoffStrategy, RetryConfig};
 pub use stepped::{SteppedExecutor, TickResult};
 pub use topological::TopologicalExecutor;
+pub use validation::{validate_graph, ValidationIssue, ValidationIssueKind, ValidationReport};
 
 use crate::auth::AuthStrategyRegistry;
 use crate::error::NodeError;
@@ -206,6 +208,28 @@ pub trait NodeHandler: Send + Sync {
     /// is parameterised by name rather than baked into the type.
     fn schema(&self, name: &str) -> HandlerSchema {
         HandlerSchema::opaque(name)
+    }
+
+    /// Graph-load validation hook.
+    ///
+    /// Called once per node during [`validation::validate_graph`] before any
+    /// node runs. Handlers return [`ValidationIssue`] entries for every
+    /// problem surfaced by their config (shape errors, missing references,
+    /// script compile errors, mutually-exclusive keys, …) — the aggregator
+    /// collects them across nodes so a misconfigured graph surfaces every
+    /// issue at once rather than failing attempt-by-attempt.
+    ///
+    /// Default: return `Ok(())` — handlers that do not need load-time
+    /// validation pay no cost. Handlers may leave `issue.node_id` and
+    /// `issue.handler` unset; the aggregator fills them in from the node
+    /// being walked.
+    fn validate_node(
+        &self,
+        _node: &Node,
+        _graph: &Graph,
+        _ctx: &ExecutionContext,
+    ) -> Result<(), Vec<validation::ValidationIssue>> {
+        Ok(())
     }
 }
 

@@ -141,6 +141,7 @@ async fn execute_impl_from_context(
     );
 
     auto_install_auth_registry(graph, &ctx)?;
+    crate::execute::validation::validate_graph(graph, handlers, &ctx)?;
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
     execute_core(graph, handlers, ctx, adapter, start).await
@@ -182,6 +183,7 @@ async fn execute_impl_with_blackboard(
     };
 
     auto_install_auth_registry(graph, &ctx)?;
+    crate::execute::validation::validate_graph(graph, handlers, &ctx)?;
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
     execute_core(graph, handlers, ctx, adapter, start).await

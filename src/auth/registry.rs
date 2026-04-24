@@ -130,6 +130,11 @@ impl AuthStrategyRegistry {
     ///   whose `config.auth` is set must reference a strategy whose type
     ///   supports the WS handshake surface. Detected at load time so that
     ///   graph authors do not wait for a runtime handshake error.
+    ///
+    /// Kept separate from the generic per-handler
+    /// [`crate::execute::validation::validate_graph`] pass: auth shape is a
+    /// registry-level concern (driven by `GraphMetadata::auth` + node
+    /// `config.auth`), not a single handler's config.
     pub fn validate_graph(&self, graph: &crate::graph::Graph) -> Result<(), AuthError> {
         let decls = &graph.metadata().auth;
         for (name, decl) in decls {

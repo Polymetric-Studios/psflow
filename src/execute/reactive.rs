@@ -108,6 +108,7 @@ async fn execute_reactive(
     ));
 
     auto_install_auth_registry(graph, &ctx)?;
+    crate::execute::validation::validate_graph(graph, handlers, &ctx)?;
     ctx.emit(ExecutionEvent::ExecutionStarted { timestamp: start });
 
     if graph.node_count() == 0 {

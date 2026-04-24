@@ -36,7 +36,8 @@ The network slice (commit `45bdfe8a`) shipped auth, HTTP gap-fill, validation, b
 
 ## 7. Cross-cutting: load-time validation
 
-- [ ] **`validate_graph` hook across handlers** — several handlers do load-time checks at handler-execute entry because there's no earlier seam with `node.config` access. Introduce a proper graph-load validation pass so config errors fail before a long run starts. Handlers that would benefit: `HttpHandler` (validation/body_sink incompat), `WebSocketHandler` (auth-strategy WS support), `PollUntilHandler` (subgraph existence, predicate compile), `AuthStrategyRegistry` (shape validation).
+- [x] ~~**`validate_graph` hook across handlers** — several handlers do load-time checks at handler-execute entry because there's no earlier seam with `node.config` access. Introduce a proper graph-load validation pass so config errors fail before a long run starts. Handlers that would benefit: `HttpHandler` (validation/body_sink incompat), `WebSocketHandler` (auth-strategy WS support), `PollUntilHandler` (subgraph existence, predicate compile), `AuthStrategyRegistry` (shape validation).~~ (done: added `NodeHandler::validate_node` trait method + aggregating `execute::validation::validate_graph` pass wired into every executor after `auto_install_auth_registry`. HTTP, WS, and poll_until report their load-time issues through the pass; the AuthStrategyRegistry WS-support check was kept parallel — auth-shape validation is a registry-level concern, not a single handler's config.)
+- [ ] **Extract shared executor setup helper** — every executor now calls `auto_install_auth_registry` + `validate_graph` in sequence before `ExecutionStarted`. Four copies of the same two-liner. A new executor would need to remember both. Consolidate into a single `run_prelude(ctx, graph)` or similar.
 
 ## 8. Documentation / examples
 
