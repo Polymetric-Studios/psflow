@@ -131,7 +131,10 @@ fn parse_directive(label: Option<&str>) -> SubgraphDirective {
         return SubgraphDirective::None;
     };
     let label = label.trim();
-    if label.starts_with("parallel:") {
+    // Order matters: longer prefixes first (parallel-loop before parallel/loop).
+    if label.starts_with("parallel-loop:") {
+        SubgraphDirective::ParallelLoop
+    } else if label.starts_with("parallel:") {
         SubgraphDirective::Parallel
     } else if label.starts_with("race:") {
         SubgraphDirective::Race
@@ -198,6 +201,43 @@ graph TD
         let graph = load_mermaid(input).unwrap();
         assert_eq!(graph.subgraphs().len(), 1);
         assert_eq!(graph.subgraphs()[0].directive, SubgraphDirective::Parallel);
+    }
+
+    #[test]
+    fn parse_directive_recognises_parallel_loop_before_loop() {
+        // `parallel-loop:` must be checked before `loop:` so the longer
+        // prefix wins. Without prefix-ordering, `parallel-loop: foo` would
+        // never match.
+        assert_eq!(
+            parse_directive(Some("parallel-loop: per_module_reviews")),
+            SubgraphDirective::ParallelLoop
+        );
+        assert_eq!(
+            parse_directive(Some("loop: per_module_reviews")),
+            SubgraphDirective::Loop
+        );
+        assert_eq!(
+            parse_directive(Some("parallel: workers")),
+            SubgraphDirective::Parallel
+        );
+    }
+
+    #[test]
+    fn load_with_parallel_loop_subgraph() {
+        let input = "\
+graph TD
+    subgraph reviews [\"parallel-loop: per_module_reviews\"]
+        A[review]
+        B[peer review]
+        A --> B
+    end
+";
+        let graph = load_mermaid(input).unwrap();
+        assert_eq!(graph.subgraphs().len(), 1);
+        assert_eq!(
+            graph.subgraphs()[0].directive,
+            SubgraphDirective::ParallelLoop
+        );
     }
 
     #[test]

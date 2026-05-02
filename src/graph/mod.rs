@@ -25,6 +25,11 @@ pub enum SubgraphDirective {
     Race,
     Event,
     Loop,
+    /// Loop whose iterations fire concurrently rather than sequentially.
+    /// The body is virtualized into N copies (`body#0..body#N-1`) at fan-out
+    /// time and dispatched as a single parallel batch — reusing the same
+    /// pending-step infrastructure as graph-level parallel subgraphs.
+    ParallelLoop,
     /// A named subgraph invocable as a function.
     Named(String),
 }

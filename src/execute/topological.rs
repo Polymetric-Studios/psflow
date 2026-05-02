@@ -308,6 +308,27 @@ async fn execute_core(
                     )
                     .await?;
                 }
+                SubgraphDirective::ParallelLoop => {
+                    // Parallel-loop dispatch in topological (CLI) mode is not
+                    // yet specialised — fall back to the sequential loop
+                    // controller so the directive is at least correct
+                    // semantically (one iteration at a time over the body).
+                    // The supervised path (SteppedExecutor + ParallelLoopController)
+                    // is where parallel iteration actually fires; topological
+                    // mode primarily serves CLI single-shot runs which do not
+                    // currently exercise audit-style parallel iteration.
+                    let loop_config = parse_loop_config(graph, &sg.nodes);
+                    control::execute_loop_with_adapter(
+                        &sg_nodes,
+                        &loop_config,
+                        graph,
+                        handlers,
+                        &ctx,
+                        &passthrough,
+                        adapter.as_deref(),
+                    )
+                    .await?;
+                }
                 SubgraphDirective::Event => {
                     // In topological mode, treat event subgraphs as a sequence.
                     // The trigger nodes passthrough — the graph continues from
