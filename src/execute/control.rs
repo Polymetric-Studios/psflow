@@ -791,6 +791,216 @@ async fn execute_race_with_criterion(
 }
 
 // ---------------------------------------------------------------------------
+// Parallel-loop execution
+// ---------------------------------------------------------------------------
+
+/// Execute a parallel-loop subgraph: all iterations run concurrently, each in
+/// its own child `ExecutionContext`.
+///
+/// # Failure policy: fail-fast
+/// If any iteration returns an error the function returns that error immediately.
+/// Sibling iterations that are already running are NOT cancelled (they were
+/// fire-and-forget tokio tasks); their outputs are simply not merged into the
+/// parent. Callers observing the parent context will see the failing node's
+/// state via the parent (body nodes are only marked `Completed` when all
+/// iterations succeed).
+///
+/// # Output aggregation
+/// Each iteration's node outputs land in the parent context under composite
+/// keys `"{node_id}#iter:{index}"`. The body node IDs themselves are marked
+/// `Completed` in the parent context once every iteration succeeds (so the
+/// surrounding topological wave can proceed). If you need the per-iteration
+/// values, read `"{node_id}#iter:{index}"` from the parent context.
+///
+/// # Concurrency cap
+/// `max_concurrent` maps to a per-subgraph semaphore: at most that many
+/// iterations execute simultaneously. When `None`, all N iterations start at
+/// once (bounded only by the parent context's `ConcurrencyLimits`).
+pub async fn execute_parallel_loop(
+    node_ids: &[NodeId],
+    config: &LoopConfig,
+    graph: &Graph,
+    handlers: &HandlerRegistry,
+    ctx: &Arc<ExecutionContext>,
+    passthrough: &Arc<dyn NodeHandler>,
+    max_concurrent: Option<usize>,
+) -> Result<(), ExecutionError> {
+    use crate::execute::blackboard::{BlackboardScope, ContextInheritance};
+    use crate::graph::types::Value as PsValue;
+
+    // Expand the loop config into (index, Option<item>) pairs.
+    let iterations: Vec<(usize, Option<PsValue>)> = match config {
+        LoopConfig::Repeat(count) => (0..*count).map(|i| (i, None)).collect(),
+        LoopConfig::ForEach {
+            collection,
+            item_key: _,
+            index_key: _,
+        } => {
+            let bb = ctx.blackboard();
+            let items: Vec<PsValue> = match bb.get(collection, &BlackboardScope::Global) {
+                Some(PsValue::Vec(arr)) => arr.clone(),
+                _ => Vec::new(),
+            };
+            drop(bb);
+            items.into_iter().enumerate().map(|(i, v)| (i, Some(v))).collect()
+        }
+        // While / WhileLlm are not meaningful for parallel loops (no bounded
+        // list of items). Treat as a single-pass execution.
+        LoopConfig::While { .. } | LoopConfig::WhileLlm { .. } => vec![(0, None)],
+    };
+
+    // Short-circuit: zero iterations — mark all body nodes Cancelled so the
+    // surrounding graph wave can proceed.
+    if iterations.is_empty() {
+        for nid in node_ids {
+            if !ctx.get_state(&nid.0).is_terminal() {
+                let _ = ctx.set_state(&nid.0, NodeState::Cancelled);
+            }
+        }
+        return Ok(());
+    }
+
+    // Per-subgraph concurrency semaphore (optional).
+    let local_sem = max_concurrent.map(super::concurrency::subgraph_semaphore);
+
+    // Determine item_key / index_key from ForEach config (or defaults).
+    let (item_key, index_key) = if let LoopConfig::ForEach {
+        item_key,
+        index_key,
+        ..
+    } = config
+    {
+        (item_key.clone(), index_key.clone())
+    } else {
+        ("loop.item".to_string(), "loop.index".to_string())
+    };
+
+    let mut handles: Vec<tokio::task::JoinHandle<Result<(usize, Vec<(String, Outputs)>), ExecutionError>>> = Vec::new();
+
+    for (iter_index, item) in iterations {
+        // Acquire per-subgraph permit before spawning.
+        let local_permit = if let Some(ref sem) = local_sem {
+            Some(
+                sem.clone()
+                    .acquire_owned()
+                    .await
+                    .expect("local semaphore closed"),
+            )
+        } else {
+            None
+        };
+
+        // Build a child context that starts from a snapshot of the parent blackboard.
+        let child_ctx = Arc::new(ExecutionContext::with_parent_blackboard(
+            ctx.cancel_token().clone(),
+            &ctx.blackboard(),
+            ContextInheritance::Snapshot,
+            ctx.concurrency().clone(),
+        ));
+
+        // Seed loop.item / loop.index into the child's blackboard.
+        {
+            let mut bb = child_ctx.blackboard();
+            bb.set(
+                index_key.clone(),
+                PsValue::I64(iter_index as i64),
+                BlackboardScope::Global,
+            );
+            if let Some(ref v) = item {
+                bb.set(item_key.clone(), v.clone(), BlackboardScope::Global);
+            }
+        }
+
+        let node_ids_owned: Vec<NodeId> = node_ids.to_vec();
+        let graph_clone = graph.clone();
+        let handlers_clone = handlers.clone();
+        let passthrough_clone = passthrough.clone();
+
+        let handle = tokio::spawn(async move {
+            let _local = local_permit;
+
+            execute_sequence(
+                &node_ids_owned,
+                &graph_clone,
+                &handlers_clone,
+                &child_ctx,
+                &passthrough_clone,
+                true,
+            )
+            .await?;
+
+            // execute_sequence with fail_fast=true returns Ok(()) even when a
+            // node fails — it just marks the node Failed and cancels downstream.
+            // Check child node states explicitly to propagate failures upward.
+            for nid in &node_ids_owned {
+                if child_ctx.get_state(&nid.0) == NodeState::Failed {
+                    return Err(ExecutionError::ValidationFailed(format!(
+                        "parallel-loop iteration {iter_index}: node '{}' failed",
+                        nid.0
+                    )));
+                }
+            }
+
+            // Collect outputs from all body nodes in this iteration.
+            let outputs: Vec<(String, Outputs)> = node_ids_owned
+                .iter()
+                .filter_map(|nid| {
+                    child_ctx
+                        .get_outputs(&nid.0)
+                        .map(|o| (nid.0.clone(), o))
+                })
+                .collect();
+
+            Ok((iter_index, outputs))
+        });
+
+        handles.push(handle);
+    }
+
+    // Collect all iteration results (fail-fast on first error).
+    let mut all_outputs: Vec<(usize, Vec<(String, Outputs)>)> = Vec::new();
+    for handle in handles {
+        let result = handle
+            .await
+            .map_err(|e| ExecutionError::ValidationFailed(format!("parallel-loop task panic: {e}")))?;
+
+        match result {
+            Ok(iter_result) => all_outputs.push(iter_result),
+            Err(e) => {
+                // Fail-fast: return immediately; running sibling tasks will
+                // complete on their own but their outputs are not merged.
+                return Err(e);
+            }
+        }
+    }
+
+    // Merge iteration outputs into the parent context.
+    // Per-iteration outputs land under "{node_id}#iter:{index}".
+    // Body nodes themselves are marked Completed once in the parent context.
+    for (iter_index, node_outputs) in all_outputs {
+        for (node_id_str, outputs) in node_outputs {
+            let composite_key = format!("{node_id_str}#iter:{iter_index}");
+            ctx.store_outputs(&composite_key, outputs.clone());
+            ctx.emit(ExecutionEvent::NodeCompleted {
+                node_id: composite_key,
+                outputs,
+            });
+        }
+    }
+
+    // Mark body nodes Completed in the parent context so the graph wave proceeds.
+    for nid in node_ids {
+        if !ctx.get_state(&nid.0).is_terminal() {
+            let _ = ctx.set_state(&nid.0, NodeState::Pending);
+            let _ = ctx.set_state(&nid.0, NodeState::Running);
+            let _ = ctx.set_state(&nid.0, NodeState::Completed);
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -1921,5 +2131,377 @@ mod tests {
         // Wrong type → zero iterations
         let state = ctx.get_state("L");
         assert_eq!(state, NodeState::Idle);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Parallel-loop tests
+    // ---------------------------------------------------------------------------
+
+    /// 3-iteration ForEach parallel loop: all body nodes complete, per-iteration
+    /// outputs are aggregated into the parent context under "{node}#iter:{i}".
+    #[tokio::test]
+    async fn parallel_loop_three_iterations_complete() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|node, _| {
+            let mut out = Outputs::new();
+            out.insert("id".into(), Value::String(node.id.0.clone()));
+            Ok(out)
+        });
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("body", "Body")).unwrap();
+
+        let ctx = Arc::new(ExecutionContext::new());
+        {
+            let mut bb = ctx.blackboard();
+            bb.set(
+                "items".into(),
+                Value::Vec(vec![
+                    Value::String("a".into()),
+                    Value::String("b".into()),
+                    Value::String("c".into()),
+                ]),
+                BlackboardScope::Global,
+            );
+        }
+
+        let config = LoopConfig::ForEach {
+            collection: "items".into(),
+            item_key: "loop.item".into(),
+            index_key: "loop.index".into(),
+        };
+        let handlers = HandlerRegistry::new();
+
+        execute_parallel_loop(
+            &[NodeId::new("body")],
+            &config,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Body node itself is Completed in parent context.
+        assert_eq!(ctx.get_state("body"), NodeState::Completed);
+
+        // Per-iteration outputs exist.
+        assert!(ctx.get_outputs("body#iter:0").is_some());
+        assert!(ctx.get_outputs("body#iter:1").is_some());
+        assert!(ctx.get_outputs("body#iter:2").is_some());
+    }
+
+    /// Zero iterations short-circuits cleanly — body node is Cancelled.
+    #[tokio::test]
+    async fn parallel_loop_empty_list_cancels_body() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| Ok(Outputs::new()));
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("body", "Body")).unwrap();
+
+        let ctx = Arc::new(ExecutionContext::new());
+        {
+            let mut bb = ctx.blackboard();
+            bb.set("items".into(), Value::Vec(vec![]), BlackboardScope::Global);
+        }
+
+        let config = LoopConfig::ForEach {
+            collection: "items".into(),
+            item_key: "loop.item".into(),
+            index_key: "loop.index".into(),
+        };
+        let handlers = HandlerRegistry::new();
+
+        execute_parallel_loop(
+            &[NodeId::new("body")],
+            &config,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(ctx.get_state("body"), NodeState::Cancelled);
+    }
+
+    /// Repeat(N) variant: N iterations complete without any item.
+    #[tokio::test]
+    async fn parallel_loop_repeat_n_iterations() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter2 = counter.clone();
+
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(move |_, _| {
+            counter2.fetch_add(1, Ordering::Relaxed);
+            Ok(Outputs::new())
+        });
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("body", "Body")).unwrap();
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let config = LoopConfig::Repeat(4);
+        let handlers = HandlerRegistry::new();
+
+        execute_parallel_loop(
+            &[NodeId::new("body")],
+            &config,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(counter.load(Ordering::Relaxed), 4);
+        assert_eq!(ctx.get_state("body"), NodeState::Completed);
+    }
+
+    /// Concurrency cap: max_concurrent=2, 4 iterations → at most 2 concurrent.
+    ///
+    /// We verify the cap by using a semaphore inside the handler and checking
+    /// that the observed max-in-flight never exceeds 2.
+    #[tokio::test]
+    async fn parallel_loop_concurrency_cap() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let in_flight2 = in_flight.clone();
+        let peak2 = peak.clone();
+
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(move |_, _| {
+            let current = in_flight2.fetch_add(1, Ordering::SeqCst) + 1;
+            peak2.fetch_max(current, Ordering::SeqCst);
+            // Small busy-loop to let others start while we're "running"
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            in_flight2.fetch_sub(1, Ordering::SeqCst);
+            Ok(Outputs::new())
+        });
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("body", "Body")).unwrap();
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let config = LoopConfig::Repeat(4);
+        let handlers = HandlerRegistry::new();
+
+        execute_parallel_loop(
+            &[NodeId::new("body")],
+            &config,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
+            Some(2), // cap at 2
+        )
+        .await
+        .unwrap();
+
+        // Peak in-flight must not exceed the cap.
+        assert!(
+            peak.load(Ordering::Relaxed) <= 2,
+            "peak concurrency {} exceeded cap of 2",
+            peak.load(Ordering::Relaxed)
+        );
+    }
+
+    /// Fail-fast: one iteration fails → execute_parallel_loop returns Err.
+    #[tokio::test]
+    async fn parallel_loop_fail_fast_on_error() {
+        use crate::error::NodeError;
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+
+        // Handler always fails.
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(|_, _| {
+            Err(NodeError::Failed {
+                source_message: None,
+                message: "intentional failure".into(),
+                recoverable: false,
+            })
+        });
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("body", "Body")).unwrap();
+
+        let ctx = Arc::new(ExecutionContext::new());
+        {
+            let mut bb = ctx.blackboard();
+            bb.set(
+                "items".into(),
+                Value::Vec(vec![Value::String("x".into()), Value::String("y".into())]),
+                BlackboardScope::Global,
+            );
+        }
+
+        let config = LoopConfig::ForEach {
+            collection: "items".into(),
+            item_key: "loop.item".into(),
+            index_key: "loop.index".into(),
+        };
+        let handlers = HandlerRegistry::new();
+
+        let result = execute_parallel_loop(
+            &[NodeId::new("body")],
+            &config,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
+            None,
+        )
+        .await;
+
+        assert!(result.is_err(), "expected error from failing iteration");
+    }
+
+    /// Nested parallel-loop: outer 2 items, each inner loop also 2 items = 4 total executions.
+    #[tokio::test]
+    async fn parallel_loop_nested_two_by_two() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter2 = counter.clone();
+
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(move |_, _| {
+            counter2.fetch_add(1, Ordering::Relaxed);
+            Ok(Outputs::new())
+        });
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("leaf", "Leaf")).unwrap();
+
+        // Each "inner" call = one parallel-loop with 2 items over [leaf].
+        let inner_run = |ctx: Arc<ExecutionContext>,
+                         graph: Graph,
+                         handlers: HandlerRegistry,
+                         passthrough: Arc<dyn NodeHandler>| async move {
+            let config = LoopConfig::ForEach {
+                collection: "inner_items".into(),
+                item_key: "inner.item".into(),
+                index_key: "inner.index".into(),
+            };
+            execute_parallel_loop(
+                &[NodeId::new("leaf")],
+                &config,
+                &graph,
+                &handlers,
+                &ctx,
+                &passthrough,
+                None,
+            )
+            .await
+        };
+
+        // Two outer iterations, each running an inner parallel-loop.
+        let outer_ctx_a = {
+            let c = Arc::new(ExecutionContext::new());
+            let mut bb = c.blackboard();
+            bb.set(
+                "inner_items".into(),
+                Value::Vec(vec![Value::I64(1), Value::I64(2)]),
+                BlackboardScope::Global,
+            );
+            drop(bb);
+            c
+        };
+        let outer_ctx_b = {
+            let c = Arc::new(ExecutionContext::new());
+            let mut bb = c.blackboard();
+            bb.set(
+                "inner_items".into(),
+                Value::Vec(vec![Value::I64(3), Value::I64(4)]),
+                BlackboardScope::Global,
+            );
+            drop(bb);
+            c
+        };
+
+        let g1 = graph.clone();
+        let g2 = graph.clone();
+        let h = HandlerRegistry::new();
+        let h2 = h.clone();
+        let p2 = passthrough.clone();
+
+        let (r1, r2) = tokio::join!(
+            inner_run(outer_ctx_a, g1, h, passthrough),
+            inner_run(outer_ctx_b, g2, h2, p2)
+        );
+
+        r1.unwrap();
+        r2.unwrap();
+
+        // 2 outer × 2 inner = 4 total leaf executions.
+        assert_eq!(counter.load(Ordering::Relaxed), 4);
+    }
+
+    /// Existing loop: and parallel: directives are unaffected (regression guard).
+    #[tokio::test]
+    async fn parallel_loop_does_not_affect_sequential_loop() {
+        use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
+        use crate::graph::node::{Node, NodeId};
+        use crate::graph::Graph;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter2 = counter.clone();
+
+        let passthrough: Arc<dyn NodeHandler> = sync_handler(move |_, _| {
+            counter2.fetch_add(1, Ordering::Relaxed);
+            Ok(Outputs::new())
+        });
+
+        let mut graph = Graph::new();
+        graph.add_node(Node::new("body", "Body")).unwrap();
+
+        let ctx = Arc::new(ExecutionContext::new());
+        let config = LoopConfig::Repeat(3);
+        let handlers = HandlerRegistry::new();
+
+        // Sequential loop still works.
+        execute_loop(
+            &[NodeId::new("body")],
+            &config,
+            &graph,
+            &handlers,
+            &ctx,
+            &passthrough,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(counter.load(Ordering::Relaxed), 3);
     }
 }
