@@ -51,10 +51,15 @@ The recon account is Premium+ with effectively unlimited image generation, so cr
 
 **Gap #2 (reactive WS handshake) — DONE.** The `ws` handler now supports `config.handshake`: on a triggering frame it optionally calls an auth endpoint (with the node's auth strategy, e.g. cookie_jar+CSRF) and sends a computed frame. That expresses the Pusher subscribe (connect → `pusher:connection_established` → `POST /broadcasting/auth` → `pusher:subscribe`). `generate.mmd`'s WAIT node uses it. See the annotation reference's `ws` → `handshake` section; covered by a mock-WS + mock-HTTP integration test.
 
-Remaining (authoring + one recon item):
+**`generate.mmd` structure — authored.** Full flow: `start-tti-v2` → build channel → render fan-out (`loop:` ForEach over `request_tokens`, with an `accumulator` collecting `creation.id`s — sequential so the shared blackboard aggregates) → `ws` handshake wait → build URLs → download fan-out (`parallel-loop`). The graph parses (`--validate`).
 
-- [ ] Capture the exact **completion event** name/payload on `private-user.{id}` (whether the signed URL is in the frame or constructed from `creation.id`). Needs a WS-frame interceptor installed before the socket opens; deferrable since the URL is derivable from `creation.id`. This fills the WAIT node's `terminate` predicate.
-- [ ] Author the `render/v4` fan-out (`parallel-loop` over `request_tokens`) and the WS-event↔`creation.id` correlation in `generate.mmd`. Pass `channel` = `"private-user." + <user_id>` into the WAIT node.
+**Data-threading finding (the real remaining dependency).** Both loops read their collection from the **blackboard by key**, and cross-cutting values (`channel`, `family`, `prompt`, `user_id`) need to reach nodes *past* intermediate steps. The raw psflow executor has **no generic "publish a node-output to the blackboard" handler** — `rhai` can read `ctx` but not write it; only `accumulator` writes (incrementally). This is fine under the intended host: **Ergon promotes step results to the blackboard**, so the loop collections and cross-cutting values resolve there. It only bites a standalone raw-executor run.
+
+Remaining:
+
+- [ ] **Confirm Ergon's step-promotion key syntax** and point `exec.loop_foreach` (`request_tokens`, `image_urls`) and the WAIT `channel` at the promoted keys. (Standalone alternative: add a small `set`-blackboard handler — candidate gap #3.)
+- [ ] Capture the exact **completion event** name/payload on `private-user.{id}` to fill the WAIT `terminate` predicate (whether the signed URL is in the frame or built from `creation.id`).
+- [ ] Fill the `render/v4` body details (width/height/seed/resolution per model) and the `creation.id` → signed-URL assembly.
 
 ## 7. Host / MCP exposure
 
