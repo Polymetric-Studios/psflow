@@ -32,7 +32,7 @@ Correct the initial spec's assumptions against what psflow already provides and 
 
 ## 3. Status
 
-Spec corrected against psflow's current state; no Freepik graph authored yet. The headline finding: all five spec primitives and the required `cookie_jar` auth strategy already ship in psflow — this project is overwhelmingly graph authoring, not psflow build-out. The design questions are now resolved (§5); what remains is recon and authoring (§9.1).
+Spec corrected against psflow's current state, then validated by live Playwright recon. The headline finding holds: all five spec primitives already ship in psflow — this is overwhelmingly graph authoring. Live recon (2026-05-30) surfaced three corrections, now reflected in the scaffold: (1) the target rebranded Freepik → **Magnific** (`magnific.com`; service renamed `services/magnific`); (2) completion is a **WebSocket** (Laravel Echo/Pusher), not polling; (3) auth is session cookie **+ an `x-xsrf-token` header**, which the built-in `cookie_jar` does not cover alone. Detailed recon record: `services/magnific/README.md`.
 
 ## 4. Body
 
@@ -99,7 +99,8 @@ One MCP server hosts all psflow service graphs (not one server per service). Too
 - **Express multi-image fan-out with `ParallelLoop`, not an in-node N-URL download.** Rationale: the fan-out primitive recently landed and composes cleanly with `http`+`body_sink`. Verified against the landed runner — `ParallelLoop` with a `ForEach` config reads a JSON array from a blackboard key and runs the body subgraph once per item in a snapshot child context, exposing the item as `loop.item` with an optional `max_concurrent` cap. The one wrinkle: fan-out items arrive via the blackboard `loop.item`, not a typed edge, so the download node reads `{loop.item}` rather than an input port. Rejected alternative — extending the download node to accept a URL list — duplicates loop semantics that already exist.
 - **Use `cookie_jar` with a host `SecretResolver`, no refresh.** Rationale: matches Freepik's manual-login, expire-and-re-login reality. Rejected alternative — a bearer refresh hook — is unimplemented and unneeded here.
 - **Seed the cookie jar with a login-export helper script writing to a persisted jar file.** Rationale: clean, repeatable, and decoupled from the recon HAR; matches the original spec's preferred "export via helper script" path. Rejected alternatives — reusing the recon HAR's cookies (couples secrets to a debug artifact, awkward to refresh) and reading the browser's cookie store at runtime (fragile, browser- and OS-specific).
-- **Use `poll_until` for `wait_for_completion` (polling-first); keep WS as a deferred fallback.** Rationale: polling always works, is the simplest to author and debug, and fits personal single-user use; the `ws` handler stays available if recon shows completion latency or request volume justifies it. Rejected alternative — authoring both paths for service #1 — doubles the surface for no proven need.
+- **~~Use `poll_until` (polling-first)~~ → Use `websocket_subscribe` for completion.** The polling-first default was overturned by live recon: Magnific pushes generation completion over a WebSocket (Laravel Echo/Pusher private channel, authorized by `POST /app/broadcasting/auth`), with no status-polling endpoint. The `generate` graph now waits via the `ws` handler. The general spec keeps both handlers available; this specific service uses WS.
+- **Auth needs cookie + `x-xsrf-token`, exceeding the built-in `cookie_jar`.** Recon found the generate POST requires an `x-xsrf-token` header whose value is the `XSRF-TOKEN` cookie. `cookie_jar` injects cookies but does not echo a cookie into a header. Resolution (open): extend `cookie_jar` to mirror a named cookie into a header, or add a small cookie+CSRF strategy. GET operations (`list_models`, `history`) need only the cookie.
 - **Auto-derive MCP tool param-schema structure from input ports; hand-write the descriptions.** Rationale: structure stays single-sourced from the graph (no drift) while the LLM caller still gets well-worded guidance. Rejected alternatives — fully auto-derived (terse, port-metadata-only descriptions) and fully hand-written schemas (drift from the graph as it changes).
 - **Defer a dedicated `query_params` object on `http`; template params into the URL for now.** Rationale: YAGNI — the existing `http` node already templates the URL, keeping the project at near-zero psflow work. Rejected alternative — adding the structured map up front — extends psflow before recon proves it necessary. Revisit per §8.
 - **Hand-author Freepik first; defer the synthesizer.** Rationale: one graph is faster to write than a synthesizer is to build, and authoring it surfaces the patterns the synthesizer would need to learn.
@@ -166,6 +167,7 @@ _None._
 ## 13. Related
 
 - `20260530-111310-web-api-wrapper-spec.md` — the superseded initial spec.
+- `services/magnific/` — the service scaffold (graphs, schemas) and `README.md` (the live recon record); captured payloads in `services/magnific/fixtures/recon/`.
 - psflow handler sources: `src/handlers/http.rs`, `src/handlers/websocket.rs`, `src/handlers/poll_until.rs`, `src/handlers/file_io.rs`.
 - psflow auth subsystem: `src/auth/`.
 - psflow execution and state model: `src/execute/`, `src/blackboard/`, `src/graph/`.

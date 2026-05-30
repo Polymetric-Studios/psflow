@@ -1,0 +1,96 @@
+graph TD
+    START[Start] --> SUBMIT[Submit Generation]
+    SUBMIT --> PARSE_JOB[Parse job id]
+    PARSE_JOB --> WAIT[Wait For Completion]
+    WAIT --> PARSE_URLS[Parse image URLs]
+    PARSE_URLS --> PUBLISH[Publish URL list]
+
+    subgraph downloads ["parallel-loop: download_images"]
+        DOWNLOAD[Download Image]
+    end
+
+    PUBLISH --> DOWNLOAD
+    DOWNLOAD --> DONE[Done]
+
+    %% ===== Graph metadata =====
+    %% @graph name: magnific.generate
+    %% @graph description: Submit a Magnific image generation, wait on the WebSocket for completion, download the result images.
+
+    %% ===== Auth (graph-level; NOT an auth.yaml). =====
+    %% Magnific uses a session cookie PLUS an x-xsrf-token header (value = the
+    %% XSRF-TOKEN cookie) on the generate POST. The built-in cookie_jar does NOT
+    %% echo a cookie into a header — see README §2. TODO(author): cookie+CSRF strategy.
+    %% @graph auth.magnific.type: cookie_jar
+    %% @graph auth.magnific.params.domain: magnific.com
+
+    %% ===== Inputs (MCP tool params derive from these ports) =====
+    %% @START handler: passthrough
+    %% @START inputs.prompt: "String"
+    %% @START inputs.model: "String"
+    %% @START outputs.prompt: "String"
+    %% @START outputs.model: "String"
+
+    %% ===== Submit generation =====
+    %% Body shape (from simulate-generation): items[].{model, quantity, config:{aspectRatio, numberOfImages, prompt}}.
+    %% TODO(recon): exact submit path — observed video variant POST /app/api/video/generate/auto?mode=auto;
+    %% the text-to-image submit is analogous (e.g. /app/api/image/generate/{mode}). Also needs x-xsrf-token header.
+    %% @SUBMIT handler: http
+    %% @SUBMIT config.method: POST
+    %% @SUBMIT config.url: "https://www.magnific.com/app/api/TODO-recon-image-submit/generate/{model}"
+    %% @SUBMIT config.auth: magnific
+    %% @SUBMIT config.body_json: true
+    %% @SUBMIT config.fail_on_non_2xx: true
+    %% @SUBMIT config.validation: { "file": "schemas/submit_response.json" }
+    %% @SUBMIT inputs.prompt: "String"
+    %% @SUBMIT inputs.model: "String"
+    %% @SUBMIT outputs.body: "String"
+
+    %% ===== Extract the job / task identifier from the submit response =====
+    %% @PARSE_JOB handler: rhai
+    %% TODO(recon): real field path for the job/task id
+    %% @PARSE_JOB config.script: "#{ job_id: parse_json(inputs.body).TODO_job_id_field }"
+    %% @PARSE_JOB inputs.body: "String"
+    %% @PARSE_JOB outputs.job_id: "String"
+
+    %% ===== Wait for completion over the WebSocket =====
+    %% Magnific pushes progress/completion over a Laravel Echo / Pusher private channel
+    %% (authorized by POST /app/broadcasting/auth) — NOT polling.
+    %% TODO(recon): WS URL, the broadcasting/auth handshake, the channel name (job-scoped),
+    %% the completion event/frame, and whether result URLs arrive in the frame.
+    %% NOTE: psflow ws auth supports cookie_jar on the handshake; the Pusher/Echo
+    %% subscribe + channel-auth flow may need a custom step (TODO(author)).
+    %% @WAIT handler: ws
+    %% @WAIT config.url: "wss://TODO-recon-magnific-websocket"
+    %% @WAIT config.auth: magnific
+    %% @WAIT config.terminate: { "on_predicate": "frame.TODO_status == \"complete\"", "timeout_ms": 180000 }
+    %% @WAIT inputs.job_id: "String"
+    %% @WAIT outputs.frames: "Vec"
+
+    %% ===== Extract result image URLs =====
+    %% Signed CDN URLs: https://pikaso.cdnpk.net/private/production/{id}/render.{ext}?token=exp=...~hmac=...
+    %% Either from the completion frame, or by re-fetching /app/api/projects/files/recent.
+    %% TODO(recon): real source + field path for the result URL list.
+    %% @PARSE_URLS handler: rhai
+    %% @PARSE_URLS config.script: "#{ image_urls: inputs.frames }"
+    %% @PARSE_URLS inputs.frames: "Vec"
+    %% @PARSE_URLS outputs.image_urls: "Vec"
+
+    %% ===== Publish the URL list to a blackboard key for the parallel-loop =====
+    %% TODO(author): confirm publication path so the loop's exec.loop_foreach key
+    %% resolves to this Vec on the global blackboard.
+    %% @PUBLISH handler: passthrough
+    %% @PUBLISH inputs.image_urls: "Vec"
+    %% @PUBLISH outputs.image_urls: "Vec"
+
+    %% ===== Fan-out download: one http+body_sink per signed CDN URL =====
+    %% @DOWNLOAD exec.loop_foreach: "image_urls"
+    %% @DOWNLOAD exec.loop_item_key: "loop.item"
+    %% @DOWNLOAD exec.max_concurrent: 4
+    %% @DOWNLOAD handler: http
+    %% @DOWNLOAD config.method: GET
+    %% TODO(author): the signed CDN URL needs no auth; output dir + filename template.
+    %% @DOWNLOAD config.url: "{loop.item}"
+    %% @DOWNLOAD config.body_sink: { "file": { "path": "output/magnific/{loop.item}", "overwrite": "always", "create_parents": true } }
+
+    %% ===== Terminal =====
+    %% @DONE handler: passthrough

@@ -1,0 +1,27 @@
+graph TD
+    FETCH[Fetch Model Catalog] --> RESULT[Models]
+
+    %% @graph name: magnific.list_models
+    %% @graph description: Return the available Magnific models and their accepted parameters.
+
+    %% ===== Auth (graph-level). GET needs only the session cookie; no XSRF header. =====
+    %% @graph auth.magnific.type: cookie_jar
+    %% @graph auth.magnific.params.domain: magnific.com
+
+    %% ===== Catalog request (confirmed) =====
+    %% @FETCH handler: http
+    %% @FETCH config.method: GET
+    %% @FETCH config.url: "https://www.magnific.com/app/api/v2/ai-models?lang=en_US"
+    %% @FETCH config.auth: magnific
+    %% @FETCH config.fail_on_non_2xx: true
+    %% @FETCH config.validation: { "file": "schemas/models_response.json" }
+    %% @FETCH outputs.body: "String"
+
+    %% ===== Shape the catalog into the tool's return value =====
+    %% Response body is a top-level JSON array of model objects
+    %% {id, slug, tool, status, inputs{prompt,aspectRatio,numberOfImages,...}, metadata, credits}.
+    %% Image models are those with tool == "text-to-image".
+    %% @RESULT handler: rhai
+    %% @RESULT config.script: "#{ models: parse_json(inputs.body) }"
+    %% @RESULT inputs.body: "String"
+    %% @RESULT outputs.models: "Vec"

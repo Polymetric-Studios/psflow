@@ -1,5 +1,8 @@
 # Build artifacts
 target/
+
+# Playwright MCP scratch (browser snapshots, console logs)
+.playwright-mcp/
 debugger/pkg/
 debugger/dist/
 debugger/node_modules/
