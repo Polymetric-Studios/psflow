@@ -842,7 +842,11 @@ pub async fn execute_parallel_loop(
                 _ => Vec::new(),
             };
             drop(bb);
-            items.into_iter().enumerate().map(|(i, v)| (i, Some(v))).collect()
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| (i, Some(v)))
+                .collect()
         }
         // While / WhileLlm are not meaningful for parallel loops (no bounded
         // list of items). Treat as a single-pass execution.
@@ -875,7 +879,9 @@ pub async fn execute_parallel_loop(
         ("loop.item".to_string(), "loop.index".to_string())
     };
 
-    let mut handles: Vec<tokio::task::JoinHandle<Result<(usize, Vec<(String, Outputs)>), ExecutionError>>> = Vec::new();
+    let mut handles: Vec<
+        tokio::task::JoinHandle<Result<(usize, Vec<(String, Outputs)>), ExecutionError>>,
+    > = Vec::new();
 
     for (iter_index, item) in iterations {
         // Acquire per-subgraph permit before spawning.
@@ -944,11 +950,7 @@ pub async fn execute_parallel_loop(
             // Collect outputs from all body nodes in this iteration.
             let outputs: Vec<(String, Outputs)> = node_ids_owned
                 .iter()
-                .filter_map(|nid| {
-                    child_ctx
-                        .get_outputs(&nid.0)
-                        .map(|o| (nid.0.clone(), o))
-                })
+                .filter_map(|nid| child_ctx.get_outputs(&nid.0).map(|o| (nid.0.clone(), o)))
                 .collect();
 
             Ok((iter_index, outputs))
@@ -960,9 +962,9 @@ pub async fn execute_parallel_loop(
     // Collect all iteration results (fail-fast on first error).
     let mut all_outputs: Vec<(usize, Vec<(String, Outputs)>)> = Vec::new();
     for handle in handles {
-        let result = handle
-            .await
-            .map_err(|e| ExecutionError::ValidationFailed(format!("parallel-loop task panic: {e}")))?;
+        let result = handle.await.map_err(|e| {
+            ExecutionError::ValidationFailed(format!("parallel-loop task panic: {e}"))
+        })?;
 
         match result {
             Ok(iter_result) => all_outputs.push(iter_result),
@@ -2243,8 +2245,8 @@ mod tests {
         use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
         use crate::graph::node::{Node, NodeId};
         use crate::graph::Graph;
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
 
         let counter = Arc::new(AtomicUsize::new(0));
         let counter2 = counter.clone();
@@ -2286,8 +2288,8 @@ mod tests {
         use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
         use crate::graph::node::{Node, NodeId};
         use crate::graph::Graph;
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
 
         let in_flight = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
@@ -2388,8 +2390,8 @@ mod tests {
         use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
         use crate::graph::node::{Node, NodeId};
         use crate::graph::Graph;
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
 
         let counter = Arc::new(AtomicUsize::new(0));
         let counter2 = counter.clone();
@@ -2472,8 +2474,8 @@ mod tests {
         use crate::execute::{sync_handler, HandlerRegistry, NodeHandler};
         use crate::graph::node::{Node, NodeId};
         use crate::graph::Graph;
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
 
         let counter = Arc::new(AtomicUsize::new(0));
         let counter2 = counter.clone();

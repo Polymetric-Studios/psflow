@@ -1,0 +1,26 @@
+graph TD
+    FETCH[Fetch Model Catalog] --> RESULT[Models]
+
+    %% @graph name: freepik.list_models
+    %% @graph description: Return the available Freepik models and their accepted parameters.
+
+    %% ===== Auth (graph-level) =====
+    %% @graph auth.freepik.type: cookie_jar
+    %% @graph auth.freepik.params.domain: freepik.com
+
+    %% ===== Catalog request =====
+    %% @FETCH handler: http
+    %% @FETCH config.method: GET
+    %% TODO(recon): real model-catalog endpoint
+    %% @FETCH config.url: "https://www.freepik.com/api/TODO-recon/ai/models"
+    %% @FETCH config.auth: freepik
+    %% @FETCH config.fail_on_non_2xx: true
+    %% @FETCH config.validation: { "file": "schemas/models_response.json" }
+    %% @FETCH outputs.body: "String"
+
+    %% ===== Shape the catalog into the tool's return value =====
+    %% @RESULT handler: rhai
+    %% TODO(recon): real field path for the model list
+    %% @RESULT config.script: "#{ models: parse_json(inputs.body).TODO_models_field }"
+    %% @RESULT inputs.body: "String"
+    %% @RESULT outputs.models: "Vec"

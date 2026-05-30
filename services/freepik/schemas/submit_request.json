@@ -1,0 +1,6 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "TODO(recon): reference-only. Documents the submit request body shape (prompt, model, params) observed during recon. Not enforced by the http handler (validation applies to responses).",
+  "title": "Freepik generate submit request",
+  "type": "object"
+}

@@ -1,0 +1,6 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "TODO(recon): tighten from a captured history response. Must describe the generations list and pagination metadata.",
+  "title": "Freepik history response",
+  "type": "object"
+}
