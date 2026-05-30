@@ -879,9 +879,9 @@ pub async fn execute_parallel_loop(
         ("loop.item".to_string(), "loop.index".to_string())
     };
 
-    let mut handles: Vec<
-        tokio::task::JoinHandle<Result<(usize, Vec<(String, Outputs)>), ExecutionError>>,
-    > = Vec::new();
+    type ChildHandle =
+        tokio::task::JoinHandle<Result<(usize, Vec<(String, Outputs)>), ExecutionError>>;
+    let mut handles: Vec<ChildHandle> = Vec::new();
 
     for (iter_index, item) in iterations {
         // Acquire per-subgraph permit before spawning.

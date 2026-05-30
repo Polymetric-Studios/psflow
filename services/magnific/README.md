@@ -56,7 +56,19 @@ Remaining (authoring + one recon item):
 - [ ] Capture the exact **completion event** name/payload on `private-user.{id}` (whether the signed URL is in the frame or constructed from `creation.id`). Needs a WS-frame interceptor installed before the socket opens; deferrable since the URL is derivable from `creation.id`. This fills the WAIT node's `terminate` predicate.
 - [ ] Author the `render/v4` fan-out (`parallel-loop` over `request_tokens`) and the WS-event↔`creation.id` correlation in `generate.mmd`. Pass `channel` = `"private-user." + <user_id>` into the WAIT node.
 
-## 7. Spec corrections captured here
+## 7. Host / MCP exposure
+
+psflow is the **engine**; **Ergon is the host** that exposes graphs (the `psflow-manifest` binary feeds "Ergon's MCP handler catalogue", and Ergon runs psflow-annotated `.mmd` graphs via `workflow_run name=… inputs=…`). So MCP exposure is registering these graphs with Ergon, not a psflow-native server.
+
+Host-side Rust wiring (per `docs/host-integration-quickstart.md`) is mostly automatic:
+- `ExecutionContext` + a `SecretResolver` that supplies the Magnific session cookie (seeded by the cookie-export helper).
+- `auto_install_auth_registry(&graph, &ctx)` — builds the `cookie_jar` (with CSRF echo) strategy from the graph's `auth.*` declarations.
+- `NodeRegistry::with_defaults_full(engine, ctx)` — the context-bound `http`/`ws` handlers so `config.auth` resolves.
+- `TopologicalExecutor::execute(&graph, &handlers)`.
+
+Notably, the `generate` graph uses only `ws` + the `parallel-loop:` directive — **no `poll_until`/named subgraph** — so it needs **no graph library** registered on the host. Remaining host-side work: the cookie `SecretResolver`, and registering the three graphs as Ergon workflows/tools (`magnific.*`); MCP param schemas derive from each graph's declared input ports.
+
+## 8. Spec corrections captured here
 
 - **Product is Magnific/Pikaso, not Freepik** — rebrand; domain `magnific.com`.
 - **Completion is WebSocket**, not polling (§3).
