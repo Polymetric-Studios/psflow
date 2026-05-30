@@ -4,7 +4,7 @@ Wraps the **Magnific** (formerly Freepik) web-UI generation API as psflow graphs
 
 Spec: `ergon/active-documents/20260530-132304-Web-API-Wrapper-Spec.md`.
 
-Status: **live recon captured via Playwright** against an authenticated session. Confirmed endpoints, auth model, completion mechanism, and result-URL pattern are below. The one remaining gap is the exact image-submit path and the WebSocket channel/event names (see §6). Captured payloads live in `fixtures/recon/`.
+Status: **recon essentially complete** — captured via Playwright (network interceptor) against an authenticated session. The full generate flow, endpoints, auth model, WebSocket channel, and result-URL linkage are confirmed below. Only the exact WS completion *event name/payload* is still unconfirmed (§6). Captured payloads live in `fixtures/recon/`.
 
 ## 1. Backend shape (confirmed)
 
@@ -15,9 +15,10 @@ Base: `https://www.magnific.com/app/api/`. The browser app is at `/app`; the ima
 | list_models | `GET /app/api/v2/ai-models?lang=en_US` | Array of ~140 models across tools; `tool="text-to-image"` are the image models (~44: auto, mystic*, flux*, imagen*, seedream*, ideogram, nano-banana, gpt*, recraft, reve, qwen, krea, grok, z-image). Each: `{id, slug, tool, status, inputs{prompt,aspectRatio,numberOfImages,...}, metadata, credits{min,max}}`. |
 | history | `GET /app/api/projects/files/recent?page=&per_page=&order_by=created_at` | `{data[], meta}`. Each item: `download_url`, `thumbnail{url,w,h}`, `creation.metadata.prompt`, `created_at`, `tool_name`. |
 | cost preview | `POST /app/api/v2/ai/simulate-generation` | Body `{items:[{model,quantity,config:{resolution,numberOfImages}}],forceCredits:true}` → per-item + total credit cost and remaining. Optional pre-flight. |
-| generate (submit) | `POST /app/api/{tool}/generate/{mode}` | Observed video variant `POST /app/api/video/generate/auto?mode=auto`. Image submit is analogous; **exact path not yet pinned** (see §6). Body carries the generation config. |
-| completion | **WebSocket** (Laravel Echo / Pusher) | Private channel authorized by `POST /app/broadcasting/auth`. Progress + completion are pushed over the socket — **not** polling. |
-| result images | `https://pikaso.cdnpk.net/private/production/{id}/render.{jpg|png}?token=exp=...~hmac=...` | Signed, time-limited CDN URLs. Download with psflow `http`+`body_sink`. |
+| generate — start | `POST /app/api/start-tti-v2` | Body `{mode:<model-slug>, prompt, references:[], num_images, aspect_ratio, variations, force_credits:true}` → `{family:<uuid>, request_tokens:[...], available_slots, limit}`. Reserves a generation family + a token per image. |
+| generate — render (×N) | `POST https://ak-data.magnific.com/app/api/render/v4` | One call per image. Body `{tool:"text-to-image", mode, family, prompt, width, height, seed, aspect_ratio, resolution, request_token, image_index, num_images, ...}` → `{creation:{id, identifier, family, metadata{seed, expectTime, creditLedger,...}}}`. **`creation.id` keys the result URL.** Note the separate host `ak-data.magnific.com`. |
+| completion | **WebSocket (Pusher)** | Per-user private channel **`private-user.{id}`**, authorized by `POST /app/broadcasting/auth` (req body `socket_id=…&channel_name=private-user.{id}`; resp `{auth:"<pusher-key>:<hmac>"}`, key `xzo0bvj9t7raco6og0q3`). Completion is pushed per `creation` — **not** polling. |
+| result images | `https://pikaso.cdnpk.net/private/production/{creation.id}/render.{jpg|png}?token=exp=...~hmac=...` | Signed, time-limited CDN URLs, keyed by `creation.id` from the render call. Download with psflow `http`+`body_sink`. |
 
 ## 2. Auth (confirmed)
 
@@ -31,7 +32,7 @@ Cookies are seeded once from a manual browser login via the export helper (plann
 
 ## 3. Completion is WebSocket, not polling
 
-The earlier spec decision defaulted to polling. **For Magnific the real mechanism is a WebSocket** (Echo/Pusher private channel, authorized by `POST /app/broadcasting/auth`). So `generate` uses `websocket_subscribe` for the wait, terminating on the completion frame, then downloads the result URLs. `poll_until` is not used here (the `check_status` subgraph stub was removed).
+The earlier spec decision defaulted to polling. **For Magnific the real mechanism is a Pusher WebSocket.** The client subscribes to the per-user channel `private-user.{id}` (authorized via `POST /app/broadcasting/auth`); completion is pushed per `creation`. So `generate` is: `start-tti-v2` → fan-out `render/v4` per image (each yields a `creation.id`) → `websocket_subscribe` waiting for the completion event(s) matching those `creation.id`s → download each signed `pikaso.cdnpk.net/.../{creation.id}/render.{ext}`. `poll_until` is not used (the `check_status` subgraph stub was removed). The channel is per-user, not per-job, so the graph must correlate WS events to its own `creation.id`s.
 
 ## 4. Credits
 
@@ -42,13 +43,15 @@ The recon account is Premium+ with effectively unlimited image generation, so cr
 - `fixtures/recon/ai-models.json` — full model catalog (list_models response).
 - `fixtures/recon/files-recent.json` — history response (`projects/files/recent`).
 - `fixtures/recon/simulate-generation-response.json` — cost-preview response.
+- `fixtures/recon/start-tti-v2-response.json` — generate-start response (`family`, `request_tokens`).
+- `fixtures/recon/render-v4-response.json` — per-image render response (`creation.id`, metadata).
 - `fixtures/recon/auto-mode-constraints-video.json` — the `video/generate/auto` constraints descriptor (captured while pinning the submit pattern; video, not image).
 
-## 6. Remaining recon (one focused pass)
+## 6. Remaining recon (one minor item)
 
-- [ ] Pin the exact **image** submit path + request body by clearing the network log, generating one image, and reading the immediate POST (the buffer overflowed with analytics last time). Likely `POST /app/api/image/generate/{mode}` or `/app/api/v2/ai/...`.
-- [ ] Capture the **WebSocket**: the channel name subscribed after `broadcasting/auth`, the event/frame that signals completion, and the field in that frame carrying the result image URLs (vs. having to re-fetch `files/recent`).
-- [ ] Confirm whether result URLs arrive in the WS completion frame or must be read from `projects/files/recent` right after.
+The submit flow, render fan-out, WS channel, and result-URL linkage are all confirmed. Still open:
+
+- [ ] Capture the exact **WS completion event** on `private-user.{id}` — its event name and payload — to confirm whether the signed result URL arrives in the frame or is constructed from `creation.id` (and re-fetched / token-signed). Needs a WS-frame interceptor installed before the socket opens (page reload with an init hook), which the current MCP flow can't inject post-load; deferrable since the URL is derivable from `creation.id`.
 
 ## 7. Spec corrections captured here
 

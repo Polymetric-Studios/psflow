@@ -30,46 +30,54 @@ graph TD
     %% @START outputs.prompt: "String"
     %% @START outputs.model: "String"
 
-    %% ===== Submit generation =====
-    %% Body shape (from simulate-generation): items[].{model, quantity, config:{aspectRatio, numberOfImages, prompt}}.
-    %% TODO(recon): exact submit path — observed video variant POST /app/api/video/generate/auto?mode=auto;
-    %% the text-to-image submit is analogous (e.g. /app/api/image/generate/{mode}). Also needs x-xsrf-token header.
+    %% ===== Start generation (confirmed: start-tti-v2) =====
+    %% Returns { family:<uuid>, request_tokens:[...], available_slots, limit }.
+    %% Needs the x-xsrf-token header (cookie-derived) — see auth note above.
     %% @SUBMIT handler: http
     %% @SUBMIT config.method: POST
-    %% @SUBMIT config.url: "https://www.magnific.com/app/api/TODO-recon-image-submit/generate/{model}"
+    %% @SUBMIT config.url: "https://www.magnific.com/app/api/start-tti-v2?lang=en_US"
     %% @SUBMIT config.auth: magnific
-    %% @SUBMIT config.body_json: true
+    %% @SUBMIT config.body: "{\"mode\":\"{model}\",\"prompt\":\"{prompt}\",\"references\":[],\"num_images\":{num_images},\"aspect_ratio\":\"1:1\",\"variations\":true,\"force_credits\":true}"
     %% @SUBMIT config.fail_on_non_2xx: true
     %% @SUBMIT config.validation: { "file": "schemas/submit_response.json" }
     %% @SUBMIT inputs.prompt: "String"
     %% @SUBMIT inputs.model: "String"
+    %% @SUBMIT inputs.num_images: "I64"
     %% @SUBMIT outputs.body: "String"
 
-    %% ===== Extract the job / task identifier from the submit response =====
+    %% ===== Parse family + request_tokens =====
     %% @PARSE_JOB handler: rhai
-    %% TODO(recon): real field path for the job/task id
-    %% @PARSE_JOB config.script: "#{ job_id: parse_json(inputs.body).TODO_job_id_field }"
+    %% @PARSE_JOB config.script: "let r = parse_json(inputs.body); #{ family: r.family, request_tokens: r.request_tokens }"
     %% @PARSE_JOB inputs.body: "String"
-    %% @PARSE_JOB outputs.job_id: "String"
+    %% @PARSE_JOB outputs.family: "String"
+    %% @PARSE_JOB outputs.request_tokens: "Vec"
 
-    %% ===== Wait for completion over the WebSocket =====
-    %% Magnific pushes progress/completion over a Laravel Echo / Pusher private channel
-    %% (authorized by POST /app/broadcasting/auth) — NOT polling.
-    %% TODO(recon): WS URL, the broadcasting/auth handshake, the channel name (job-scoped),
-    %% the completion event/frame, and whether result URLs arrive in the frame.
-    %% NOTE: psflow ws auth supports cookie_jar on the handshake; the Pusher/Echo
-    %% subscribe + channel-auth flow may need a custom step (TODO(author)).
+    %% TODO(author): insert a `parallel-loop: render_images` here BEFORE the WS wait.
+    %% For each image (request_token + image_index) POST to the render host:
+    %%   POST https://ak-data.magnific.com/app/api/render/v4?lang=en_US
+    %%   body { tool:"text-to-image", mode:"{model}", family:"{family}", prompt:"{prompt}",
+    %%          width, height, seed, aspect_ratio, resolution:"2k", request_token, image_index, num_images }
+    %% Each render returns { creation: { id, identifier, family, metadata{ expectTime, ... } } }.
+    %% Collect the creation.id list — those key the result URLs and the WS completion events.
+
+    %% ===== Wait for completion over the WebSocket (confirmed: Pusher) =====
+    %% Per-user private channel `private-user.{id}`, authorized by POST /app/broadcasting/auth.
+    %% Channel is per-USER, not per-job: terminate once events for all this run's creation.ids arrive.
+    %% TODO(author): psflow `ws` opens a raw socket; the Pusher protocol (connect → get socket_id →
+    %% POST /app/broadcasting/auth with socket_id+channel_name → send pusher:subscribe with the auth)
+    %% likely needs a small custom handshake step or a Pusher-aware strategy.
+    %% TODO(recon): the exact completion event name + payload (see README §6).
     %% @WAIT handler: ws
-    %% @WAIT config.url: "wss://TODO-recon-magnific-websocket"
+    %% @WAIT config.url: "wss://TODO-recon-pusher-endpoint/app/xzo0bvj9t7raco6og0q3"
     %% @WAIT config.auth: magnific
-    %% @WAIT config.terminate: { "on_predicate": "frame.TODO_status == \"complete\"", "timeout_ms": 180000 }
-    %% @WAIT inputs.job_id: "String"
+    %% @WAIT config.terminate: { "on_predicate": "frame.TODO_event_signals_creation_complete", "timeout_ms": 180000 }
+    %% @WAIT inputs.family: "String"
     %% @WAIT outputs.frames: "Vec"
 
-    %% ===== Extract result image URLs =====
-    %% Signed CDN URLs: https://pikaso.cdnpk.net/private/production/{id}/render.{ext}?token=exp=...~hmac=...
-    %% Either from the completion frame, or by re-fetching /app/api/projects/files/recent.
-    %% TODO(recon): real source + field path for the result URL list.
+    %% ===== Build result image URLs from creation.ids =====
+    %% Signed CDN URLs: https://pikaso.cdnpk.net/private/production/{creation.id}/render.{ext}?token=exp=...~hmac=...
+    %% The signed token arrives in the WS frame (or via a re-fetch of /app/api/projects/files/recent).
+    %% TODO(recon/author): assemble the signed URL per completed creation.id.
     %% @PARSE_URLS handler: rhai
     %% @PARSE_URLS config.script: "#{ image_urls: inputs.frames }"
     %% @PARSE_URLS inputs.frames: "Vec"
