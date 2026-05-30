@@ -62,22 +62,28 @@ graph TD
     %% Each render returns { creation: { id, identifier, family, metadata{ expectTime, ... } } }.
     %% Collect the creation.id list — those key the result URLs and the WS completion events.
 
-    %% ===== Wait for completion over the WebSocket (confirmed: self-hosted Pusher, protocol 7) =====
-    %% URL (confirmed): wss://ak-data.magnific.com/app/app/xzo0bvj9t7raco6og0q3?protocol=7&client=js&version=8.4.0
-    %% Pusher handshake: connect → recv pusher:connection_established (data.socket_id)
-    %%   → POST https://www.magnific.com/app/broadcasting/auth  (cookie+xsrf auth)
-    %%       body: socket_id={socket_id}&channel_name=private-user.{id}   → { auth:"key:hmac" }
-    %%   → send pusher:subscribe { data:{ auth, channel:"private-user.{id}" } }
-    %%   → recv channel events; terminate once all this run's creation.ids report complete.
-    %% TODO(author) — psflow gap #2 (NOT YET IMPLEMENTED): the `ws` handler only sends STATIC
-    %%   init_frames. This needs a *reactive* handshake (read socket_id from a received frame →
-    %%   mid-stream HTTP POST to broadcasting/auth → send a computed subscribe frame). See README §6.
-    %% TODO(recon): exact completion event name + payload on the channel.
+    %% ===== Wait for completion over the WebSocket (self-hosted Pusher, protocol 7) =====
+    %% Reactive Pusher subscribe via config.handshake (psflow gap #2 — IMPLEMENTED):
+    %%   connect → recv pusher:connection_established → POST broadcasting/auth (cookie+xsrf)
+    %%   → send pusher:subscribe → recv channel events.
+    %% Upstream must pass `channel` = "private-user." + <user_id> as an input.
+    %% TODO(recon): the exact completion event name on the channel (terminate predicate below).
     %% @WAIT handler: ws
     %% @WAIT config.url: "wss://ak-data.magnific.com/app/app/xzo0bvj9t7raco6og0q3?protocol=7&client=js&version=8.4.0"
     %% @WAIT config.auth: magnific
-    %% @WAIT config.terminate: { "on_predicate": "frame.TODO_event_signals_creation_complete", "timeout_ms": 180000 }
+    %% @WAIT config.handshake: {
+    %%   "trigger": "frame.json.event == \"pusher:connection_established\"",
+    %%   "auth_request": {
+    %%     "url": "https://www.magnific.com/app/broadcasting/auth",
+    %%     "body": "let d = parse_json(frame.json.data); \"socket_id=\" + d.socket_id + \"&channel_name=\" + inputs.channel",
+    %%     "auth": "magnific"
+    %%   },
+    %%   "send": "\"{\\\"event\\\":\\\"pusher:subscribe\\\",\\\"data\\\":{\\\"auth\\\":\\\"\" + auth.auth + \"\\\",\\\"channel\\\":\\\"\" + inputs.channel + \"\\\"}}\""
+    %% }
+    %% TODO(recon): replace the terminate predicate with the real completion event.
+    %% @WAIT config.terminate: { "on_predicate": "frame.json.TODO_event_signals_complete", "timeout_ms": 180000 }
     %% @WAIT inputs.family: "String"
+    %% @WAIT inputs.channel: "String"
     %% @WAIT outputs.frames: "Vec"
 
     %% ===== Build result image URLs from creation.ids =====

@@ -202,6 +202,111 @@ impl TerminateCfg {
     }
 }
 
+/// Default HTTP method for a handshake `auth_request`.
+const HANDSHAKE_DEFAULT_METHOD: &str = "POST";
+/// Default `Content-Type` for a handshake `auth_request`.
+const HANDSHAKE_DEFAULT_CONTENT_TYPE: &str = "application/x-www-form-urlencoded";
+
+/// Parsed `config.handshake.auth_request` block — the mid-stream HTTP POST
+/// made to an auth endpoint during a reactive subscribe handshake.
+#[derive(Debug, Clone)]
+struct AuthRequestCfg {
+    /// URL template; `{inputs.x}` interpolation via [`interpolate`].
+    url: String,
+    /// HTTP method. Defaults to `POST`.
+    method: String,
+    /// `Content-Type` header. Defaults to `application/x-www-form-urlencoded`.
+    content_type: String,
+    /// Rhai script (scope: `frame`, `inputs`) returning the request body.
+    body: String,
+    /// Optional graph auth strategy name applied via `AuthStrategy::apply`.
+    auth: Option<String>,
+}
+
+impl AuthRequestCfg {
+    fn from_json(v: &serde_json::Value) -> Result<Self, String> {
+        let obj = v
+            .as_object()
+            .ok_or_else(|| "handshake.auth_request must be an object".to_string())?;
+        let url = obj
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "handshake.auth_request.url is required".to_string())?
+            .to_string();
+        let method = obj
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or(HANDSHAKE_DEFAULT_METHOD)
+            .to_string();
+        let content_type = obj
+            .get("content_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or(HANDSHAKE_DEFAULT_CONTENT_TYPE)
+            .to_string();
+        let body = obj
+            .get("body")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "handshake.auth_request.body is required".to_string())?
+            .to_string();
+        let auth = obj.get("auth").and_then(|v| v.as_str()).map(String::from);
+        Ok(Self {
+            url,
+            method,
+            content_type,
+            body,
+            auth,
+        })
+    }
+}
+
+/// Parsed `config.handshake` block — a reactive subscribe handshake.
+///
+/// On a triggering data frame the handler optionally makes a mid-stream HTTP
+/// request (`auth_request`) and then sends a computed `send` frame. The
+/// triggering frame is consumed by the handshake and excluded from normal
+/// frame handling.
+#[derive(Debug, Clone)]
+struct HandshakeCfg {
+    /// Rhai predicate (scope: `frame`) deciding whether a frame triggers the
+    /// handshake. Compiled as an expression.
+    trigger: String,
+    /// Optional mid-stream auth request. Omitted for public channels.
+    auth_request: Option<AuthRequestCfg>,
+    /// Rhai script (scope: `frame`, `inputs`, `auth`) returning the frame text
+    /// to send back. Compiled as a full script.
+    send: String,
+}
+
+impl HandshakeCfg {
+    fn from_json(v: Option<&serde_json::Value>) -> Result<Option<Self>, String> {
+        let Some(v) = v else {
+            return Ok(None);
+        };
+        let obj = v
+            .as_object()
+            .ok_or_else(|| "handshake must be an object".to_string())?;
+        let trigger = obj
+            .get("trigger")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "handshake.trigger is required".to_string())?
+            .to_string();
+        let auth_request = match obj.get("auth_request") {
+            Some(ar) => Some(AuthRequestCfg::from_json(ar)?),
+            None => None,
+        };
+        let send = obj
+            .get("send")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "handshake.send is required".to_string())?
+            .to_string();
+        Ok(Some(Self {
+            trigger,
+            auth_request,
+            send,
+        }))
+    }
+}
+
 /// Fully parsed WebSocket config — the surface the node's `config` JSON
 /// lowers to.
 struct WebSocketConfig {
@@ -212,6 +317,7 @@ struct WebSocketConfig {
     terminate: TerminateCfg,
     emit: StreamEmitMode,
     subprotocol: Option<String>,
+    handshake: Option<HandshakeCfg>,
 }
 
 impl WebSocketConfig {
@@ -233,6 +339,7 @@ impl WebSocketConfig {
             .get("subprotocol")
             .and_then(|v| v.as_str())
             .map(String::from);
+        let handshake = HandshakeCfg::from_json(config.get("handshake"))?;
         Ok(Self {
             url_template,
             auth_name,
@@ -241,6 +348,7 @@ impl WebSocketConfig {
             terminate,
             emit,
             subprotocol,
+            handshake,
         })
     }
 }
@@ -514,6 +622,81 @@ fn eval_predicate(
     }
 }
 
+// -- handshake scripting -----------------------------------------------------
+
+/// Compile a full Rhai script (may contain statements; returns a value) into
+/// a cached AST. Used for the handshake `body` and `send` scripts, which —
+/// unlike the terminate predicate — need statement support (e.g. parsing the
+/// connection_established `data` JSON string via `let d = parse_json(...)`).
+fn compile_script(
+    engine: &ScriptEngine,
+    cache: &Mutex<HashMap<String, Arc<AST>>>,
+    label: &str,
+    source: &str,
+) -> Result<Arc<AST>, String> {
+    if let Some(ast) = cache.lock().unwrap().get(source).cloned() {
+        return Ok(ast);
+    }
+    let ast = engine
+        .compile(source)
+        .map_err(|e| format!("{label}: {e}"))?;
+    let arc = Arc::new(ast);
+    cache
+        .lock()
+        .unwrap()
+        .insert(source.to_string(), arc.clone());
+    Ok(arc)
+}
+
+/// Evaluate the handshake trigger predicate against a single frame. Scope:
+/// `frame` only. Returns true iff the script returned a truthy bool.
+fn eval_handshake_trigger(
+    engine: &ScriptEngine,
+    ast: &AST,
+    frame_value: &Value,
+    cancel: &CancellationToken,
+) -> Result<bool, String> {
+    let mut scope = Scope::new();
+    scope.push_dynamic("frame", value_to_dynamic(frame_value));
+    match engine.eval_ast(&mut scope, ast, cancel) {
+        Ok(d) => Ok(d.as_bool().unwrap_or(false)),
+        Err(e) => Err(format!("handshake.trigger: {e}")),
+    }
+}
+
+/// Evaluate a handshake string-returning script. Scope: `frame`, `inputs`, and
+/// (when `auth` is `Some`) `auth`. Returns the produced String.
+fn eval_handshake_string(
+    engine: &ScriptEngine,
+    ast: &AST,
+    label: &str,
+    frame_value: &Value,
+    inputs: &Outputs,
+    auth: Option<&serde_json::Value>,
+    cancel: &CancellationToken,
+) -> Result<String, String> {
+    let mut scope = Scope::new();
+    scope.push_dynamic("frame", value_to_dynamic(frame_value));
+    scope.push_dynamic(
+        "inputs",
+        Dynamic::from_map(crate::scripting::bridge::outputs_to_rhai_map(inputs)),
+    );
+    if let Some(auth) = auth {
+        scope.push_dynamic("auth", json_to_dynamic(auth));
+    }
+    match engine.eval_ast(&mut scope, ast, cancel) {
+        Ok(d) => d
+            .into_string()
+            .map_err(|actual| format!("{label}: expected a String, got {actual}")),
+        Err(e) => Err(format!("{label}: {e}")),
+    }
+}
+
+/// Convert a `serde_json::Value` into a Rhai `Dynamic` for script scope.
+fn json_to_dynamic(v: &serde_json::Value) -> Dynamic {
+    value_to_dynamic(&json_to_value(v))
+}
+
 // -- auth glue ---------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
@@ -563,6 +746,184 @@ fn map_auth_error(node_id: &str, err: &AuthError) -> NodeError {
         message: format!("node '{node_id}': auth failed: {err}"),
         recoverable: err.is_recoverable(),
     }
+}
+
+/// Apply a graph auth strategy to the handshake's HTTP `auth_request` POST.
+///
+/// Mirrors the HTTP handler's `apply_auth`: builds an [`AuthApplyCtx`] with the
+/// real method, body bytes, and parsed URL, then calls
+/// [`AuthStrategy::apply`] on a `reqwest::RequestBuilder`.
+#[allow(clippy::too_many_arguments)]
+async fn apply_handshake_auth(
+    node_id: &str,
+    ctx: &Arc<ExecutionContext>,
+    name: &str,
+    inputs: &Outputs,
+    template: Arc<dyn TemplateResolver>,
+    body: &[u8],
+    method: &str,
+    url: &reqwest::Url,
+    builder: reqwest::RequestBuilder,
+) -> Result<reqwest::RequestBuilder, NodeError> {
+    let registry = ctx.auth_registry().ok_or_else(|| NodeError::Failed {
+        source_message: None,
+        message: format!("node '{node_id}': auth registry vanished mid-handshake"),
+        recoverable: false,
+    })?;
+    let (decl, strategy) = registry.get(name).ok_or_else(|| NodeError::Failed {
+        source_message: None,
+        message: format!(
+            "node '{node_id}': handshake auth strategy '{name}' not declared in graph"
+        ),
+        recoverable: false,
+    })?;
+    let bb_snapshot = ctx.blackboard().clone();
+    let apply_ctx = AuthApplyCtx {
+        strategy_name: name,
+        secrets_map: &decl.secrets,
+        resolver: ctx.secret_resolver(),
+        state: ctx.auth_state(),
+        inputs,
+        blackboard: &bb_snapshot,
+        template,
+        body,
+        method,
+        url,
+    };
+    strategy
+        .apply(&apply_ctx, builder)
+        .await
+        .map_err(|e| map_auth_error(node_id, &e))
+}
+
+// -- compiled handshake -------------------------------------------------------
+
+/// Compiled, ready-to-run handshake. Built once in `execute()` from
+/// [`HandshakeCfg`]; the trigger predicate, the optional `auth_request.body`
+/// script, and the `send` script are pre-compiled like the terminate predicate.
+struct CompiledHandshake {
+    trigger: Arc<AST>,
+    auth_request: Option<CompiledAuthRequest>,
+    send: Arc<AST>,
+}
+
+struct CompiledAuthRequest {
+    url_template: String,
+    method: String,
+    content_type: String,
+    body: Arc<AST>,
+    auth: Option<String>,
+}
+
+/// Run the reactive handshake against a triggering frame: optionally POST to
+/// the auth endpoint, then evaluate and send the computed subscribe frame.
+///
+/// Returns the `Message::Text` to send back over the WebSocket.
+#[allow(clippy::too_many_arguments)]
+async fn run_handshake(
+    node_id: &str,
+    handshake: &CompiledHandshake,
+    frame_value: &Value,
+    inputs: &Outputs,
+    exec_ctx: &Option<Arc<ExecutionContext>>,
+    template: &Arc<dyn TemplateResolver>,
+    script_engine: &ScriptEngine,
+    cancel: &CancellationToken,
+) -> Result<Message, NodeError> {
+    let fail = |message: String| NodeError::Failed {
+        source_message: None,
+        message: format!("node '{node_id}': {message}"),
+        recoverable: false,
+    };
+
+    // -- optional auth_request POST -----------------------------------------
+    let auth_json = if let Some(ar) = handshake.auth_request.as_ref() {
+        let url_str = interpolate(&ar.url_template, inputs);
+        let parsed_url = reqwest::Url::parse(&url_str).map_err(|e| {
+            fail(format!(
+                "handshake.auth_request: invalid URL '{url_str}': {e}"
+            ))
+        })?;
+        let body = eval_handshake_string(
+            script_engine,
+            &ar.body,
+            "handshake.auth_request.body",
+            frame_value,
+            inputs,
+            None,
+            cancel,
+        )
+        .map_err(fail)?;
+
+        let client = reqwest::Client::new();
+        let mut builder = client
+            .request(
+                reqwest::Method::from_bytes(ar.method.as_bytes())
+                    .map_err(|e| fail(format!("handshake.auth_request: invalid method: {e}")))?,
+                parsed_url.clone(),
+            )
+            .header(reqwest::header::CONTENT_TYPE, ar.content_type.clone())
+            .body(body.clone().into_bytes());
+
+        if let Some(name) = ar.auth.as_ref() {
+            let ctx = exec_ctx.as_ref().ok_or_else(|| {
+                fail(format!(
+                    "handshake.auth_request.auth='{name}' requires an execution-context-bound WebSocketHandler"
+                ))
+            })?;
+            builder = apply_handshake_auth(
+                node_id,
+                ctx,
+                name,
+                inputs,
+                template.clone(),
+                body.as_bytes(),
+                &ar.method,
+                &parsed_url,
+                builder,
+            )
+            .await?;
+        }
+
+        let resp = tokio::select! {
+            r = builder.send() => r.map_err(|e| {
+                fail(format!("handshake.auth_request: send failed: {e}"))
+            })?,
+            _ = cancel.cancelled() => {
+                return Err(NodeError::Cancelled {
+                    reason: "cancelled during handshake auth_request".into(),
+                });
+            }
+        };
+        let status = resp.status();
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| fail(format!("handshake.auth_request: read body failed: {e}")))?;
+        if !status.is_success() {
+            return Err(fail(format!(
+                "handshake.auth_request: non-2xx status {status}: {text}"
+            )));
+        }
+        serde_json::from_str::<serde_json::Value>(&text)
+            .map_err(|e| fail(format!("handshake.auth_request: response not JSON: {e}")))?
+    } else {
+        serde_json::Value::Object(serde_json::Map::new())
+    };
+
+    // -- computed send frame -------------------------------------------------
+    let send_text = eval_handshake_string(
+        script_engine,
+        &handshake.send,
+        "handshake.send",
+        frame_value,
+        inputs,
+        Some(&auth_json),
+        cancel,
+    )
+    .map_err(fail)?;
+
+    Ok(Message::Text(send_text.into()))
 }
 
 // -- main execute path --------------------------------------------------------
@@ -769,6 +1130,46 @@ impl NodeHandler for WebSocketHandler {
                 None
             };
 
+            // Compile the reactive handshake once (trigger predicate +
+            // optional auth_request.body + send scripts).
+            let handshake = if let Some(hs) = &cfg.handshake {
+                let compile_err = |e: String| NodeError::Failed {
+                    source_message: None,
+                    message: format!("node '{node_id}': {e}"),
+                    recoverable: false,
+                };
+                let trigger = compile_predicate(&script_engine, &predicate_asts, &hs.trigger)
+                    .map_err(|e| compile_err(format!("handshake.trigger: {e}")))?;
+                let auth_request = if let Some(ar) = &hs.auth_request {
+                    let body = compile_script(
+                        &script_engine,
+                        &predicate_asts,
+                        "handshake.auth_request.body",
+                        &ar.body,
+                    )
+                    .map_err(compile_err)?;
+                    Some(CompiledAuthRequest {
+                        url_template: ar.url.clone(),
+                        method: ar.method.clone(),
+                        content_type: ar.content_type.clone(),
+                        body,
+                        auth: ar.auth.clone(),
+                    })
+                } else {
+                    None
+                };
+                let send =
+                    compile_script(&script_engine, &predicate_asts, "handshake.send", &hs.send)
+                        .map_err(compile_err)?;
+                Some(CompiledHandshake {
+                    trigger,
+                    auth_request,
+                    send,
+                })
+            } else {
+                None
+            };
+
             // Compile validator once (shared across frames).
             let validator = if let Some(vjson) = cfg.validation_cfg.as_ref() {
                 Some(
@@ -886,6 +1287,9 @@ impl NodeHandler for WebSocketHandler {
                 .map(|ms| tokio::time::Instant::now() + Duration::from_millis(ms));
             let max_frames = cfg.terminate.max_frames;
 
+            // Reactive-handshake state: fires at most once.
+            let mut handshake_completed = false;
+
             loop {
                 // Build a single future to wait on next event.
                 // Three-way select: cancellation, timeout, next-frame.
@@ -932,6 +1336,50 @@ impl NodeHandler for WebSocketHandler {
                             Some(Ok(msg)) => {
                                 match msg {
                                     Message::Text(_) | Message::Binary(_) => {
+                                        // Reactive handshake: on a triggering
+                                        // frame, consume it (no count / collect
+                                        // / validate / terminate) and reply with
+                                        // a computed frame. Fires at most once.
+                                        if let Some(hs) = handshake.as_ref() {
+                                            if !handshake_completed {
+                                                let frame_value = decode_frame_value(&msg);
+                                                let triggered = eval_handshake_trigger(
+                                                    &script_engine,
+                                                    &hs.trigger,
+                                                    &frame_value,
+                                                    &cancel,
+                                                )
+                                                .map_err(|e| NodeError::Failed {
+                                                    source_message: None,
+                                                    message: format!("node '{node_id}': {e}"),
+                                                    recoverable: false,
+                                                })?;
+                                                if triggered {
+                                                    let reply = run_handshake(
+                                                        &node_id,
+                                                        hs,
+                                                        &frame_value,
+                                                        &inputs,
+                                                        &exec_ctx,
+                                                        &template,
+                                                        &script_engine,
+                                                        &cancel,
+                                                    )
+                                                    .await?;
+                                                    writer.send(reply).await.map_err(|e| {
+                                                        NodeError::Failed {
+                                                            source_message: Some(e.to_string()),
+                                                            message: format!(
+                                                                "node '{node_id}': handshake send failed: {e}"
+                                                            ),
+                                                            recoverable: false,
+                                                        }
+                                                    })?;
+                                                    handshake_completed = true;
+                                                    continue;
+                                                }
+                                            }
+                                        }
                                         let outcome = handle_data_frame(
                                             &node_id,
                                             &msg,
@@ -1050,6 +1498,40 @@ impl NodeHandler for WebSocketHandler {
             }
         }
 
+        // Pre-compile handshake scripts so Rhai syntax errors surface at load
+        // time. Same shared cache as the runtime path.
+        if let Some(hs) = &cfg.handshake {
+            let mut push = |res: Result<Arc<AST>, String>| {
+                if let Err(e) = res {
+                    issues.push(ValidationIssue::new(
+                        String::new(),
+                        String::new(),
+                        ValidationIssueKind::ScriptCompile,
+                        e,
+                    ));
+                }
+            };
+            push(compile_predicate(
+                &self.script_engine,
+                &self.predicate_asts,
+                &hs.trigger,
+            ));
+            if let Some(ar) = &hs.auth_request {
+                push(compile_script(
+                    &self.script_engine,
+                    &self.predicate_asts,
+                    "handshake.auth_request.body",
+                    &ar.body,
+                ));
+            }
+            push(compile_script(
+                &self.script_engine,
+                &self.predicate_asts,
+                "handshake.send",
+                &hs.send,
+            ));
+        }
+
         if issues.is_empty() {
             Ok(())
         } else {
@@ -1078,6 +1560,13 @@ impl NodeHandler for WebSocketHandler {
             .with_config(SchemaField::new("terminate", "object").describe(
                 "{ on_predicate?: <rhai-expr over `frame` + `frame_index`>, max_frames?: u32, \
                  timeout_ms?: u64, close_on_terminate?: bool (default true) }",
+            ))
+            .with_config(SchemaField::new("handshake", "object").describe(
+                "Reactive subscribe handshake: { trigger: <rhai-expr over `frame`>, \
+                 auth_request?: { url, method?, content_type?, body: <rhai over `frame`,`inputs`>, auth? }, \
+                 send: <rhai over `frame`,`inputs`,`auth`> }. On the first frame matching `trigger`, \
+                 optionally POSTs to the auth endpoint then sends the computed `send` frame; the \
+                 triggering frame is consumed (not counted/collected/validated).",
             ))
             .with_config(SchemaField::new("validation", "object").describe(
                 "{ inline | file, on_failure: fail|passthrough } — JSON Schema validation applied \
@@ -1110,6 +1599,27 @@ impl NodeHandler for WebSocketHandler {
 enum FrameOutcome {
     Continue,
     TerminatedBy(TerminationReason),
+}
+
+/// Decode a data `Message` into the `frame` scope value used by the reactive
+/// handshake scripts. Per the handshake contract, `frame` is the *parsed JSON*
+/// (a Map) when the text frame is valid JSON, or the raw text/bytes otherwise
+/// — distinct from the terminate predicate's `{ kind, text, json }` wrapper.
+/// Decode a WS message into the same `{kind, text, json}` shape the terminate
+/// predicate and collected output use, so handshake scripts address fields the
+/// same way the rest of the handler does: `frame.json.<field>` (and `frame.text`
+/// for the raw payload). Keeping one convention avoids the easy-to-miss trap of
+/// `frame.event` (works) vs `frame.json.event` (works elsewhere).
+fn decode_frame_value(msg: &Message) -> Value {
+    match msg {
+        Message::Text(t) => {
+            let s = t.as_str();
+            let parsed = serde_json::from_str::<serde_json::Value>(s).ok();
+            frame_to_value("text", Some(s), None, parsed.as_ref(), None)
+        }
+        Message::Binary(b) => frame_to_value("binary", None, Some(b.as_ref()), None, None),
+        _ => Value::Null,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1452,5 +1962,273 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("cancelled"));
+    }
+
+    // -- handshake config parsing --------------------------------------------
+
+    #[test]
+    fn parse_handshake_full_valid() {
+        let v = json!({
+            "trigger": "frame.json.event == \"connection_established\"",
+            "auth_request": {
+                "url": "http://127.0.0.1:1/auth",
+                "method": "POST",
+                "content_type": "application/x-www-form-urlencoded",
+                "body": "\"socket_id=x\"",
+                "auth": "api"
+            },
+            "send": "\"subscribe\""
+        });
+        let h = HandshakeCfg::from_json(Some(&v)).unwrap().unwrap();
+        assert_eq!(h.trigger, "frame.json.event == \"connection_established\"");
+        let ar = h.auth_request.as_ref().unwrap();
+        assert_eq!(ar.url, "http://127.0.0.1:1/auth");
+        assert_eq!(ar.method, "POST");
+        assert_eq!(ar.content_type, "application/x-www-form-urlencoded");
+        assert_eq!(ar.auth.as_deref(), Some("api"));
+    }
+
+    #[test]
+    fn parse_handshake_defaults_method_and_content_type() {
+        let v = json!({
+            "trigger": "true",
+            "auth_request": { "url": "http://x/", "body": "\"b\"" },
+            "send": "\"s\""
+        });
+        let h = HandshakeCfg::from_json(Some(&v)).unwrap().unwrap();
+        let ar = h.auth_request.as_ref().unwrap();
+        assert_eq!(ar.method, "POST");
+        assert_eq!(ar.content_type, "application/x-www-form-urlencoded");
+        assert!(ar.auth.is_none());
+    }
+
+    #[test]
+    fn parse_handshake_no_auth_request_is_public() {
+        let v = json!({ "trigger": "true", "send": "\"s\"" });
+        let h = HandshakeCfg::from_json(Some(&v)).unwrap().unwrap();
+        assert!(h.auth_request.is_none());
+    }
+
+    #[test]
+    fn parse_handshake_absent_is_none() {
+        assert!(HandshakeCfg::from_json(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_handshake_missing_trigger_errors() {
+        let v = json!({ "send": "\"s\"" });
+        assert!(HandshakeCfg::from_json(Some(&v)).is_err());
+    }
+
+    #[test]
+    fn parse_handshake_missing_send_errors() {
+        let v = json!({ "trigger": "true" });
+        assert!(HandshakeCfg::from_json(Some(&v)).is_err());
+    }
+
+    #[test]
+    fn parse_handshake_auth_request_missing_url_errors() {
+        let v = json!({
+            "trigger": "true",
+            "auth_request": { "body": "\"b\"" },
+            "send": "\"s\""
+        });
+        assert!(HandshakeCfg::from_json(Some(&v)).is_err());
+    }
+
+    #[test]
+    fn parse_handshake_auth_request_missing_body_errors() {
+        let v = json!({
+            "trigger": "true",
+            "auth_request": { "url": "http://x/" },
+            "send": "\"s\""
+        });
+        assert!(HandshakeCfg::from_json(Some(&v)).is_err());
+    }
+
+    #[test]
+    fn parse_handshake_not_object_errors() {
+        assert!(HandshakeCfg::from_json(Some(&json!("nope"))).is_err());
+    }
+
+    #[test]
+    fn websocket_config_parses_handshake_field() {
+        let cfg = WebSocketConfig::from_json(&json!({
+            "url": "ws://localhost/",
+            "handshake": {
+                "trigger": "frame.json.event == \"connection_established\"",
+                "send": "\"sub\""
+            }
+        }))
+        .unwrap();
+        assert!(cfg.handshake.is_some());
+    }
+
+    // -- reactive handshake integration --------------------------------------
+
+    /// Mock auth HTTP server: accepts one connection, reads the request, and
+    /// returns a fixed JSON body `{"auth":"key:sig"}`. Returns the auth URL.
+    async fn spawn_mock_auth_server() -> (String, tokio::task::JoinHandle<Vec<u8>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut sock, _peer) = listener.accept().await.unwrap();
+            // Read the request (headers + small body) — enough to capture it.
+            let mut buf = vec![0u8; 4096];
+            let n = sock.read(&mut buf).await.unwrap();
+            buf.truncate(n);
+            let body = br#"{"auth":"key:sig"}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            sock.write_all(body).await.unwrap();
+            sock.flush().await.unwrap();
+            buf
+        });
+        (format!("http://127.0.0.1:{port}/auth"), handle)
+    }
+
+    /// Mock WS server: on connect, sends a Pusher-style
+    /// `connection_established` frame, reads exactly one client frame (the
+    /// subscribe), stores it, sends a `done` frame, then waits for close.
+    /// Returns the captured subscribe-frame text.
+    async fn spawn_mock_ws_server() -> (String, tokio::task::JoinHandle<String>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            let (stream, _peer) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            // (a) connection_established: `data` is a JSON *string*.
+            let established = serde_json::json!({
+                "event": "connection_established",
+                "data": "{\"socket_id\":\"123.456\"}"
+            })
+            .to_string();
+            ws.send(Message::Text(established.into())).await.unwrap();
+            // (b) read exactly one client frame (the subscribe).
+            let mut captured = String::new();
+            while let Some(msg) = ws.next().await {
+                match msg {
+                    Ok(Message::Text(t)) => {
+                        captured = t.to_string();
+                        break;
+                    }
+                    Ok(Message::Close(_)) | Err(_) => break,
+                    _ => {}
+                }
+            }
+            // (c) done frame.
+            ws.send(Message::Text(r#"{"event":"done"}"#.into()))
+                .await
+                .unwrap();
+            // Wait for the client's close.
+            while let Some(msg) = ws.next().await {
+                if matches!(msg, Ok(Message::Close(_)) | Err(_)) {
+                    break;
+                }
+            }
+            captured
+        });
+        (format!("ws://127.0.0.1:{port}/"), handle)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reactive_handshake_subscribes_then_continues() {
+        let (auth_url, auth_handle) = spawn_mock_auth_server().await;
+        let (ws_url, ws_handle) = spawn_mock_ws_server().await;
+
+        let mut node = Node::new("W", "WS");
+        node.config = json!({
+            "url": ws_url,
+            "handshake": {
+                "trigger": "frame.json.event == \"connection_established\"",
+                "auth_request": {
+                    "url": auth_url,
+                    // `frame.json.data` is itself a JSON *string*; parse it in rhai.
+                    "body": "let d = parse_json(frame.json.data); \"socket_id=\" + d.socket_id + \"&channel_name=private-test\"",
+                },
+                "send": "\"{\\\"event\\\":\\\"pusher:subscribe\\\",\\\"data\\\":{\\\"auth\\\":\\\"\" + auth.auth + \"\\\",\\\"channel\\\":\\\"private-test\\\"}}\""
+            },
+            "terminate": { "on_predicate": "frame.json.event == \"done\"" }
+        });
+
+        let out = WebSocketHandler::stateless()
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .expect("session runs");
+
+        let captured_subscribe = ws_handle.await.unwrap();
+        let captured_auth_req = auth_handle.await.unwrap();
+        let auth_req_text = String::from_utf8_lossy(&captured_auth_req);
+
+        // The auth POST carried the parsed socket_id + channel.
+        assert!(
+            auth_req_text.contains("socket_id=123.456"),
+            "auth request body missing socket_id: {auth_req_text}"
+        );
+        assert!(
+            auth_req_text.contains("channel_name=private-test"),
+            "auth request body missing channel_name: {auth_req_text}"
+        );
+
+        // The server-captured subscribe frame carries the auth signature and
+        // channel from the computed `send` script.
+        assert!(
+            captured_subscribe.contains("key:sig"),
+            "subscribe frame missing auth sig: {captured_subscribe}"
+        );
+        assert!(
+            captured_subscribe.contains("private-test"),
+            "subscribe frame missing channel: {captured_subscribe}"
+        );
+
+        // Terminated via the predicate on the `done` frame.
+        assert_eq!(
+            match out.get("terminated_by").unwrap() {
+                Value::String(s) => s.as_str(),
+                other => panic!("terminated_by: {other:?}"),
+            },
+            "predicate"
+        );
+
+        // The connection_established frame was consumed by the handshake — it
+        // does NOT appear in collected output and does NOT count toward
+        // frames_received. Only the `done` frame is collected.
+        let frames = match out.get("frames").unwrap() {
+            Value::Vec(v) => v.clone(),
+            other => panic!("frames: {other:?}"),
+        };
+        assert_eq!(frames.len(), 1, "only the done frame should be collected");
+        assert_eq!(
+            match out.get("frames_received").unwrap() {
+                Value::I64(n) => *n,
+                other => panic!("frames_received: {other:?}"),
+            },
+            1
+        );
+        let done = match &frames[0] {
+            Value::Map(m) => m,
+            other => panic!("frame: {other:?}"),
+        };
+        let done_json = done.get("json").expect("done frame parsed json");
+        match done_json {
+            Value::Map(m) => assert_eq!(m.get("event"), Some(&Value::String("done".into()))),
+            other => panic!("done json: {other:?}"),
+        }
+        // No connection_established frame leaked into the collection.
+        for f in &frames {
+            if let Value::Map(m) = f {
+                if let Some(Value::Map(j)) = m.get("json") {
+                    assert_ne!(
+                        j.get("event"),
+                        Some(&Value::String("connection_established".into())),
+                        "connection_established leaked into output"
+                    );
+                }
+            }
+        }
     }
 }

@@ -49,11 +49,12 @@ The recon account is Premium+ with effectively unlimited image generation, so cr
 
 **Gap #1 (cookie → header CSRF echo) — DONE.** `cookie_jar` now supports `csrf_cookie`/`csrf_header` (§2).
 
-**Gap #2 (reactive WS handshake) — NOT YET IMPLEMENTED.** The Pusher private-channel subscribe is a *reactive* handshake the `ws` handler can't express today: connect → read `socket_id` from the `pusher:connection_established` frame → mid-stream HTTP `POST /app/broadcasting/auth` (cookie+xsrf) → send a computed `pusher:subscribe` frame → then receive channel events. The handler currently only sends **static** `init_frames`. Implementing this needs a new `config.handshake`-style capability on the `ws` handler (receive-frame → extract → auth-subcall → send-frame), plus a mock-Pusher test harness (no live-WS test harness exists yet). The endpoint + full handshake are now confirmed (§1, §3), so this is a well-scoped build.
+**Gap #2 (reactive WS handshake) — DONE.** The `ws` handler now supports `config.handshake`: on a triggering frame it optionally calls an auth endpoint (with the node's auth strategy, e.g. cookie_jar+CSRF) and sends a computed frame. That expresses the Pusher subscribe (connect → `pusher:connection_established` → `POST /broadcasting/auth` → `pusher:subscribe`). `generate.mmd`'s WAIT node uses it. See the annotation reference's `ws` → `handshake` section; covered by a mock-WS + mock-HTTP integration test.
 
-- [ ] Implement the reactive WS handshake capability on the `ws` handler (Gap #2).
-- [ ] Capture the exact **completion event** name/payload on `private-user.{id}` (whether the signed URL is in the frame or constructed from `creation.id`). Needs a WS-frame interceptor installed before the socket opens; deferrable since the URL is derivable from `creation.id`.
-- [ ] Author the `render/v4` fan-out (`parallel-loop` over `request_tokens`) and the WS-event↔`creation.id` correlation in `generate.mmd`.
+Remaining (authoring + one recon item):
+
+- [ ] Capture the exact **completion event** name/payload on `private-user.{id}` (whether the signed URL is in the frame or constructed from `creation.id`). Needs a WS-frame interceptor installed before the socket opens; deferrable since the URL is derivable from `creation.id`. This fills the WAIT node's `terminate` predicate.
+- [ ] Author the `render/v4` fan-out (`parallel-loop` over `request_tokens`) and the WS-event↔`creation.id` correlation in `generate.mmd`. Pass `channel` = `"private-user." + <user_id>` into the WAIT node.
 
 ## 7. Spec corrections captured here
 

@@ -341,7 +341,8 @@ Opens a WebSocket connection, optionally sends init frames, reads incoming frame
 | `url` | string | required | WebSocket URL. Supports `{key}` interpolation |
 | `auth` | string | — | Name of a graph-scoped auth strategy |
 | `subprotocol` | string | — | WebSocket subprotocol string sent in the upgrade request |
-| `init_frames` | array | `[]` | Frames to send after the connection is established (see below) |
+| `init_frames` | array | `[]` | Static frames to send after the connection is established (see below) |
+| `handshake` | object | — | Reactive handshake: on a triggering frame, optionally call an auth endpoint, then send a computed frame (see below) |
 | `terminate` | object | — | Termination criteria (see below) |
 | `validation` | object | — | Per-frame JSON Schema validation. Same shape as HTTP `validation` |
 | `emit` | `"collect"` \| `{sink_file: {...}}` | `"collect"` | How received frames surface in output (see below) |
@@ -363,11 +364,40 @@ Each entry is either a string (text frame) or an object:
 
 Text frames are template-interpolated from node inputs.
 
+#### `handshake` shape
+
+A *reactive* handshake for protocols where you must read a value from an incoming frame, optionally call an auth endpoint, then send a computed frame (e.g. a Pusher private-channel subscribe). Unlike `init_frames` (static, sent immediately), the handshake fires when a received frame matches `trigger`, and at most once.
+
+```
+%% @N config.handshake: {
+%%   "trigger": "frame.json.event == \"pusher:connection_established\"",
+%%   "auth_request": {
+%%     "url": "https://example.com/broadcasting/auth",
+%%     "body": "let d = parse_json(frame.json.data); \"socket_id=\" + d.socket_id + \"&channel_name=private-user.1\"",
+%%     "auth": "site"
+%%   },
+%%   "send": "\"{\\\"event\\\":\\\"pusher:subscribe\\\",\\\"data\\\":{\\\"auth\\\":\\\"\" + auth.auth + \"\\\",\\\"channel\\\":\\\"private-user.1\\\"}}\""
+%% }
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `trigger` | Rhai string | yes | Predicate over `frame` (same `{kind, text, json}` shape as `terminate.on_predicate` — use `frame.json.<field>`). The first matching frame fires the handshake and is *consumed*: not counted, collected, validated, and it does not reach `terminate`. |
+| `auth_request` | object | no | Optional mid-stream HTTP call. Omit for public channels. |
+| `auth_request.url` | string | yes | Endpoint URL. Supports `{inputs.x}` interpolation. |
+| `auth_request.method` | string | no | Default `POST`. |
+| `auth_request.content_type` | string | no | Default `application/x-www-form-urlencoded`. |
+| `auth_request.body` | Rhai string | yes | Script (scope: `frame`, `inputs`) returning the request body. |
+| `auth_request.auth` | string | no | Graph auth strategy name applied to the request (e.g. `cookie_jar` with CSRF echo). |
+| `send` | Rhai string | yes | Script (scope: `frame`, `inputs`, `auth`) returning the frame text to send. `auth` is the parsed JSON of the `auth_request` response (or `{}` when there is no `auth_request`). |
+
+The auth response must be JSON (parsed into the `auth` scope); a non-2xx auth response fails the node.
+
 #### `terminate` shape
 
 ```
 %% @N config.terminate: {
-%%   "on_predicate": "frame.done == true",
+%%   "on_predicate": "frame.json.done == true",
 %%   "max_frames": 100,
 %%   "timeout_ms": 30000,
 %%   "close_on_terminate": true
@@ -376,7 +406,7 @@ Text frames are template-interpolated from node inputs.
 
 | Terminate field | Type | Default | Notes |
 |---|---|---|---|
-| `on_predicate` | Rhai string | — | Evaluated per received frame. Variables: `frame` (parsed JSON or string), `frame_index` (0-based i64). Return bool |
+| `on_predicate` | Rhai string | — | Evaluated per received frame. Variables: `frame` (a `{kind, text, json}` map — access parsed fields via `frame.json.<field>`), `frame_index` (0-based i64). Return bool |
 | `max_frames` | integer | — | Hard frame cap. Terminates after N received frames |
 | `timeout_ms` | integer | — | Wall-clock timeout from connection open |
 | `close_on_terminate` | bool | `true` | Send a close frame before returning |
@@ -508,14 +538,14 @@ Scope at evaluation time:
 
 | Variable | Type | Notes |
 |---|---|---|
-| `frame` | dynamic | The received frame. Text frames parsed as JSON if valid, otherwise a Rhai string |
+| `frame` | dynamic | The received frame as a `{kind, text, json}` map. Parsed JSON (when a text frame is valid JSON) is under `frame.json`; the raw text is under `frame.text`. |
 | `frame_index` | i64 | 0-based index of the current frame |
 
 Return `true` to terminate. The frame that triggers termination is included in the collected output.
 
 ```rhai
 // Terminate when the server signals done.
-frame.done == true
+frame.json.done == true
 
 // Terminate after seeing a specific sequence number.
 frame_index >= 9
