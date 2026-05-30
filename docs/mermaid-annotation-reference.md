@@ -134,8 +134,13 @@ Sends the current per-run jar as a `Cookie:` header; absorbs `Set-Cookie` from e
 | Param | Type | Default | Notes |
 |---|---|---|---|
 | `params.domain` | string | — | Enforced domain scope. When set, `apply` fails loudly if the request host does not match; `observe_response` ignores cookies whose `Domain=` attribute doesn't match. |
+| `params.csrf_cookie` | string | — | Cookie name whose value is echoed into a request header (CSRF). Must be paired with `csrf_header`. |
+| `params.csrf_header` | string | — | Header name that carries the echoed cookie value, e.g. `x-xsrf-token`. Must be paired with `csrf_cookie`. |
+| `params.csrf_url_decode` | bool | `true` | URL-decode the cookie value before echoing. Laravel stores `XSRF-TOKEN` percent-encoded and expects the decoded value in `X-XSRF-TOKEN`. Set `false` to echo verbatim. |
 
 **Domain matching semantics:** `domain: example.com` matches `example.com` and any `*.example.com` subdomain (standard suffix-match). IP address literals match exactly — no subdomain logic. Matching is case-insensitive; port is ignored. Omit `domain` to accept any host (backward-compatible default).
+
+**CSRF cookie-to-header echo:** set `csrf_cookie` + `csrf_header` to copy a cookie's value into a header on every request (HTTP and WS handshake). Covers Laravel-style apps that require the `XSRF-TOKEN` cookie echoed as `X-XSRF-TOKEN`. The pair must be set together (setting one without the other is a load-time config error).
 
 No required secrets. Pre-seeded sessions are not supported via the params surface.
 
@@ -144,6 +149,8 @@ Supports WS handshake: yes.
 ```
 %% @graph auth.jar.type: cookie_jar
 %% @graph auth.jar.params.domain: example.com
+%% @graph auth.jar.params.csrf_cookie: XSRF-TOKEN
+%% @graph auth.jar.params.csrf_header: x-xsrf-token
 ```
 
 #### `hmac`

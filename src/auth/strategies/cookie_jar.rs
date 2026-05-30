@@ -16,9 +16,24 @@ pub const COOKIE_JAR_TYPE: &str = "cookie_jar";
 /// Params (all optional): `{ "domain": "example.com" }`. When `domain` is set,
 /// the strategy enforces suffix-match semantics at apply time and filters
 /// Set-Cookie responses by domain. See [`domain_matches`] for match rules.
+///
+/// ## CSRF cookie-to-header echo
+///
+/// Some frameworks (Laravel) require a CSRF token that lives in a cookie to be
+/// echoed back in a request header. Set both `csrf_cookie` and `csrf_header` to
+/// copy the named cookie's value into the named header on every request:
+/// `{ "csrf_cookie": "XSRF-TOKEN", "csrf_header": "x-xsrf-token" }`. The value is
+/// URL-decoded first (Laravel stores `XSRF-TOKEN` percent-encoded); set
+/// `csrf_url_decode: false` to echo verbatim. The two params must be set together.
 pub struct CookieJarStrategy {
     /// Configured domain restriction, lowercased. `None` → accept any host.
     domain: Option<String>,
+    /// Cookie name to echo into a request header (CSRF). Paired with `csrf_header`.
+    csrf_cookie: Option<String>,
+    /// Header name that carries the echoed cookie value. Paired with `csrf_cookie`.
+    csrf_header: Option<String>,
+    /// URL-decode the cookie value before echoing (default true).
+    csrf_url_decode: bool,
 }
 
 impl CookieJarStrategy {
@@ -29,7 +44,48 @@ impl CookieJarStrategy {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_lowercase());
-        Ok(Arc::new(Self { domain }))
+
+        let str_param = |key: &str| {
+            decl.params
+                .get(key)
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        };
+        let csrf_cookie = str_param("csrf_cookie");
+        let csrf_header = str_param("csrf_header");
+        if csrf_cookie.is_some() != csrf_header.is_some() {
+            return Err(AuthError::Config {
+                name: COOKIE_JAR_TYPE.to_string(),
+                message: "csrf_cookie and csrf_header must be set together".to_string(),
+            });
+        }
+        let csrf_url_decode = decl
+            .params
+            .get("csrf_url_decode")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        Ok(Arc::new(Self {
+            domain,
+            csrf_cookie,
+            csrf_header,
+            csrf_url_decode,
+        }))
+    }
+
+    /// Compute the `(header_name, header_value)` to add for the CSRF echo, if
+    /// configured and the source cookie is present in `jar`.
+    fn csrf_pair(&self, jar: &crate::auth::state::CookieJar) -> Option<(String, String)> {
+        let cookie_name = self.csrf_cookie.as_deref()?;
+        let header_name = self.csrf_header.as_deref()?;
+        let raw = jar.get(cookie_name)?;
+        let value = if self.csrf_url_decode {
+            percent_decode(raw)
+        } else {
+            raw.to_string()
+        };
+        Some((header_name.to_string(), value))
     }
 }
 
@@ -93,12 +149,16 @@ impl AuthStrategy for CookieJarStrategy {
             }
         }
 
-        let header = ctx.state.snapshot_jar(ctx.strategy_name).as_header_value();
-        if header.is_empty() {
-            Ok(builder)
-        } else {
-            Ok(builder.header(reqwest::header::COOKIE, header))
+        let jar = ctx.state.snapshot_jar(ctx.strategy_name);
+        let mut builder = builder;
+        let header = jar.as_header_value();
+        if !header.is_empty() {
+            builder = builder.header(reqwest::header::COOKIE, header);
         }
+        if let Some((name, value)) = self.csrf_pair(&jar) {
+            builder = builder.header(name, value);
+        }
+        Ok(builder)
     }
 
     async fn apply_ws_request(
@@ -118,13 +178,27 @@ impl AuthStrategy for CookieJarStrategy {
             }
         }
 
-        let header = ctx.state.snapshot_jar(ctx.strategy_name).as_header_value();
+        let jar = ctx.state.snapshot_jar(ctx.strategy_name);
+        let header = jar.as_header_value();
         if !header.is_empty() {
             let value = http::HeaderValue::try_from(header).map_err(|e| AuthError::Apply {
                 name: ctx.strategy_name.to_string(),
                 message: format!("invalid cookie header value: {e}"),
             })?;
             request.headers_mut().insert(http::header::COOKIE, value);
+        }
+        if let Some((name, value)) = self.csrf_pair(&jar) {
+            let hname = http::header::HeaderName::try_from(name.as_str()).map_err(|e| {
+                AuthError::Apply {
+                    name: ctx.strategy_name.to_string(),
+                    message: format!("invalid csrf header name '{name}': {e}"),
+                }
+            })?;
+            let hval = http::HeaderValue::try_from(value).map_err(|e| AuthError::Apply {
+                name: ctx.strategy_name.to_string(),
+                message: format!("invalid csrf header value: {e}"),
+            })?;
+            request.headers_mut().insert(hname, hval);
         }
         Ok(request)
     }
@@ -175,6 +249,30 @@ fn parse_set_cookie_domain(set_cookie: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Minimal percent-decoder for cookie values: decodes `%XX` escapes and leaves
+/// malformed/partial escapes untouched. Sufficient for Laravel's URL-encoded
+/// `XSRF-TOKEN` cookie (where `=` is stored as `%3D`). Not a general URL decoder
+/// (does not treat `+` as space — cookie values are not form-encoded).
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[cfg(test)]
@@ -486,5 +584,157 @@ mod tests {
             let result = strategy.apply(&ctx, client.get(url.clone())).await;
             assert!(result.is_ok(), "host={host} should be accepted");
         }
+    }
+
+    // ── percent_decode + CSRF echo ───────────────────────────────────────────
+
+    #[test]
+    fn percent_decode_decodes_and_passes_through() {
+        assert_eq!(percent_decode("eyJpdiI%3D%3D"), "eyJpdiI==");
+        assert_eq!(percent_decode("a%2Bb%2Fc"), "a+b/c");
+        assert_eq!(percent_decode("nothing-encoded"), "nothing-encoded");
+        // Malformed / trailing escapes are left untouched.
+        assert_eq!(percent_decode("ab%"), "ab%");
+        assert_eq!(percent_decode("a%zz"), "a%zz");
+    }
+
+    #[test]
+    fn csrf_params_must_be_paired() {
+        let decl = AuthStrategyDecl::new(COOKIE_JAR_TYPE)
+            .with_params(serde_json::json!({"csrf_cookie": "XSRF-TOKEN"}));
+        match CookieJarStrategy::from_decl(&decl) {
+            Err(AuthError::Config { .. }) => {}
+            Err(other) => panic!("expected Config error, got {other:?}"),
+            Ok(_) => panic!("expected an error, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn csrf_echo_adds_url_decoded_header() {
+        let state = Arc::new(AuthState::new());
+        // Laravel stores XSRF-TOKEN percent-encoded.
+        state.with_jar("jar", |j| j.set("XSRF-TOKEN", "tok%3D%3D"));
+        let secrets = BTreeMap::new();
+        let inputs = Outputs::new();
+        let bb = Blackboard::new();
+        let url = reqwest::Url::parse("https://api.example.com/x").unwrap();
+
+        let strategy = CookieJarStrategy::from_decl(
+            &AuthStrategyDecl::new(COOKIE_JAR_TYPE).with_params(serde_json::json!({
+                "csrf_cookie": "XSRF-TOKEN",
+                "csrf_header": "x-xsrf-token"
+            })),
+        )
+        .unwrap();
+
+        let ctx = make_ctx(state, &secrets, &inputs, &bb, &url);
+        let client = reqwest::Client::new();
+        let req = strategy
+            .apply(&ctx, client.get(url.clone()))
+            .await
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            req.headers().get("x-xsrf-token").unwrap().to_str().unwrap(),
+            "tok=="
+        );
+        // The cookie itself still rides along verbatim (encoded).
+        assert!(req
+            .headers()
+            .get("cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("XSRF-TOKEN=tok%3D%3D"));
+    }
+
+    #[tokio::test]
+    async fn csrf_echo_verbatim_when_decode_disabled() {
+        let state = Arc::new(AuthState::new());
+        state.with_jar("jar", |j| j.set("XSRF-TOKEN", "tok%3D%3D"));
+        let secrets = BTreeMap::new();
+        let inputs = Outputs::new();
+        let bb = Blackboard::new();
+        let url = reqwest::Url::parse("https://api.example.com/x").unwrap();
+
+        let strategy = CookieJarStrategy::from_decl(
+            &AuthStrategyDecl::new(COOKIE_JAR_TYPE).with_params(serde_json::json!({
+                "csrf_cookie": "XSRF-TOKEN",
+                "csrf_header": "x-xsrf-token",
+                "csrf_url_decode": false
+            })),
+        )
+        .unwrap();
+
+        let ctx = make_ctx(state, &secrets, &inputs, &bb, &url);
+        let client = reqwest::Client::new();
+        let req = strategy
+            .apply(&ctx, client.get(url.clone()))
+            .await
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(
+            req.headers().get("x-xsrf-token").unwrap().to_str().unwrap(),
+            "tok%3D%3D"
+        );
+    }
+
+    #[tokio::test]
+    async fn csrf_absent_when_cookie_missing() {
+        let state = Arc::new(AuthState::new());
+        let secrets = BTreeMap::new();
+        let inputs = Outputs::new();
+        let bb = Blackboard::new();
+        let url = reqwest::Url::parse("https://api.example.com/x").unwrap();
+
+        let strategy = CookieJarStrategy::from_decl(
+            &AuthStrategyDecl::new(COOKIE_JAR_TYPE).with_params(serde_json::json!({
+                "csrf_cookie": "XSRF-TOKEN",
+                "csrf_header": "x-xsrf-token"
+            })),
+        )
+        .unwrap();
+
+        let ctx = make_ctx(state, &secrets, &inputs, &bb, &url);
+        let client = reqwest::Client::new();
+        let req = strategy
+            .apply(&ctx, client.get(url.clone()))
+            .await
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(req.headers().get("x-xsrf-token").is_none());
+    }
+
+    #[tokio::test]
+    async fn csrf_echo_on_ws_handshake() {
+        let state = Arc::new(AuthState::new());
+        state.with_jar("jar", |j| j.set("XSRF-TOKEN", "tok%3D"));
+        let secrets = BTreeMap::new();
+        let inputs = Outputs::new();
+        let bb = Blackboard::new();
+        let url = reqwest::Url::parse("https://api.example.com/x").unwrap();
+
+        let strategy = CookieJarStrategy::from_decl(
+            &AuthStrategyDecl::new(COOKIE_JAR_TYPE).with_params(serde_json::json!({
+                "csrf_cookie": "XSRF-TOKEN",
+                "csrf_header": "x-xsrf-token"
+            })),
+        )
+        .unwrap();
+
+        let ctx = make_ctx(state, &secrets, &inputs, &bb, &url);
+        let request = http::Request::builder()
+            .uri("wss://api.example.com/socket")
+            .body(())
+            .unwrap();
+        let out = strategy.apply_ws_request(&ctx, request).await.unwrap();
+        assert_eq!(
+            out.headers().get("x-xsrf-token").unwrap().to_str().unwrap(),
+            "tok="
+        );
     }
 }
