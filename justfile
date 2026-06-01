@@ -44,3 +44,9 @@ debugger: wasm
 # Build debugger for production
 debugger-build: wasm
     cd debugger && npx vite build
+
+release ref:
+    ergon run release --input ref={{ref}}
+post-release ref:
+    @echo "[post-release] no project-specific actions configured for ref={{ref}}"
+    

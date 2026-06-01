@@ -16,3 +16,22 @@ ergon/sandbox-output/
 ergon/releases/
 session.lock
 /*.png
+*.DS_Store
+*NOSYNC*
+*NOVC*
+TEMP
+*.TEMP
+TEMP_*
+TEMP-*
+*_TEMP
+*-TEMP
+.plastic
+.git
+node_modules/
+dist/
+/Assets/SceneDependencyCache
+/Assets/InitTestScene*
+/Assets/TextMesh Pro
+/Assets/_Recovery
+*mono_crash*
+*TestResults-*

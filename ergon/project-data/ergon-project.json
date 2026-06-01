@@ -1,35 +1,13 @@
 {
-  "dateCreated" : "2026-03-28T12:12:00Z",
-  "description" : "A Rust-based framework for domain-agnostic process flow control and execution. Parses Mermaid flowcharts into typed directed graphs with validation, subgraph grouping, and JSON serialization.",
-  "linearProjectId" : "none",
-  "localHostPort" : 0,
-  "name" : "psflow",
-  "status" : "active",
-  "phase" : "1.1 — Core Graph Data Model (complete)",
-  "techStack" : {
-    "language" : "rust",
-    "edition" : "2021",
-    "platform" : "cli",
-    "dependencies" : [
-      "petgraph 0.6 — directed graph backing store",
-      "serde 1 — serialization framework",
-      "serde_json 1 — JSON format",
-      "thiserror 2 — ergonomic error types"
-    ],
-    "devDependencies" : [
-      "pretty_assertions 1 — readable test diffs"
-    ],
-    "taskRunner" : "just",
-    "tags" : [
-      "rust",
-      "cargo",
-      "petgraph",
-      "serde",
-      "graph",
-      "workflow"
-    ]
-  },
-  "version" : "0.1.0",
-  "versionControl" : "git",
-  "versionDate" : "2026-03-28T13:13:00Z"
+  "dateCreated": "2026-03-28T12:12:00Z",
+  "description": "Domain-agnostic graph execution engine using annotated Mermaid (.mmd) files as the single-file workflow definition format. Topology, typing, node implementation, and execution semantics all live in one file. Swappable executor strategies for pipelines, behavior trees, dataflow, and reactive networks. Targets native embedding (C FFI/Unity), WASM, and PyO3.",
+  "linearProjectId": "none",
+  "localHostPort": 0,
+  "name": "psflow",
+  "phase": "1.1 — Core Graph Data Model (complete)",
+  "status": "active",
+  "techStack": "rust, mermaid, tokio, wasm, pyo3, c-ffi, rhai, petgraph",
+  "version": "0.1.0",
+  "versionControl": "git",
+  "versionDate": "2026-03-28T13:13:00Z"
 }
