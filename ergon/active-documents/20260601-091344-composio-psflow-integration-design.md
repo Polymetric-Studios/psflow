@@ -196,6 +196,8 @@ Composio triggers are usable for single-user without a public webhook: `composio
 - Triggers are **poll-type** (latency in minutes; managed apps ~15-min floor). Non-JSON lines (banners) are skipped.
 - Verified with a simulated event stream: 2 events dispatched, banner skipped, event reached the handler as `{ctx.event}`, run records written.
 
+**Receive path for personal accounts (no org).** `composio dev listen` requires a developer project, which needs an org; a personal workspace returns `Failed to list org projects: HTTP 404` (confirmed on CLI 0.2.30 — not a version/tier/PATH issue). The org-free alternative, per the docs: create the trigger via the **dashboard** (or SDK), and receive via the SDK websocket `composio.triggers.subscribe()` — needs only `COMPOSIO_API_KEY`, no dev project. `scripts/triggers_listen.mjs` (TypeScript/`@composio/core`, run as Node ESM — no build step) implements this, printing each event as a JSON line that the existing `--listen` loop consumes via `PSFLOW_LISTEN_CMD`. Run with `just triggers <handler> <ti_id>`. Trade-off: this receive path is **not keyless** (the SDK needs the api key) and requires `npm i @composio/core`. Pending a live end-to-end run.
+
 Composio features still unused (smaller, optional): `composio proxy` (un-wrapped provider APIs with managed auth → a `composio_proxy` handler mode), `execute -p` parallel/batch (a `multi` handler mode), `composio run` (inline TS/JS agent runtime — redundant with psflow), and `dev logs` (full request/response forensics beyond the captured `log_id`).
 
 ### 13.2 Scheduling — recipe

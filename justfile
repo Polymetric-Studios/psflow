@@ -18,6 +18,14 @@ graph name *ARGS:
 install:
     cargo install --path . --bin psflow-run --features runtime --locked
 
+# Listen to Composio triggers (SDK websocket) and run a handler graph per event.
+# Needs: `npm i @composio/core`, `export COMPOSIO_API_KEY=...`, and a trigger id
+# (create the trigger in the dashboard). Example: just triggers on-event ti_xxx
+triggers handler trigger_id:
+    PATH="$HOME/.composio:$PATH" \
+    PSFLOW_LISTEN_CMD="node scripts/triggers_listen.mjs --trigger-id {{trigger_id}}" \
+      cargo run --quiet --bin psflow-run --features runtime -- {{handler}} --listen
+
 # Run all tests
 test:
     cargo test
