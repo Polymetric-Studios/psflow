@@ -27,12 +27,16 @@ Every annotation is a `%%` comment. The parser ignores all other lines.
 | `config.retry_on: ["5xx", 429]` | JSON array |
 | `config.validation.inline: {"type":"object"}` | JSON object |
 
-**Multiline values** use `|` as the raw value and subsequent `%%` continuation lines:
+**Multiline values** open the block with `>>>` as the raw value and close it
+with a `%% <<<` line. Every `%%` line in between contributes one raw line (the
+`%% ` prefix is stripped; remaining indentation is preserved, lines joined with
+`\n`):
 
 ```
-%% @A config.script: |
+%% @A config.script: >>>
 %%   let x = 1;
 %%   x + 1
+%% <<<
 ```
 
 **Recognised top-level key prefixes for nodes:**

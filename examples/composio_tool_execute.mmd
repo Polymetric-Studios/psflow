@@ -1,0 +1,46 @@
+graph TD
+    INPUT[Build Request] --> EXECUTE[Composio Execute]
+
+    %% Phase-1 prototype: call any Composio tool through the existing `http`
+    %% handler, no new Rust. Fill in the three TODO markers below, link the
+    %% matching connected account in Composio, then run with the `composio`
+    %% binary so COMPOSIO_API_KEY resolves from the environment:
+    %%
+    %%   COMPOSIO_API_KEY=sk_... cargo run --bin composio --features runtime -- \
+    %%     examples/composio_tool_execute.mmd
+    %%
+    %% Port note: each Mermaid arrow binds exactly ONE output->input pair, so
+    %% the tool slug is hardcoded in the EXECUTE url rather than passed as a
+    %% second input. EXECUTE is the leaf; the runner prints its status + body
+    %% (the JSON envelope with `successful`, `data`, `log_id`).
+
+    %% --- Graph: api key injected as `x-api-key` from the secret layer ---
+    %% @graph name: composio-tool-execute-probe
+    %% @graph description: Execute one Composio tool via the http handler (Phase-1 prototype)
+    %% @graph auth.composio.type: bearer
+    %% @graph auth.composio.params.header: x-api-key
+    %% @graph auth.composio.params.scheme: ""
+    %% @graph auth.composio.secrets.token: COMPOSIO_API_KEY
+
+    %% --- INPUT: build the JSON body as a single interpolation token ---
+    %% TODO(2) user_id: the Composio user_id that owns the connected account.
+    %% TODO(3) version: pin a concrete YYYYMMDD_NN per the design doc; "latest" is first-run only.
+    %% @INPUT handler: rhai
+    %% @INPUT outputs.request_body: "String"
+    %% @INPUT config.script: >>>
+    %%   let user_id = "default";
+    %%   let version = "latest";
+    %%   let body = "{\"user_id\":\"" + user_id + "\",\"arguments\":{},\"version\":\"" + version + "\"}";
+    %%   #{ request_body: body }
+    %% <<<
+
+    %% --- EXECUTE: POST /api/v3.1/tools/execute/{TOOL_SLUG} ---
+    %% TODO(1) tool_slug in the url: a read-only tool whose toolkit you've linked.
+    %% @EXECUTE handler: http
+    %% @EXECUTE config.url: "https://backend.composio.dev/api/v3.1/tools/execute/GITHUB_GET_THE_AUTHENTICATED_USER"
+    %% @EXECUTE config.method: POST
+    %% @EXECUTE config.auth: composio
+    %% @EXECUTE config.headers: {"Content-Type": "application/json"}
+    %% @EXECUTE config.body: "{request_body}"
+    %% @EXECUTE config.fail_on_non_2xx: true
+    %% @EXECUTE inputs.request_body: "String"

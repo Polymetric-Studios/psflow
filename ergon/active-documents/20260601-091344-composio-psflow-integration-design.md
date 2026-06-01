@@ -68,7 +68,15 @@ Goal: any Composio tool becomes a psflow step via `handler: composio` + a tool s
 Config surface (annotations): toolkit/tool slug, `user_id` (templated), `arguments` (templated object), pinned `version`, optional `connected_account_id`, api-key reference resolved from the secret layer.
 
 - [x] **Handler scope decided** — one generic `composio` handler keyed by slug (not a family); the slug selects direct-execute, meta-tools, and proxy modes.
-- [ ] **Interim no-build path (first step)** — author a runnable `.mmd` using the existing `http` handler against `POST /api/v3.1/tools/execute/{tool_slug}` with the `x-api-key` header, to validate end-to-end before any Rust lands. Gate: a Composio account with a linked connected account exists.
+- [x] **Interim no-build path (first step)** — done and verified end-to-end. `examples/composio_tool_execute.mmd` calls `POST /api/v3.1/tools/execute/{slug}` through the existing `http` handler, with the api key injected as `x-api-key` via the `bearer` strategy (empty scheme) from secret `COMPOSIO_API_KEY`. A dummy-key run reached Composio and returned the expected 401 envelope (message/status/request_id/suggested_fix), confirming endpoint, auth header, and body shape. A valid key + linked connected account is the only remaining input for a green run.
+- [x] **Prototype runner** — `src/bin/composio` (`required-features = ["runtime"]`) wires `with_defaults_full` + an env-backed `SecretResolver` + `auto_install_auth_registry`, and surfaces per-node failure reasons. Needed because the stock `psflow` CLI uses `with_defaults` and installs no resolver, so it cannot execute an auth'd graph.
+
+### 5.1 Findings from the prototype (psflow gotchas, recorded)
+
+- The stock `psflow` CLI cannot run auth'd graphs (no `SecretResolver`); auth'd graphs need a host like `src/bin/composio`.
+- One Mermaid arrow binds exactly one output→input pair (loader best-effort resolution). Multi-input nodes need one edge per input; the prototype keeps each node single-input and hardcodes the slug in the URL.
+- Multiline annotation blocks use `>>>` / `%% <<<`, not `|`. The annotation reference doc was stale and has been corrected.
+- `parse_json` is not registered for the `rhai` handler; in-script JSON parsing is unavailable. The prototype prints the raw response envelope instead.
 - [ ] **Implement the handler** in the handlers module: build request from templated config, POST, branch on the `successful` flag, map `data` to node outputs, surface `error` as a node failure.
 - [ ] **Pin `version`** as a required-or-strongly-defaulted config key; reject `latest` by policy for typed downstream steps.
 - [ ] **Capture `log_id`** into node output / run record for forensics.
