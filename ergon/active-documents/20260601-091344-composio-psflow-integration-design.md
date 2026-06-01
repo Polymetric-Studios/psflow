@@ -22,7 +22,15 @@ Key realization from the docs sweep: **every Composio capability (direct executi
 - Optional: Composio tool schemas fed to `llm_call` for agentic tool selection.
 - Central, reusable rate-limit / error / observability handling so fan-out graphs are safe.
 
-### 2.2 Non-goals
+### 2.2 Decisions locked (20260601)
+
+- **Scope: Phases 1+2** (generic handler + managed auth). Phases 3 (triggers) and 4 (LLM tool-use) remain designed but deferred — see their section headers.
+- **First step: prototype via the existing `http` handler** before any Rust, to validate end-to-end. Prereq: a Composio account with one linked connected account.
+- **Auth-app mode: managed (Composio-hosted)** to start. Accept the ~15-min polling floor and shared rate-limit quota; revisit custom auth configs for production (§6.6).
+- **Handler shape: one generic `composio` handler** keyed by slug (not a family).
+- **Advanced capabilities: only batch fan-out is in scope** (§10.1). Sandboxed shell/workbench, MCP-as-output, and dynamic tool search are parked.
+
+### 2.3 Non-goals
 
 - Hosting psflow workflows *as* Composio tools. Composio custom tools are SDK-in-process only (no server-side registration API); the clean direction is psflow → Composio. Recorded in §13.
 - Replacing psflow's executor loop with Composio's agent loop or MCP client. psflow keeps step-by-step control; MCP-mode is an *output* surface only (§10).
@@ -39,16 +47,16 @@ psflow is a **non-agentic provider** in Composio's vocabulary: it transforms sch
 
 ## 4. The execution contract
 
-The whole of Phase 1 rests on one synchronous call. Facts the handler depends on:
+The whole of Phase 1 rests on one synchronous call. Verified facts the handler depends on:
 
-- Endpoint: tool-execute by slug under the v3 tools API; authenticated with an `x-api-key` header (not Bearer/OAuth on our side).
-- Request carries: `user_id`, `arguments` (object), an explicit toolkit `version`, and an optional `connected_account_id` (auto-resolved from `user_id` when omitted).
-- Response is a fixed envelope: a boolean success flag (spelled `successful`), a tool-specific `data` object, an `error` string, and a `log_id`.
+- Endpoint: `POST /api/v3.1/tools/execute/{tool_slug}` (`tool_slug` a required path param). Auth header `x-api-key` (project) or `x-user-api-key`. Note the base path is `v3.1`, not `v3`.
+- Request body (all fields optional in the schema): `arguments` (object) **or** `text` (natural-language alternative — the two are mutually exclusive); `user_id`; `connected_account_id` (auto-resolved from `user_id` when omitted); `version`; `custom_auth_params`; `custom_connection_data`; `entity_id`; `allow_tracing`.
+- Response envelope: `successful` (boolean — this spelling, not `success`), `data` (object), `error` (string|null), `log_id` (string), `session_info` (object|null).
 - Behaviour is request/response — no polling, no webhook for execution itself.
 
 ### 4.1 Hard facts that shape the design
 
-- **Version default is the base version, not latest.** Omitting `version` silently exposes fewer fields than the dashboard shows. The handler must pin a version (config-defaulted), since downstream steps consume typed `data`.
+- **Pin `version` explicitly.** `version` is **per-toolkit** (keys are toolkit slugs; format `YYYYMMDD_NN`), not per-tool. Sources conflict on the default — the REST endpoint schema says it defaults to `latest`, while the versioning guide implies an unspecified call resolves to a base version exposing fewer fields. Either way the handler pins a concrete `YYYYMMDD_NN`, since downstream steps consume typed `data` and `latest` risks silent shape drift. (The SDK also exposes `dangerously_skip_version_check` — do not use it.)
 - **Rate limit is org-global on a rolling ~10-minute window.** A fan-out graph can exhaust the whole org quota. Backoff must be central, not per-node.
 - **Auth header is a single static key.** The interim `http`-handler path needs only one header — no OAuth wiring — making a no-new-code prototype viable.
 - **Proxy execution exists** for un-wrapped APIs: reuse a stored connected account, never set `Authorization`, same-domain constraint, no multipart.
@@ -59,8 +67,8 @@ Goal: any Composio tool becomes a psflow step via `handler: composio` + a tool s
 
 Config surface (annotations): toolkit/tool slug, `user_id` (templated), `arguments` (templated object), pinned `version`, optional `connected_account_id`, api-key reference resolved from the secret layer.
 
-- [ ] **Decide handler scope** — one generic `composio` handler keyed by slug vs. a thin family. Recommendation: single handler; the slug selects direct-execute, meta-tools, proxy, and sandbox modes.
-- [ ] **Interim no-build path** — author a runnable `.mmd` using the existing `http` handler against the execute endpoint with the `x-api-key` header, to validate end-to-end before any Rust lands. Gate: a Composio account with a linked connected account exists.
+- [x] **Handler scope decided** — one generic `composio` handler keyed by slug (not a family); the slug selects direct-execute, meta-tools, and proxy modes.
+- [ ] **Interim no-build path (first step)** — author a runnable `.mmd` using the existing `http` handler against `POST /api/v3.1/tools/execute/{tool_slug}` with the `x-api-key` header, to validate end-to-end before any Rust lands. Gate: a Composio account with a linked connected account exists.
 - [ ] **Implement the handler** in the handlers module: build request from templated config, POST, branch on the `successful` flag, map `data` to node outputs, surface `error` as a node failure.
 - [ ] **Pin `version`** as a required-or-strongly-defaulted config key; reject `latest` by policy for typed downstream steps.
 - [ ] **Capture `log_id`** into node output / run record for forensics.
@@ -82,7 +90,7 @@ Model: a Composio auth config (`ac_…`) is a one-time per-toolkit blueprint. A 
 - [ ] **Connection-expiry handling** — route the connected-account-expired event to a re-auth notification path so long-lived workflows don't fail mid-run.
 - [ ] **Managed vs custom decision** — document that managed OAuth apps impose a ~15-minute polling floor and a shared rate-limit quota; production with tighter triggers or branded consent needs a custom auth config. Record the chosen mode per toolkit.
 
-## 7. Phase 3 — triggers / event entry
+## 7. Phase 3 — triggers / event entry (deferred; designed, not in current scope)
 
 Goal: a verified Composio event starts a psflow workflow.
 
@@ -92,9 +100,9 @@ Delivery is a webhook (production) or SDK websocket subscribe (dev). The payload
 - [ ] **`composio_trigger` node** — declares toolkit + trigger slug + `user_id`; on event, seeds the event-driven executor with `metadata.user_id`, connected-account id, and `data` as run context.
 - [ ] **Workflow dispatch** — map `metadata.trigger_slug` to the target workflow.
 - [ ] **Lifecycle events** — handle trigger-disabled (mark the node dead) and connected-account-expired (route to re-auth from §6).
-- [ ] **Trigger provisioning** — resolve the create-trigger SDK signature and `ti_…` provisioning call (not on the fetched doc pages; see §12) and wire a provisioning step or document a manual dashboard prerequisite.
+- [ ] **Trigger provisioning** — create/upsert a trigger instance via `POST /api/v3.1/trigger_instances/{slug}/upsert` (body: `connected_account_id?`, `trigger_config?`, `toolkit_versions?`), SDK `triggers.create(slug, user_id, connected_account_id, trigger_config)`. Returns `trigger_id` (no documented `ti_` prefix). Wire a provisioning step or document a manual dashboard prerequisite.
 
-## 8. Phase 4 — LLM tool-use
+## 8. Phase 4 — LLM tool-use (deferred; designed, not in current scope)
 
 Goal: oracle/`llm_call` nodes can select Composio tools dynamically. Build last; depends on Phase 1 for execution.
 
@@ -113,12 +121,17 @@ Build once in the handler; every mode inherits it.
 
 ## 10. Meta-tools and advanced capabilities
 
-All reachable through the same handler by slug; each is a high-leverage psflow capability.
+All reachable through the same handler by slug. Only batch fan-out is in current scope; the rest are parked (recorded for later).
 
-- [ ] **Batch / fan-out** — a single node executes N tool calls and returns ordered results, mapping directly onto the render fan-out + accumulator pattern. Evaluate offloading large payloads to remote storage to keep them out of the transport.
-- [ ] **Dynamic tool search** — late-bound slug resolution from intent (also referenced in §8.3).
-- [ ] **Sandboxed shell / workbench** — off-host shell and Python with state threaded by session id; lets psflow run compute steps without host shell access. Respect the hard ~180s per-call ceiling; note workbench billing is imminent before depending on it.
-- [ ] **MCP as an output surface** — expose a curated, allow-listed Composio MCP server to the agents psflow orchestrates, while the engine's own nodes stay on REST. Keep the boundary: engine → REST; orchestrated agents → MCP.
+### 10.1 In scope
+
+- [ ] **Batch / fan-out** — a single node executes N tool calls and returns ordered results (by `index`), mapping directly onto the render fan-out + accumulator pattern. Evaluate offloading large payloads to remote storage to keep them out of the transport. Concurrency cap is undocumented (§12) — verify empirically before relying on wide fan-out.
+
+### 10.2 Parked (not in current scope)
+
+- Dynamic tool search — late-bound slug resolution from intent.
+- Sandboxed shell / workbench — off-host shell and Python; hard ~180s per-call ceiling and imminent billing.
+- MCP as an output surface — a curated, allow-listed Composio MCP server for the agents psflow orchestrates, engine nodes staying on REST. Boundary if revived: engine → REST; orchestrated agents → MCP.
 
 ## 11. Reusable graph templates
 
@@ -128,12 +141,15 @@ Ship as starter `.mmd` files; they are the two canonical shapes the cookbooks re
 - [ ] **Scheduled fan-out digest** — scheduled trigger, parallel Composio fetch nodes, one LLM digest, one Composio post. Covers the background-agent shape.
 - [ ] **Selling-point note** — these cookbooks bound their agent loop with a step cap; psflow replaces that loop with explicit nodes, giving deterministic control. Capture this as positioning.
 
-## 12. Open questions / to verify before coding
+## 12. Open questions / unknowns
 
-- [ ] Confirm exact optional-field spellings on the execute request body against the live API reference (the spec page is JS-rendered and could not be fetched verbatim).
-- [ ] Confirm the batch meta-tool's maximum concurrency (undocumented) before relying on wide fan-out.
-- [ ] Obtain the create-trigger SDK signature and `ti_…` provisioning call from the SDK reference (absent from the fetched doc pages).
-- [ ] Confirm whether toolkit `version` is per-tool or per-toolkit for the slugs psflow will use first.
+Resolved 20260601 against the live API reference (rendered OpenAPI endpoint pages; the `.md` reference stubs carry no per-endpoint schema):
+
+- [x] **Execute request/response fields** — confirmed. Endpoint `POST /api/v3.1/tools/execute/{tool_slug}`, header `x-api-key`. Body fields and the `successful`/`data`/`error`/`log_id`/`session_info` envelope recorded in §4; `arguments` and `text` are mutually exclusive.
+- [x] **Create-trigger call** — confirmed. `POST /api/v3.1/trigger_instances/{slug}/upsert` / SDK `triggers.create(slug, user_id, connected_account_id, trigger_config)`; returns `trigger_id` with no documented `ti_` prefix. Recorded in §7.
+- [x] **Version granularity** — confirmed **per-toolkit** (toolkit-slug keys, format `YYYYMMDD_NN`). Recorded in §4.1.
+- [ ] **Batch concurrency cap** — still **undocumented**. The batch meta-tool states no array-size or parallelism limit. Verify empirically before relying on wide fan-out (§10.1).
+- [ ] **Version default** — source conflict: REST endpoint schema says `version` defaults to `latest`; the versioning guide implies a base version when unspecified. Moot for our design (we pin explicitly), but confirm if any path ever omits `version`.
 
 ## 13. Out of scope (recorded, not tasks)
 
