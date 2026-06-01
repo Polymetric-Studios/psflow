@@ -46,6 +46,10 @@ async function main() {
   // receive all of the account's trigger events.
   await composio.triggers.subscribe(emit, triggerId ? { triggerId } : {});
   process.stderr.write('[triggers_listen] subscribed; waiting for events…\n');
+
+  // Keep the process (and the websocket) alive — subscribe() returns once the
+  // subscription is established, so without this the script would exit.
+  await new Promise(() => {});
 }
 
 main().catch((err) => {
