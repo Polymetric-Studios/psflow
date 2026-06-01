@@ -1,25 +1,23 @@
 graph TD
-    EXECUTE[Composio CLI Execute]
+    EXECUTE[Composio Tool]
 
-    %% Phase-1 prototype, CLI variant: call a Composio tool through the
-    %% `composio` CLI via psflow's stateless `shell` handler. No API key and no
-    %% user_id in the graph — `composio login` established the auth on this
-    %% machine, and `composio execute` uses that logged-in context. Because
-    %% `shell` is a default handler, this runs on the stock `psflow` binary:
+    %% Phase-1, native handler: execute a Composio tool via the `composio`
+    %% handler, which wraps the `composio` CLI and returns the parsed response
+    %% envelope as structured outputs (successful / data / error / log_id) — no
+    %% shelling out, no JSON string-parsing downstream. Auth comes from
+    %% `composio login`, so there is no api key and no user_id in the graph.
+    %% `composio` is a stateless default handler, so this runs on the stock
+    %% psflow binary (requires `composio` on PATH):
     %%
     %%   cargo run --bin psflow --features runtime -- examples/composio_cli_execute.mmd
     %%
-    %% Requires `composio` on PATH (installed at ~/.composio/composio).
-    %%
-    %% Brace note: psflow's template resolver treats `{...}` as interpolation;
-    %% `{{}}` escapes to the literal `{}` empty-arguments JSON the CLI wants.
+    %% Outputs surface via --json, or thread `data` into a downstream node.
 
-    %% @graph name: composio-cli-probe
-    %% @graph description: Execute a Composio tool via the composio CLI through the shell handler
+    %% @graph name: composio-native-probe
+    %% @graph description: Execute a Composio tool via the native composio handler
 
-    %% TODO: swap the slug for any read-only tool whose toolkit you've linked.
-    %% @EXECUTE handler: shell
-    %% @EXECUTE config.command: composio
-    %% @EXECUTE config.args: ["execute", "GOOGLESHEETS_SEARCH_SPREADSHEETS", "-d", "{{}}"]
-    %% @EXECUTE outputs.stdout: "String"
-    %% @EXECUTE outputs.exit_code: "I64"
+    %% TODO: swap the slug + arguments for any tool whose toolkit you've linked.
+    %% String leaves of `arguments` are template-resolved (e.g. "{inputs.id}").
+    %% @EXECUTE handler: composio
+    %% @EXECUTE config.tool: GOOGLESHEETS_SEARCH_SPREADSHEETS
+    %% @EXECUTE config.arguments: {}

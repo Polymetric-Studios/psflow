@@ -1,5 +1,6 @@
 pub mod accumulator;
 pub(crate) mod common;
+pub mod composio;
 pub mod control;
 pub mod error;
 pub mod file_io;
@@ -15,6 +16,7 @@ pub mod utility;
 pub mod websocket;
 
 pub use accumulator::AccumulatorHandler;
+pub use composio::ComposioHandler;
 pub use control::{BreakHandler, SelectHandler};
 pub use error::{CatchHandler, ErrorTransformHandler, FallbackHandler, RetryHandler};
 pub use file_io::{GlobHandler, ReadFileHandler, WriteFileHandler};

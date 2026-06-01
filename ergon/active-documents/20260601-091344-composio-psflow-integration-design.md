@@ -24,11 +24,11 @@ Key realization from the docs sweep: **every Composio capability (direct executi
 
 ### 2.2 Decisions locked (20260601)
 
-- **Scope: Phases 1+2** (generic handler + managed auth). Phases 3 (triggers) and 4 (LLM tool-use) remain designed but deferred — see their section headers.
-- **First step: prototype via the existing `http` handler** before any Rust, to validate end-to-end. Prereq: a Composio account with one linked connected account.
-- **Auth-app mode: managed (Composio-hosted)** to start. Accept the ~15-min polling floor and shared rate-limit quota; revisit custom auth configs for production (§6.6).
-- **Handler shape: one generic `composio` handler** keyed by slug (not a family).
+- **Single-user / personal scope.** This integration is for one operator on their own machine with their own connected accounts. This cuts Phase 2 (managed multi-`user_id` auth), per-account aliasing, org-quota-DoS concerns, and the production "not for runtime" caveats — none apply at one user.
+- **Auth via `composio login`** (machine-level), not an api key in the graph. The CLI's logged-in context is the auth; graphs carry no key and no `user_id`.
+- **Canonical handler: the native `composio` handler** (`src/handlers/composio.rs`) — wraps the `composio` CLI and returns the parsed envelope as structured outputs. Stateless default → runs on the stock `psflow` binary. Implemented and verified live (§5).
 - **Advanced capabilities: only batch fan-out is in scope** (§10.1). Sandboxed shell/workbench, MCP-as-output, and dynamic tool search are parked.
+- **Superseded earlier decisions:** the `http`+`x-api-key` path (`examples/composio_tool_execute.mmd` + `src/bin/composio`) and Phases 3–4 remain in the doc as the *multi-user/production* route, retained for reference but not the active path.
 
 ### 2.3 Non-goals
 
@@ -70,7 +70,8 @@ Config surface (annotations): toolkit/tool slug, `user_id` (templated), `argumen
 - [x] **Handler scope decided** — one generic `composio` handler keyed by slug (not a family); the slug selects direct-execute, meta-tools, and proxy modes.
 - [x] **Interim no-build path (first step)** — done and verified end-to-end. `examples/composio_tool_execute.mmd` calls `POST /api/v3.1/tools/execute/{slug}` through the existing `http` handler, with the api key injected as `x-api-key` via the `bearer` strategy (empty scheme) from secret `COMPOSIO_API_KEY`. A dummy-key run reached Composio and returned the expected 401 envelope (message/status/request_id/suggested_fix), confirming endpoint, auth header, and body shape. A valid key + linked connected account is the only remaining input for a green run.
 - [x] **Prototype runner** — `src/bin/composio` (`required-features = ["runtime"]`) wires `with_defaults_full` + an env-backed `SecretResolver` + `auto_install_auth_registry`, and surfaces per-node failure reasons. Needed because the stock `psflow` CLI uses `with_defaults` and installs no resolver, so it cannot execute an auth'd graph.
-- [x] **CLI variant — verified live (no key)** — `examples/composio_cli_execute.mmd` calls the `composio` CLI through the stateless `shell` handler. Auth comes from `composio login` (machine-level), so the graph carries no api key and no `user_id`; because `shell` is a default handler it runs on the **stock `psflow` binary**. Confirmed end-to-end against a real Google Sheets connection (`GOOGLESHEETS_SEARCH_SPREADSHEETS` → `successful: true`, `total_found: 10`). Tradeoffs: single machine-level login (not per-`user_id`), CLI must be on PATH on every runner, subprocess returns human-formatted text rather than the clean JSON envelope, and the CLI is "not recommended as a production runtime." Use it for local/dev; the `http`+key path and the eventual Rust handler remain the production/multi-user route.
+- [x] **CLI variant — verified live (no key)** — proved the CLI path through the stateless `shell` handler against a real Google Sheets connection (`successful: true`, `total_found: 10`). Superseded by the native handler below for everyday use; kept in git history.
+- [x] **Native `composio` handler — implemented and verified live** — `src/handlers/composio.rs`, registered in `with_defaults`. Wraps `composio execute <slug> -d <json>`: config is `tool` + an `arguments` object (string leaves template-resolved, e.g. `{inputs.id}`, no brace collisions), plus `binary`/`timeout_ms`/`dry_run`/`allow_unsuccessful`. Parses the CLI's stdout JSON (banner goes to stderr) into structured, typed outputs: `successful` (Bool), `data` (Map), `error` (String|Null), `log_id` (String). Inherits the CLI's schema validation + connection checks. `schema()` implemented (drift guard passes); 3 unit tests + full lib suite green. Canonical example: `examples/composio_cli_execute.mmd` → live run returned `data.total_found: 10`, navigable typed payload (`data.value.spreadsheets[0].value.name.value`). This is the everyday path for single-user use.
 
 ### 5.1 Findings from the prototype (psflow gotchas, recorded)
 
