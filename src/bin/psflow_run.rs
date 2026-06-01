@@ -21,7 +21,7 @@ use psflow::execute::{ContextInheritance, ExecutionContext};
 use psflow::scripting::engine::ScriptEngine;
 use psflow::{
     load_mermaid, Blackboard, BlackboardScope, ExecutionResult, LlmCallHandler, NodeRegistry,
-    NodeState, Outputs, PromptTemplateResolver, TemplateError, TemplateResolver,
+    NodeState, Outputs, PromptTemplateResolver, RhaiHandler, TemplateError, TemplateResolver,
     TopologicalExecutor, Value,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,9 +32,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const DEFAULT_GRAPHS_DIR: &str = "graphs";
 const DEFAULT_RUNS_DIR: &str = "runs";
+const DEFAULT_STATE_DIR: &str = "state";
 const ON_FAILURE_GRAPH: &str = "on-failure";
 const CONFIG_FILE: &str = "config.json";
 const CTX_MARKER: &str = "{ctx.";
+/// Node outputs with this prefix are persisted to the graph's cross-run state
+/// (prefix stripped), e.g. an output `save_last_seen` becomes state `last_seen`.
+const STATE_SAVE_PREFIX: &str = "save_";
 
 /// Template resolver that exposes runtime `--input` values to handler templates
 /// as `{ctx.key}` (and bare `{key}`). Stateless handlers (composio, shell, …)
@@ -85,6 +89,10 @@ struct Cli {
     #[arg(long)]
     runs_dir: Option<PathBuf>,
 
+    /// Directory for cross-run state files (default ./state).
+    #[arg(long)]
+    state_dir: Option<PathBuf>,
+
     /// Do not run the on-failure hook / desktop notification on failure.
     #[arg(long)]
     no_notify: bool,
@@ -101,6 +109,10 @@ fn main() -> ExitCode {
         .runs_dir
         .clone()
         .unwrap_or_else(|| PathBuf::from(DEFAULT_RUNS_DIR));
+    let state_dir = cli
+        .state_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_STATE_DIR));
 
     if cli.list {
         list_graphs(&graphs_dir);
@@ -112,22 +124,21 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    // Merge config-file defaults (<graphs-dir>/config.json) with --input (input wins).
-    let mut inputs = load_config(&graphs_dir);
-    match parse_inputs(&cli.inputs) {
-        Ok(cli_inputs) => inputs.extend(cli_inputs),
+    let cli_inputs = match parse_inputs(&cli.inputs) {
+        Ok(m) => m,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
-    }
+    };
 
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     match rt.block_on(run(
         &graph_ref,
         &graphs_dir,
         &runs_dir,
-        inputs,
+        &state_dir,
+        cli_inputs,
         cli.no_notify,
     )) {
         Ok(true) => ExitCode::SUCCESS,
@@ -155,6 +166,55 @@ fn load_config(graphs_dir: &Path) -> BTreeMap<String, Value> {
             BTreeMap::new()
         }
     }
+}
+
+/// Load a graph's cross-run state (`<state-dir>/<graph>.json`, a flat object).
+fn load_state(state_dir: &Path, graph_name: &str) -> BTreeMap<String, Value> {
+    let path = state_dir.join(format!("{graph_name}.json"));
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return BTreeMap::new();
+    };
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(serde_json::Value::Object(map)) => {
+            map.into_iter().map(|(k, v)| (k, Value::from(v))).collect()
+        }
+        _ => BTreeMap::new(),
+    }
+}
+
+/// Persist node outputs prefixed `save_` (prefix stripped) into the graph's
+/// cross-run state, merging over any existing keys.
+fn save_state(state_dir: &Path, graph_name: &str, result: &ExecutionResult) -> Result<(), String> {
+    let mut to_save: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    for outputs in result.node_outputs.values() {
+        for (k, v) in outputs {
+            if let Some(key) = k.strip_prefix(STATE_SAVE_PREFIX) {
+                to_save.insert(key.to_string(), serde_json::Value::from(v));
+            }
+        }
+    }
+    if to_save.is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(state_dir).map_err(|e| e.to_string())?;
+    let path = state_dir.join(format!("{graph_name}.json"));
+    // Merge over existing state.
+    let mut existing: serde_json::Map<String, serde_json::Value> =
+        match std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        {
+            Some(serde_json::Value::Object(m)) => m,
+            _ => serde_json::Map::new(),
+        };
+    for (k, v) in to_save {
+        existing.insert(k, v);
+    }
+    let json = serde_json::to_string_pretty(&serde_json::Value::Object(existing))
+        .map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    eprintln!("state saved: {}", path.display());
+    Ok(())
 }
 
 /// Print available graphs (name + description) in `graphs_dir`.
@@ -216,7 +276,8 @@ async fn run(
     graph_ref: &str,
     graphs_dir: &Path,
     runs_dir: &Path,
-    inputs: BTreeMap<String, Value>,
+    state_dir: &Path,
+    cli_inputs: BTreeMap<String, Value>,
     no_notify: bool,
 ) -> Result<bool, String> {
     let path = resolve_graph_path(graph_ref, graphs_dir)?;
@@ -225,6 +286,11 @@ async fn run(
         .and_then(|s| s.to_str())
         .unwrap_or(graph_ref)
         .to_string();
+
+    // Precedence (low → high): config-file defaults < cross-run state < --input.
+    let mut inputs = load_config(graphs_dir);
+    inputs.extend(load_state(state_dir, &graph_name));
+    inputs.extend(cli_inputs);
 
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
@@ -279,6 +345,10 @@ async fn run(
     }
 
     if failed.is_empty() {
+        // Persist any `save_*` outputs to cross-run state (success only).
+        if let Err(e) = save_state(state_dir, &graph_name, &result) {
+            eprintln!("warning: could not write state: {e}");
+        }
         eprintln!(
             "completed in {:.1}ms",
             result.elapsed.as_secs_f64() * 1000.0
@@ -302,11 +372,12 @@ fn build_handlers(
 ) -> psflow::execute::HandlerRegistry {
     let engine = Arc::new(ScriptEngine::with_defaults());
 
-    // A context whose blackboard carries the runtime inputs, so `llm_call`
-    // prompts can read `{ctx.key}` (it renders against this blackboard).
-    let llm_ctx = Arc::new(ExecutionContext::new());
+    // A context whose blackboard carries the runtime inputs, so context-aware
+    // handlers (`llm_call` prompts, `rhai` scripts) can read them as `{ctx.key}`
+    // / `ctx_get(ctx, "key")`.
+    let ctx = Arc::new(ExecutionContext::new());
     {
-        let mut bb = llm_ctx.blackboard();
+        let mut bb = ctx.blackboard();
         for (k, v) in &inputs {
             bb.set(k.clone(), v.clone(), BlackboardScope::Global);
         }
@@ -316,11 +387,15 @@ fn build_handlers(
         inputs,
         inner: PromptTemplateResolver,
     });
-    let mut reg = NodeRegistry::with_defaults_and_resolver(engine, resolver);
+    let mut reg = NodeRegistry::with_defaults_and_resolver(engine.clone(), resolver);
     reg.register(
         "llm_call",
-        Arc::new(LlmCallHandler::with_context(adapter, llm_ctx)),
+        Arc::new(LlmCallHandler::with_context(adapter, ctx.clone())),
     );
+    // Override the default stateless `rhai` with one that sees the inputs as `ctx`.
+    let rhai = RhaiHandler::new(engine);
+    rhai.set_context(ctx);
+    reg.register("rhai", Arc::new(rhai));
     reg.into_handler_registry()
 }
 

@@ -1,0 +1,7 @@
+graph TD
+    TICK[Tick]
+    %% @graph name: state-test
+    %% @graph description: Increment a counter persisted across runs via cross-run state
+    %% @TICK handler: rhai
+    %% @TICK config.script: "let n = ctx_get(ctx, \"count\"); let cur = if n == () { 0 } else { n }; #{ save_count: cur + 1 }"
+    %% @TICK outputs.save_count: "I64"
