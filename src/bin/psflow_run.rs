@@ -24,7 +24,7 @@ use psflow::{
     NodeState, Outputs, PromptTemplateResolver, TemplateError, TemplateResolver,
     TopologicalExecutor, Value,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -33,6 +33,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const DEFAULT_GRAPHS_DIR: &str = "graphs";
 const DEFAULT_RUNS_DIR: &str = "runs";
 const ON_FAILURE_GRAPH: &str = "on-failure";
+const CONFIG_FILE: &str = "config.json";
+const CTX_MARKER: &str = "{ctx.";
 
 /// Template resolver that exposes runtime `--input` values to handler templates
 /// as `{ctx.key}` (and bare `{key}`). Stateless handlers (composio, shell, …)
@@ -63,12 +65,17 @@ impl TemplateResolver for RuntimeInputResolver {
 #[command(name = "psflow-run", about = "Run a named psflow graph with inputs")]
 struct Cli {
     /// Graph name (resolved to <graphs-dir>/<name>.mmd) or a path to a .mmd file.
-    graph: String,
+    /// Optional when --list is given.
+    graph: Option<String>,
 
     /// Runtime input as key=value. Repeatable. Values parse as JSON, else string.
-    /// Graphs read these via `{ctx.key}`.
+    /// Graphs read these via `{ctx.key}`. Overrides config-file defaults.
     #[arg(short, long = "input", value_name = "KEY=VALUE")]
     inputs: Vec<String>,
+
+    /// List available named graphs and exit.
+    #[arg(long)]
+    list: bool,
 
     /// Directory holding named graphs (env PSFLOW_GRAPHS_DIR overrides; default ./graphs).
     #[arg(long)]
@@ -95,17 +102,29 @@ fn main() -> ExitCode {
         .clone()
         .unwrap_or_else(|| PathBuf::from(DEFAULT_RUNS_DIR));
 
-    let inputs = match parse_inputs(&cli.inputs) {
-        Ok(m) => m,
+    if cli.list {
+        list_graphs(&graphs_dir);
+        return ExitCode::SUCCESS;
+    }
+
+    let Some(graph_ref) = cli.graph.clone() else {
+        eprintln!("error: a graph name is required (or use --list)");
+        return ExitCode::FAILURE;
+    };
+
+    // Merge config-file defaults (<graphs-dir>/config.json) with --input (input wins).
+    let mut inputs = load_config(&graphs_dir);
+    match parse_inputs(&cli.inputs) {
+        Ok(cli_inputs) => inputs.extend(cli_inputs),
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
-    };
+    }
 
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     match rt.block_on(run(
-        &cli.graph,
+        &graph_ref,
         &graphs_dir,
         &runs_dir,
         inputs,
@@ -118,6 +137,78 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Load `<graphs-dir>/config.json` (a flat object of constants) as low-precedence
+/// `{ctx.*}` defaults. Missing/invalid file → empty map.
+fn load_config(graphs_dir: &Path) -> BTreeMap<String, Value> {
+    let path = graphs_dir.join(CONFIG_FILE);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return BTreeMap::new();
+    };
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(serde_json::Value::Object(map)) => {
+            map.into_iter().map(|(k, v)| (k, Value::from(v))).collect()
+        }
+        _ => {
+            eprintln!("warning: {} is not a JSON object; ignoring", path.display());
+            BTreeMap::new()
+        }
+    }
+}
+
+/// Print available graphs (name + description) in `graphs_dir`.
+fn list_graphs(graphs_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(graphs_dir) else {
+        eprintln!("no graphs dir at {}", graphs_dir.display());
+        return;
+    };
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("mmd") {
+            continue;
+        }
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string();
+        let desc = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|c| load_mermaid(&c).ok())
+            .and_then(|g| g.metadata().description.clone())
+            .unwrap_or_default();
+        rows.push((name, desc));
+    }
+    rows.sort();
+    for (name, desc) in rows {
+        if desc.is_empty() {
+            println!("{name}");
+        } else {
+            println!("{name}  —  {desc}");
+        }
+    }
+}
+
+/// Collect the `{ctx.KEY}` keys referenced anywhere in the raw graph text, so the
+/// runner can fail fast on missing inputs instead of erroring mid-render.
+fn referenced_ctx_keys(content: &str) -> BTreeSet<String> {
+    let mut keys = BTreeSet::new();
+    let mut rest = content;
+    while let Some(pos) = rest.find(CTX_MARKER) {
+        let after = &rest[pos + CTX_MARKER.len()..];
+        let key: String = after
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        let consumed = key.len();
+        if !key.is_empty() {
+            keys.insert(key);
+        }
+        rest = &after[consumed..];
+    }
+    keys
 }
 
 /// Returns Ok(true) on success, Ok(false) when a node failed.
@@ -137,6 +228,19 @@ async fn run(
 
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+
+    // Fail fast on missing inputs, before any node runs.
+    let missing: Vec<String> = referenced_ctx_keys(&content)
+        .into_iter()
+        .filter(|k| !inputs.contains_key(k))
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "missing required input(s): {} (pass via --input k=v or {CONFIG_FILE})",
+            missing.join(", ")
+        ));
+    }
+
     let graph = load_mermaid(&content).map_err(|errs| {
         errs.iter()
             .map(|e| e.to_string())
