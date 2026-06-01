@@ -1,0 +1,7 @@
+graph TD
+    HANDLE[Handle Event]
+    %% @graph name: on-event
+    %% @graph description: Example trigger handler — saves the event to cross-run state
+    %% @HANDLE handler: rhai
+    %% @HANDLE config.script: "let e = ctx_get(ctx, \"event\"); #{ save_last_event: e }"
+    %% @HANDLE outputs.save_last_event: "String"

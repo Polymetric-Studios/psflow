@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 const DEFAULT_GRAPHS_DIR: &str = "graphs";
 const DEFAULT_RUNS_DIR: &str = "runs";
@@ -113,6 +114,23 @@ struct Cli {
     /// Directory for the tool-response cache (default ./cache/tools).
     #[arg(long)]
     cache_dir: Option<PathBuf>,
+
+    /// Listen mode: stream Composio trigger events (`composio dev listen`) and
+    /// run the named graph once per event, with the event JSON as `{ctx.event}`.
+    #[arg(long)]
+    listen: bool,
+
+    /// Listen filter: trigger slug(s), comma-separated (passed to dev listen).
+    #[arg(long)]
+    trigger_slug: Option<String>,
+
+    /// Listen filter: toolkit slug(s), comma-separated (passed to dev listen).
+    #[arg(long)]
+    toolkits: Option<String>,
+
+    /// Listen: stop after N events (passed to dev listen). Useful for testing.
+    #[arg(long)]
+    max_events: Option<u32>,
 }
 
 fn main() -> ExitCode {
@@ -167,6 +185,30 @@ fn main() -> ExitCode {
     }
 
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+
+    if cli.listen {
+        let filters = ListenFilters {
+            trigger_slug: cli.trigger_slug.clone(),
+            toolkits: cli.toolkits.clone(),
+            max_events: cli.max_events,
+        };
+        return match rt.block_on(listen_loop(
+            &graph_ref,
+            &graphs_dir,
+            &runs_dir,
+            &state_dir,
+            cli_inputs,
+            cli.no_notify,
+            &filters,
+        )) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     match rt.block_on(run(
         &graph_ref,
         &graphs_dir,
@@ -182,6 +224,93 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+struct ListenFilters {
+    trigger_slug: Option<String>,
+    toolkits: Option<String>,
+    max_events: Option<u32>,
+}
+
+/// Build the shell command for the trigger event stream. Overridable via
+/// `PSFLOW_LISTEN_CMD` (used for testing); otherwise `composio dev listen --json`
+/// plus any filters. The event JSON is emitted one object per line on stdout.
+fn listen_command(filters: &ListenFilters) -> String {
+    if let Ok(cmd) = std::env::var("PSFLOW_LISTEN_CMD") {
+        return cmd;
+    }
+    let mut cmd = String::from("composio dev listen --json");
+    if let Some(s) = &filters.trigger_slug {
+        cmd.push_str(&format!(" --trigger-slug {s}"));
+    }
+    if let Some(t) = &filters.toolkits {
+        cmd.push_str(&format!(" --toolkits {t}"));
+    }
+    if let Some(n) = filters.max_events {
+        cmd.push_str(&format!(" --max-events {n}"));
+    }
+    cmd
+}
+
+/// Merge a trigger event (raw JSON line) into a copy of the base inputs as
+/// `event`. Returns None when the line is not a JSON object (banners, blanks).
+fn event_to_inputs(line: &str, base: &BTreeMap<String, Value>) -> Option<BTreeMap<String, Value>> {
+    let line = line.trim();
+    if !line.starts_with('{') {
+        return None;
+    }
+    serde_json::from_str::<serde_json::Value>(line).ok()?;
+    let mut inputs = base.clone();
+    inputs.insert("event".to_string(), Value::String(line.to_string()));
+    Some(inputs)
+}
+
+/// Stream Composio trigger events and run `handler_graph` once per event.
+#[allow(clippy::too_many_arguments)]
+async fn listen_loop(
+    handler_graph: &str,
+    graphs_dir: &Path,
+    runs_dir: &Path,
+    state_dir: &Path,
+    base_inputs: BTreeMap<String, Value>,
+    no_notify: bool,
+    filters: &ListenFilters,
+) -> Result<(), String> {
+    let cmd = listen_command(filters);
+    eprintln!("[listen] starting: {cmd}");
+    let mut child = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(&cmd)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to start listener: {e}"))?;
+
+    let stdout = child.stdout.take().ok_or("listener produced no stdout")?;
+    let mut lines = BufReader::new(stdout).lines();
+
+    while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        let Some(inputs) = event_to_inputs(&line, &base_inputs) else {
+            continue;
+        };
+        eprintln!("[listen] event -> {handler_graph}");
+        match run(
+            handler_graph,
+            graphs_dir,
+            runs_dir,
+            state_dir,
+            inputs,
+            no_notify,
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => eprintln!("[listen] handler '{handler_graph}' reported failure"),
+            Err(e) => eprintln!("[listen] dispatch error: {e}"),
+        }
+    }
+
+    let _ = child.wait().await;
+    Ok(())
 }
 
 /// Load `<graphs-dir>/config.json` (a flat object of constants) as low-precedence
@@ -579,4 +708,36 @@ fn first_failure_message(result: &ExecutionResult) -> Option<(String, String)> {
         ExecutionEvent::NodeFailed { node_id, error } => Some((node_id.clone(), error.to_string())),
         _ => None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_to_inputs_skips_non_json() {
+        let base = BTreeMap::new();
+        assert!(event_to_inputs("banner line", &base).is_none());
+        assert!(event_to_inputs("   ", &base).is_none());
+    }
+
+    #[test]
+    fn event_to_inputs_adds_event_over_base() {
+        let mut base = BTreeMap::new();
+        base.insert("k".to_string(), Value::String("v".to_string()));
+        let out = event_to_inputs("  {\"id\":\"e1\"}  ", &base).unwrap();
+        assert_eq!(out.get("k"), Some(&Value::String("v".to_string())));
+        match out.get("event") {
+            Some(Value::String(s)) => assert!(s.contains("e1")),
+            other => panic!("expected event string, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn referenced_ctx_keys_extracts_names() {
+        let keys = referenced_ctx_keys("a {ctx.sheet_id} b {ctx.query} c {inputs.x}");
+        assert!(keys.contains("sheet_id"));
+        assert!(keys.contains("query"));
+        assert!(!keys.contains("x"));
+    }
 }

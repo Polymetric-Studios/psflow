@@ -186,6 +186,18 @@ Auth stays keyless: Composio via `composio login`, LLM via the `claude` CLI.
 
 The precedence and merge order is: `config.json` < cross-run state < `--input`, evaluated before fail-fast validation so state/config can satisfy required inputs.
 
+### 13.1.2 Trigger bridge (event-driven, added)
+
+Composio triggers are usable for single-user without a public webhook: `composio dev listen --json` streams trigger events to stdout locally. `psflow-run --listen <handler-graph>` wraps it, parsing each event line and running the handler graph once per event with the event JSON injected as `{ctx.event}`. Cross-run state gives dedup; run-history + notify wrap each dispatch.
+
+- Setup (one-time): `composio dev init`, then `composio dev triggers create <slug>` (binds a connected account + config, e.g. a sheet + A1 range), `composio dev triggers enable`.
+- Run: `psflow-run --listen on-event [--trigger-slug X] [--toolkits Y]`.
+- Filters (`--trigger-slug`, `--toolkits`, `--max-events`) pass through; the listen command is overridable via `PSFLOW_LISTEN_CMD` (used for testing).
+- Triggers are **poll-type** (latency in minutes; managed apps ~15-min floor). Non-JSON lines (banners) are skipped.
+- Verified with a simulated event stream: 2 events dispatched, banner skipped, event reached the handler as `{ctx.event}`, run records written.
+
+Composio features still unused (smaller, optional): `composio proxy` (un-wrapped provider APIs with managed auth → a `composio_proxy` handler mode), `execute -p` parallel/batch (a `multi` handler mode), `composio run` (inline TS/JS agent runtime — redundant with psflow), and `dev logs` (full request/response forensics beyond the captured `log_id`).
+
 ### 13.2 Scheduling — recipe
 
 The `ergon-scheduler` fires cron shell jobs that survive reboot (launchd). Schedule a named graph with a `schedule_create` shell job whose command sets PATH (for `composio`) and uses absolute paths for the binary + `--graphs-dir`/`--runs-dir`. Cadence and target graph are chosen per job; no standing job is created by default.
