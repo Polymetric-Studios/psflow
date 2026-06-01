@@ -1,0 +1,39 @@
+graph TD
+    READ[Read Sheet] --> SUMMARIZE[Summarize]
+
+    %% Read a Google Sheet via Composio, then summarize it with an LLM.
+    %% Reusable: pass the spreadsheet id as a runtime input. Run:
+    %%   just graph sheet-summary --input sheet_id=1zxvenmRps0Kp1Eb117enHnhNYCE8tyT5zhcHmbF44tA
+    %% (that id is the car-pop-set-24-audio-features sheet.)
+    %%
+    %% READ has no declared output ports, so the single untyped edge merges all
+    %% of its outputs (successful/data/error/log_id) into SUMMARIZE's inputs;
+    %% the prompt then reads {inputs.data}.
+    %% @graph name: sheet-summary
+    %% @graph description: Read a Google Sheet via Composio and summarize it with an LLM
+
+    %% @READ handler: composio
+    %% @READ config.tool: GOOGLESHEETS_BATCH_GET
+    %% @READ config.arguments: {"spreadsheet_id": "{ctx.sheet_id}"}
+
+    %% @SUMMARIZE handler: llm_call
+    %% @SUMMARIZE config.model: claude-sonnet-4-6
+    %% @SUMMARIZE config.prompt: >>>
+    %%   You are given the raw values of a Google Sheet as JSON (a Sheets
+    %%   batchGet response). The first row is the header.
+    %%
+    %%   Produce a concise, readable summary for a human:
+    %%   1. What the sheet is (rows, columns, what each row represents).
+    %%   2. For the numeric audio-feature columns (energy, danceability,
+    %%      valence, tempo, acousticness, loudness, etc.), describe the overall
+    %%      character of the set in plain language — is it high-energy and
+    %%      danceable, upbeat or moody, fast or slow — citing rough ranges.
+    %%   3. Standout tracks (e.g. highest energy, most danceable, most/least
+    %%      positive valence) by track_name + artist.
+    %%   4. Any notable patterns across artists or sources.
+    %%
+    %%   Keep it under ~200 words. Do not dump the raw rows back.
+    %%
+    %%   SHEET DATA:
+    %%   {inputs.data}
+    %% <<<
