@@ -1,7 +1,9 @@
 //! Rhai script handler — executes inline or external `.rhai` scripts as node handlers.
 
 use crate::error::NodeError;
-use crate::execute::{CancellationToken, ExecutionContext, NodeHandler, Outputs};
+use crate::execute::{
+    CancellationToken, ExecutionContext, HandlerSchema, NodeHandler, Outputs, SchemaField,
+};
 use crate::graph::node::Node;
 use crate::scripting::bridge::{dynamic_to_value, outputs_to_rhai_map, value_to_dynamic};
 use crate::scripting::engine::{ScriptEngine, ScriptError};
@@ -156,6 +158,18 @@ impl NodeHandler for RhaiHandler {
                 Ok(outputs)
             }
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(
+            name,
+            "Execute an inline or file-backed Rhai script (scope: inputs, config, ctx)",
+        )
+        .with_config(SchemaField::new("script", "string").describe("Inline Rhai script source"))
+        .with_config(
+            SchemaField::new("script_file", "string")
+                .describe("Path to a .rhai file (within cwd); used if `script` is absent"),
+        )
     }
 }
 

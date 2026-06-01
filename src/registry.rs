@@ -231,6 +231,43 @@ mod tests {
     use crate::handlers::websocket::WS_HANDLER_NAME;
 
     #[test]
+    fn all_default_handlers_expose_a_schema() {
+        // Drift guard: every default-registered handler must implement schema()
+        // with a real description. A handler that forgets to override schema()
+        // (or regresses to the opaque placeholder) fails here — so adding a
+        // handler forces a conscious schema decision rather than silently
+        // shipping "no schema provided".
+        use crate::execute::ExecutionContext;
+        use crate::scripting::engine::ScriptEngine;
+        use std::sync::Arc;
+
+        let engine = Arc::new(ScriptEngine::with_defaults());
+        let ctx = Arc::new(ExecutionContext::new());
+        let reg = NodeRegistry::with_defaults_full(engine, ctx);
+
+        // Derive the sentinel from the source of truth so this test can't drift
+        // if the placeholder text changes.
+        let opaque = HandlerSchema::opaque("_").description;
+        let offenders: Vec<String> = reg
+            .names()
+            .into_iter()
+            .filter(|name| {
+                let schema = reg
+                    .get(name)
+                    .expect("registered name resolves")
+                    .schema(name);
+                schema.description == opaque || schema.description.is_empty()
+            })
+            .map(str::to_string)
+            .collect();
+
+        assert!(
+            offenders.is_empty(),
+            "default-registered handlers missing a schema description: {offenders:?}"
+        );
+    }
+
+    #[test]
     fn register_and_lookup() {
         let mut reg = NodeRegistry::new();
         reg.register("test", sync_handler(|_, inputs| Ok(inputs)));

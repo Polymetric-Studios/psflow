@@ -1,5 +1,5 @@
 use crate::error::NodeError;
-use crate::execute::{CancellationToken, NodeHandler, Outputs};
+use crate::execute::{CancellationToken, HandlerSchema, NodeHandler, Outputs, SchemaField};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use std::collections::HashMap;
@@ -21,6 +21,10 @@ impl NodeHandler for PassthroughHandler {
         _cancel: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = Result<Outputs, NodeError>> + Send>> {
         Box::pin(async move { Ok(inputs) })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "Forward all inputs as outputs unchanged")
     }
 }
 
@@ -51,6 +55,13 @@ impl NodeHandler for TransformHandler {
             outputs.insert(new_key, value);
         }
         Box::pin(async move { Ok(outputs) })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "Rename output keys via a config mapping").with_config(
+            SchemaField::new("mapping", "map<string,string>")
+                .describe("old_key -> new_key; unmapped keys pass through unchanged"),
+        )
     }
 }
 
@@ -89,6 +100,15 @@ impl NodeHandler for DelayHandler {
             Ok(inputs)
         })
     }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "Wait a fixed duration, then forward inputs unchanged")
+            .with_config(
+                SchemaField::new("delay_ms", "integer")
+                    .describe("Milliseconds to wait (cancellation-aware)")
+                    .default(serde_json::json!(0)),
+            )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +135,13 @@ impl NodeHandler for LogHandler {
             Ok(inputs)
         })
     }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(
+            name,
+            "Log inputs at info level (prefixed by node label), then forward them unchanged",
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +164,11 @@ impl NodeHandler for MergeHandler {
         let mut outputs = Outputs::new();
         outputs.insert("merged".into(), Value::Map(merged));
         Box::pin(async move { Ok(outputs) })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "Combine all inputs into a single map — fan-in")
+            .with_output(SchemaField::new("merged", "map"))
     }
 }
 
@@ -185,6 +217,18 @@ impl NodeHandler for SplitHandler {
 
         Box::pin(async move { Ok(outputs) })
     }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(
+            name,
+            "Fan a map or array input out into separate outputs (map keys, or item_N for arrays)",
+        )
+        .with_config(
+            SchemaField::new("input_key", "string")
+                .describe("Input port to split")
+                .default(serde_json::json!("data")),
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +264,18 @@ impl NodeHandler for GateHandler {
                 Ok(Outputs::new())
             }
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(
+            name,
+            "Forward inputs only when the guard is truthy; otherwise emit nothing (blocks the branch)",
+        )
+        .with_config(
+            SchemaField::new("guard", "string")
+                .describe("Guard expression over inputs, e.g. inputs.flag == true")
+                .default(serde_json::json!("true")),
+        )
     }
 }
 

@@ -2,6 +2,9 @@
 
 Reference for `%% @graph` and `%% @node` config knobs. Ctrl-F for the field you need.
 
+New to authoring flows? Start with the task-oriented guide,
+[writing-flow-mmd.md](./writing-flow-mmd.md), then use this page as the field lookup.
+
 ---
 
 ## 1. Annotation grammar

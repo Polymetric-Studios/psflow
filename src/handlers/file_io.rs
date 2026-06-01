@@ -1,5 +1,5 @@
 use crate::error::NodeError;
-use crate::execute::{CancellationToken, NodeHandler, Outputs};
+use crate::execute::{CancellationToken, HandlerSchema, NodeHandler, Outputs, SchemaField};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use crate::handlers::common::{interpolate, validate_path_containment};
@@ -84,6 +84,21 @@ impl NodeHandler for ReadFileHandler {
             outputs.insert("path".into(), Value::String(path));
             Ok(outputs)
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "Read a file's contents")
+            .with_config(
+                SchemaField::new("path", "string")
+                    .required()
+                    .describe("File path template with {key} interpolation from inputs"),
+            )
+            .with_config(
+                SchemaField::new("base_dir", "string")
+                    .describe("If set, resolved path must stay within this directory"),
+            )
+            .with_output(SchemaField::new("content", "string"))
+            .with_output(SchemaField::new("path", "string"))
     }
 }
 
@@ -193,6 +208,31 @@ impl NodeHandler for WriteFileHandler {
             Ok(outputs)
         })
     }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "Write content to a file")
+            .with_config(
+                SchemaField::new("path", "string")
+                    .required()
+                    .describe("File path template with {key} interpolation from inputs"),
+            )
+            .with_config(
+                SchemaField::new("input_key", "string")
+                    .describe("Input port to read content from")
+                    .default(serde_json::json!("content")),
+            )
+            .with_config(
+                SchemaField::new("create_dirs", "boolean")
+                    .describe("Create parent directories as needed")
+                    .default(serde_json::json!(true)),
+            )
+            .with_config(
+                SchemaField::new("base_dir", "string")
+                    .describe("If set, resolved path must stay within this directory"),
+            )
+            .with_output(SchemaField::new("path", "string"))
+            .with_output(SchemaField::new("bytes_written", "integer"))
+    }
 }
 
 /// List files matching a glob pattern.
@@ -252,6 +292,17 @@ impl NodeHandler for GlobHandler {
             outputs.insert("count".into(), Value::I64(count));
             Ok(outputs)
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "List files matching a glob pattern")
+            .with_config(
+                SchemaField::new("pattern", "string")
+                    .required()
+                    .describe("Glob pattern with {key} interpolation, e.g. ./data/*.json"),
+            )
+            .with_output(SchemaField::new("files", "array<string>"))
+            .with_output(SchemaField::new("count", "integer"))
     }
 }
 

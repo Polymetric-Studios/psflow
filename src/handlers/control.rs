@@ -5,7 +5,9 @@
 
 use crate::blackboard::helpers;
 use crate::error::NodeError;
-use crate::execute::{CancellationToken, ExecutionContext, NodeHandler, Outputs};
+use crate::execute::{
+    CancellationToken, ExecutionContext, HandlerSchema, NodeHandler, Outputs, SchemaField,
+};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use std::future::Future;
@@ -58,6 +60,14 @@ impl NodeHandler for BreakHandler {
             outputs.insert("out".into(), Value::Bool(true));
             Ok(outputs)
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(
+            name,
+            "Signal the loop controller to stop after the current iteration",
+        )
+        .with_output(SchemaField::new("out", "boolean"))
     }
 }
 
@@ -168,6 +178,27 @@ impl NodeHandler for SelectHandler {
             outputs.insert("out".into(), Value::from(result));
             Ok(outputs)
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(
+            name,
+            "Extract a value from workflow state by dotted path, optionally projecting/joining arrays",
+        )
+        .with_config(
+            SchemaField::new("from", "string")
+                .required()
+                .describe("Dotted path; first segment is inputs|results|constants|output_dir"),
+        )
+        .with_config(
+            SchemaField::new("keys", "string")
+                .describe("For an array of objects, pick this key from each element"),
+        )
+        .with_config(
+            SchemaField::new("join", "string")
+                .describe("With `keys`, join the projected list into one string"),
+        )
+        .with_output(SchemaField::new("out", "any"))
     }
 }
 

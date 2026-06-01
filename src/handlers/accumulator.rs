@@ -1,6 +1,8 @@
 use crate::error::NodeError;
 use crate::execute::blackboard::BlackboardScope;
-use crate::execute::{CancellationToken, ExecutionContext, NodeHandler, Outputs};
+use crate::execute::{
+    CancellationToken, ExecutionContext, HandlerSchema, NodeHandler, Outputs, SchemaField,
+};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use std::future::Future;
@@ -92,6 +94,30 @@ impl NodeHandler for AccumulatorHandler {
             outputs.insert("count".into(), Value::I64(count));
             Ok(outputs)
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(
+            name,
+            "Append an input value to a running collection on the blackboard",
+        )
+        .with_config(
+            SchemaField::new("key", "string")
+                .required()
+                .describe("Blackboard key holding the accumulated collection"),
+        )
+        .with_config(
+            SchemaField::new("input_key", "string")
+                .describe("Input port to read the value to append")
+                .default(serde_json::json!("value")),
+        )
+        .with_config(
+            SchemaField::new("scope", "string")
+                .describe("Blackboard scope: global | subgraph:<id> | node:<id>")
+                .default(serde_json::json!("global")),
+        )
+        .with_output(SchemaField::new("accumulated", "array"))
+        .with_output(SchemaField::new("count", "integer"))
     }
 }
 

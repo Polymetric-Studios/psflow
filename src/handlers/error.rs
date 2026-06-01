@@ -1,6 +1,6 @@
 use crate::error::NodeError;
 use crate::execute::retry::RetryConfig;
-use crate::execute::{CancellationToken, NodeHandler, Outputs};
+use crate::execute::{CancellationToken, HandlerSchema, NodeHandler, Outputs, SchemaField};
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use std::future::Future;
@@ -172,6 +172,19 @@ impl NodeHandler for ErrorTransformHandler {
 
             Ok(outputs)
         })
+    }
+
+    fn schema(&self, name: &str) -> HandlerSchema {
+        HandlerSchema::new(name, "Reshape error-related outputs into data")
+            .with_config(
+                SchemaField::new("transform", "string")
+                    .describe("simplify (keep error_type only) | enrich (add _error_node)")
+                    .default(serde_json::json!("enrich")),
+            )
+            .with_config(
+                SchemaField::new("field_map", "map<string,string>")
+                    .describe("Rename output keys, e.g. {\"error\":\"failure_reason\"}"),
+            )
     }
 }
 
