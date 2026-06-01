@@ -39,6 +39,7 @@ const CTX_MARKER: &str = "{ctx.";
 /// Node outputs with this prefix are persisted to the graph's cross-run state
 /// (prefix stripped), e.g. an output `save_last_seen` becomes state `last_seen`.
 const STATE_SAVE_PREFIX: &str = "save_";
+const DEFAULT_CACHE_DIR: &str = "cache/tools";
 
 /// Template resolver that exposes runtime `--input` values to handler templates
 /// as `{ctx.key}` (and bare `{key}`). Stateless handlers (composio, shell, …)
@@ -96,6 +97,22 @@ struct Cli {
     /// Do not run the on-failure hook / desktop notification on failure.
     #[arg(long)]
     no_notify: bool,
+
+    /// Replay recorded Composio tool responses offline; records on cache miss.
+    #[arg(long)]
+    replay: bool,
+
+    /// Cache Composio tool responses with a TTL (default 86400s).
+    #[arg(long)]
+    cache: bool,
+
+    /// Cache TTL in seconds (with --cache).
+    #[arg(long)]
+    cache_ttl: Option<u64>,
+
+    /// Directory for the tool-response cache (default ./cache/tools).
+    #[arg(long)]
+    cache_dir: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -131,6 +148,23 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    // The composio handler reads these env vars to enable its response cache.
+    if cli.replay || cli.cache {
+        let cache_dir = cli
+            .cache_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_CACHE_DIR));
+        std::env::set_var("PSFLOW_TOOL_CACHE_DIR", &cache_dir);
+        if cli.replay {
+            std::env::set_var("PSFLOW_TOOL_CACHE_MODE", "replay");
+        } else {
+            std::env::set_var("PSFLOW_TOOL_CACHE_MODE", "cache");
+            if let Some(ttl) = cli.cache_ttl {
+                std::env::set_var("PSFLOW_TOOL_CACHE_TTL_SECS", ttl.to_string());
+            }
+        }
+    }
 
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     match rt.block_on(run(

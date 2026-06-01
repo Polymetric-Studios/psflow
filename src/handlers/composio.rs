@@ -14,16 +14,95 @@ use crate::execute::{CancellationToken, HandlerSchema, NodeHandler, Outputs, Sch
 use crate::graph::node::Node;
 use crate::graph::types::Value;
 use crate::template::TemplateResolver;
+use std::collections::hash_map::DefaultHasher;
 use std::future::Future;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 const DEFAULT_BINARY: &str = "composio";
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 const EXECUTE_SUBCOMMAND: &str = "execute";
 const DATA_FLAG: &str = "-d";
 const DRY_RUN_FLAG: &str = "--dry-run";
+
+// Tool-response cache, switched on via env (set by the psflow-run runner). Lets
+// graphs replay recorded responses offline and cache slow reads during dev.
+const CACHE_DIR_ENV: &str = "PSFLOW_TOOL_CACHE_DIR";
+const CACHE_MODE_ENV: &str = "PSFLOW_TOOL_CACHE_MODE";
+const CACHE_TTL_ENV: &str = "PSFLOW_TOOL_CACHE_TTL_SECS";
+const CACHE_MODE_REPLAY: &str = "replay";
+const DEFAULT_CACHE_TTL_SECS: u64 = 86_400;
+
+enum CacheMode {
+    /// Use any cached response regardless of age (offline record/replay).
+    Replay,
+    /// Use a cached response only while it is younger than the TTL.
+    Cache,
+}
+
+/// Filesystem cache of tool responses, keyed by (tool, arguments, dry_run).
+struct ToolCache {
+    dir: PathBuf,
+    mode: CacheMode,
+    ttl: Duration,
+}
+
+impl ToolCache {
+    /// Active only when `PSFLOW_TOOL_CACHE_DIR` is set.
+    fn from_env() -> Option<Self> {
+        let dir = std::env::var_os(CACHE_DIR_ENV).map(PathBuf::from)?;
+        let mode = match std::env::var(CACHE_MODE_ENV).ok().as_deref() {
+            Some(CACHE_MODE_REPLAY) => CacheMode::Replay,
+            _ => CacheMode::Cache,
+        };
+        let ttl = std::env::var(CACHE_TTL_ENV)
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_CACHE_TTL_SECS);
+        Some(Self {
+            dir,
+            mode,
+            ttl: Duration::from_secs(ttl),
+        })
+    }
+
+    fn path(&self, tool: &str, args_json: &str, dry_run: bool) -> PathBuf {
+        let mut h = DefaultHasher::new();
+        tool.hash(&mut h);
+        args_json.hash(&mut h);
+        dry_run.hash(&mut h);
+        self.dir.join(format!("{tool}-{:016x}.json", h.finish()))
+    }
+
+    /// Return the cached stdout if present and (for `Cache` mode) still fresh.
+    fn read(&self, path: &Path) -> Option<String> {
+        if !path.exists() {
+            return None;
+        }
+        match self.mode {
+            CacheMode::Replay => std::fs::read_to_string(path).ok(),
+            CacheMode::Cache => {
+                let fresh = std::fs::metadata(path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| SystemTime::now().duration_since(t).ok())
+                    .map(|age| age < self.ttl)
+                    .unwrap_or(false);
+                fresh.then(|| std::fs::read_to_string(path).ok()).flatten()
+            }
+        }
+    }
+
+    fn write(&self, path: &Path, stdout: &str) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, stdout);
+    }
+}
 
 /// Executes a Composio tool via the `composio` CLI.
 ///
@@ -176,60 +255,80 @@ impl NodeHandler for ComposioHandler {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
-            let mut cmd = tokio::process::Command::new(binary);
-            cmd.arg(EXECUTE_SUBCOMMAND).arg(&tool);
-            if dry_run {
-                cmd.arg(DRY_RUN_FLAG);
-            }
-            cmd.arg(DATA_FLAG).arg(&arguments_json);
-            cmd.stdout(std::process::Stdio::piped());
-            cmd.stderr(std::process::Stdio::piped());
-            cmd.kill_on_drop(true);
-
-            let child = cmd.spawn().map_err(|e| NodeError::Failed {
-                source_message: Some(e.to_string()),
-                message: format!("node '{node_id}': failed to spawn '{binary}': {e}"),
-                recoverable: false,
-            })?;
-
-            let wait = child.wait_with_output();
-            let output = tokio::select! {
-                res = tokio::time::timeout(Duration::from_millis(timeout_ms), wait) => {
-                    match res {
-                        Ok(Ok(out)) => out,
-                        Ok(Err(e)) => return Err(NodeError::Failed {
-                            source_message: Some(e.to_string()),
-                            message: format!("node '{node_id}': composio wait failed: {e}"),
-                            recoverable: false,
-                        }),
-                        Err(_) => return Err(NodeError::Failed {
-                            source_message: None,
-                            message: format!(
-                                "node '{node_id}': composio execute '{tool}' timed out after {timeout_ms}ms"
-                            ),
-                            recoverable: true,
-                        }),
-                    }
-                }
-                _ = cancel.cancelled() => return Err(NodeError::Cancelled {
-                    reason: "cancelled during composio execute".into(),
-                }),
+            // Cache/replay layer (off unless PSFLOW_TOOL_CACHE_DIR is set).
+            let cache = ToolCache::from_env();
+            let cache_path = cache
+                .as_ref()
+                .map(|c| c.path(&tool, &arguments_json, dry_run));
+            let cached = match (&cache, &cache_path) {
+                (Some(c), Some(p)) => c.read(p),
+                _ => None,
             };
 
-            let exit_code = output.status.code().unwrap_or(-1);
-            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            let stdout = if let Some(s) = cached {
+                eprintln!("[composio][{node_id}] cache hit for {tool}");
+                s
+            } else {
+                let mut cmd = tokio::process::Command::new(binary);
+                cmd.arg(EXECUTE_SUBCOMMAND).arg(&tool);
+                if dry_run {
+                    cmd.arg(DRY_RUN_FLAG);
+                }
+                cmd.arg(DATA_FLAG).arg(&arguments_json);
+                cmd.stdout(std::process::Stdio::piped());
+                cmd.stderr(std::process::Stdio::piped());
+                cmd.kill_on_drop(true);
 
-            if exit_code != 0 {
-                return Err(NodeError::Failed {
-                    source_message: Some(stderr.clone()),
-                    message: format!(
-                        "node '{node_id}': composio execute '{tool}' exited with code {exit_code}: {}",
-                        stderr.trim()
-                    ),
+                let child = cmd.spawn().map_err(|e| NodeError::Failed {
+                    source_message: Some(e.to_string()),
+                    message: format!("node '{node_id}': failed to spawn '{binary}': {e}"),
                     recoverable: false,
-                });
-            }
+                })?;
+
+                let wait = child.wait_with_output();
+                let output = tokio::select! {
+                    res = tokio::time::timeout(Duration::from_millis(timeout_ms), wait) => {
+                        match res {
+                            Ok(Ok(out)) => out,
+                            Ok(Err(e)) => return Err(NodeError::Failed {
+                                source_message: Some(e.to_string()),
+                                message: format!("node '{node_id}': composio wait failed: {e}"),
+                                recoverable: false,
+                            }),
+                            Err(_) => return Err(NodeError::Failed {
+                                source_message: None,
+                                message: format!(
+                                    "node '{node_id}': composio execute '{tool}' timed out after {timeout_ms}ms"
+                                ),
+                                recoverable: true,
+                            }),
+                        }
+                    }
+                    _ = cancel.cancelled() => return Err(NodeError::Cancelled {
+                        reason: "cancelled during composio execute".into(),
+                    }),
+                };
+
+                let exit_code = output.status.code().unwrap_or(-1);
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+                if exit_code != 0 {
+                    return Err(NodeError::Failed {
+                        source_message: Some(stderr.clone()),
+                        message: format!(
+                            "node '{node_id}': composio execute '{tool}' exited with code {exit_code}: {}",
+                            stderr.trim()
+                        ),
+                        recoverable: false,
+                    });
+                }
+
+                if let (Some(c), Some(p)) = (&cache, &cache_path) {
+                    c.write(p, &stdout);
+                }
+                stdout
+            };
 
             // The CLI prints the JSON envelope on stdout; the update banner goes
             // to stderr, so stdout parses cleanly.

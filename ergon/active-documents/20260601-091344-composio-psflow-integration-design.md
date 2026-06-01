@@ -177,6 +177,15 @@ Foundational pieces around the handler that turn one-off graphs into a standing 
 
 Auth stays keyless: Composio via `composio login`, LLM via the `claude` CLI.
 
+### 13.1.1 Authoring, state & caching (added)
+
+- [x] **Config SSOT** — `<graphs-dir>/config.json` (flat object) supplies `{ctx.*}` defaults (constants like `sheet_id`). Gitignored; `config.example.json` is the template.
+- [x] **Discovery + fail-fast validation** — `psflow-run --list` shows graphs + descriptions; before running, the runner scans the graph for `{ctx.KEY}` references and errors with `missing required input(s): …` instead of a mid-render failure.
+- [x] **Cross-run state** — per-graph `<state-dir>/<graph>.json`. Precedence config < state < `--input`. Reads merge into `{ctx.*}`; on success, outputs prefixed `save_` persist (prefix stripped). Verified with a counter that survives across runs. Also wires a context-aware `rhai` so scripts read `ctx_get(ctx, "key")`.
+- [x] **Record/replay + caching** — the `composio` handler caches responses keyed by (tool, args, dry_run) when `PSFLOW_TOOL_CACHE_DIR` is set. Runner flags: `--replay` (use any cached, record on miss — offline dev), `--cache [--cache-ttl secs]` (use within TTL). Verified: replay served a marker response in 0.3 ms vs 2.8 ms live, no network. Caution: caching applies to all Composio calls including writes — enable deliberately.
+
+The precedence and merge order is: `config.json` < cross-run state < `--input`, evaluated before fail-fast validation so state/config can satisfy required inputs.
+
 ### 13.2 Scheduling — recipe
 
 The `ergon-scheduler` fires cron shell jobs that survive reboot (launchd). Schedule a named graph with a `schedule_create` shell job whose command sets PATH (for `composio`) and uses absolute paths for the binary + `--graphs-dir`/`--runs-dir`. Cadence and target graph are chosen per job; no standing job is created by default.

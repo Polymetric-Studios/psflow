@@ -39,3 +39,4 @@ runs/
 graphs/failure-hook-ran.txt
 graphs/config.json
 state/
+cache/
