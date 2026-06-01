@@ -17,7 +17,7 @@
 
 use clap::Parser;
 use psflow::adapter::ClaudeCliAdapter;
-use psflow::execute::ContextInheritance;
+use psflow::execute::{ContextInheritance, ExecutionContext};
 use psflow::scripting::engine::ScriptEngine;
 use psflow::{
     load_mermaid, Blackboard, BlackboardScope, ExecutionResult, LlmCallHandler, NodeRegistry,
@@ -197,12 +197,26 @@ fn build_handlers(
     inputs: BTreeMap<String, Value>,
 ) -> psflow::execute::HandlerRegistry {
     let engine = Arc::new(ScriptEngine::with_defaults());
+
+    // A context whose blackboard carries the runtime inputs, so `llm_call`
+    // prompts can read `{ctx.key}` (it renders against this blackboard).
+    let llm_ctx = Arc::new(ExecutionContext::new());
+    {
+        let mut bb = llm_ctx.blackboard();
+        for (k, v) in &inputs {
+            bb.set(k.clone(), v.clone(), BlackboardScope::Global);
+        }
+    }
+
     let resolver = Arc::new(RuntimeInputResolver {
         inputs,
         inner: PromptTemplateResolver,
     });
     let mut reg = NodeRegistry::with_defaults_and_resolver(engine, resolver);
-    reg.register("llm_call", Arc::new(LlmCallHandler::new(adapter)));
+    reg.register(
+        "llm_call",
+        Arc::new(LlmCallHandler::with_context(adapter, llm_ctx)),
+    );
     reg.into_handler_registry()
 }
 

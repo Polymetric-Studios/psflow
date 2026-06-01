@@ -56,15 +56,40 @@ impl ComposioHandler {
     }
 }
 
+/// True when the string is exactly one `{…}` interpolation token with no
+/// surrounding text (e.g. `"{ctx.max}"`), so its rendered value can be coerced
+/// to a typed JSON scalar instead of staying a string.
+fn is_whole_token(s: &str) -> bool {
+    let t = s.trim();
+    t.len() >= 3
+        && t.starts_with('{')
+        && t.ends_with('}')
+        && !t[1..t.len() - 1].contains(['{', '}'])
+}
+
 /// Recursively template-resolve string leaves of an arguments value, leaving
 /// structure (objects/arrays) and non-string scalars intact. This keeps `{...}`
 /// interpolation usable inside values without touching the JSON braces.
+///
+/// Whole-value tokens (`"max_results": "{ctx.n}"`) whose rendered text parses as
+/// a non-string JSON scalar (number/bool/null) are coerced to that type, so a
+/// numeric input reaches a tool that wants an integer rather than a string.
 fn render_arguments(
     value: &serde_json::Value,
     render: &dyn Fn(&str) -> Result<String, NodeError>,
 ) -> Result<serde_json::Value, NodeError> {
     match value {
-        serde_json::Value::String(s) => Ok(serde_json::Value::String(render(s)?)),
+        serde_json::Value::String(s) => {
+            let rendered = render(s)?;
+            if is_whole_token(s) {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&rendered) {
+                    if !parsed.is_string() {
+                        return Ok(parsed);
+                    }
+                }
+            }
+            Ok(serde_json::Value::String(rendered))
+        }
         serde_json::Value::Array(arr) => {
             let mut out = Vec::with_capacity(arr.len());
             for item in arr {
@@ -334,6 +359,23 @@ mod tests {
         assert_eq!(out["ranges"][1], serde_json::json!("sheet-123"));
         assert_eq!(out["count"], serde_json::json!(5));
         assert_eq!(out["flag"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn whole_token_coerces_to_typed_scalar() {
+        let mut inputs = Outputs::new();
+        inputs.insert("n".into(), Value::I64(7));
+        inputs.insert("name".into(), Value::String("INV".into()));
+        let render = render_with(&inputs);
+        let args = serde_json::json!({
+            "max_results": "{inputs.n}",        // whole token, numeric -> 7 (number)
+            "query": "{inputs.name}",            // whole token, non-JSON -> "INV" (string)
+            "label": "id-{inputs.n}"             // not a whole token -> "id-7" (string)
+        });
+        let out = render_arguments(&args, &render).unwrap();
+        assert_eq!(out["max_results"], serde_json::json!(7));
+        assert_eq!(out["query"], serde_json::json!("INV"));
+        assert_eq!(out["label"], serde_json::json!("id-7"));
     }
 
     #[tokio::test]

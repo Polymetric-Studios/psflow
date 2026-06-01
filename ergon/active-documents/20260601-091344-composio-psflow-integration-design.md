@@ -181,11 +181,11 @@ Auth stays keyless: Composio via `composio login`, LLM via the `claude` CLI.
 
 The `ergon-scheduler` fires cron shell jobs that survive reboot (launchd). Schedule a named graph with a `schedule_create` shell job whose command sets PATH (for `composio`) and uses absolute paths for the binary + `--graphs-dir`/`--runs-dir`. Cadence and target graph are chosen per job; no standing job is created by default.
 
-### 13.3 Open follow-ups
+### 13.3 Follow-ups — done
 
-- [ ] **Numeric inputs via templates** — `{ctx.n}` renders to a string; tools wanting an integer arg may reject it. Pass numeric tool args as graph literals for now, or add typed-input coercion to the resolver.
-- [ ] **`{ctx.key}` in `llm_call` prompts** — `llm_call` holds its own template path and does not see runtime inputs; LLM nodes read upstream via `{inputs.*}`. Wire the resolver into `llm_call` if direct `{ctx.*}` in prompts is needed.
-- [ ] **Binary install** — runner is invoked from `target/debug`; install to a stable path for scheduled jobs.
+- [x] **Numeric inputs via templates** — the `composio` handler coerces whole-value tokens (`"max_results": "{ctx.n}"`) whose rendered text parses as a non-string JSON scalar to that type, so a numeric input reaches an integer-typed tool arg. Verified (`--input max=2` accepted by schema validation). Caveat: a string input that happens to look numeric also coerces.
+- [x] **`{ctx.key}` in `llm_call` prompts** — the runner constructs `llm_call` via `LlmCallHandler::with_context` with a blackboard seeded from the runtime inputs, so prompts read `{ctx.key}`. Verified (`--input word=PONG` echoed by the LLM).
+- [x] **Binary install** — `just install` runs `cargo install --path . --bin psflow-run`; installed to `~/.cargo/bin/psflow-run`. Scheduled jobs should pass absolute `--graphs-dir`/`--runs-dir` and set PATH for `composio`.
 
 ## 14. Out of scope (recorded, not tasks)
 

@@ -14,6 +14,10 @@ run *ARGS:
 graph name *ARGS:
     PATH="$HOME/.composio:$PATH" cargo run --quiet --bin psflow-run --features runtime -- {{name}} {{ARGS}}
 
+# Install psflow-run to ~/.cargo/bin (stable path for scheduled jobs).
+install:
+    cargo install --path . --bin psflow-run --features runtime --locked
+
 # Run all tests
 test:
     cargo test
