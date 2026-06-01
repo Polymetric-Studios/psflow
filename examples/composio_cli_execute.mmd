@@ -1,0 +1,25 @@
+graph TD
+    EXECUTE[Composio CLI Execute]
+
+    %% Phase-1 prototype, CLI variant: call a Composio tool through the
+    %% `composio` CLI via psflow's stateless `shell` handler. No API key and no
+    %% user_id in the graph — `composio login` established the auth on this
+    %% machine, and `composio execute` uses that logged-in context. Because
+    %% `shell` is a default handler, this runs on the stock `psflow` binary:
+    %%
+    %%   cargo run --bin psflow --features runtime -- examples/composio_cli_execute.mmd
+    %%
+    %% Requires `composio` on PATH (installed at ~/.composio/composio).
+    %%
+    %% Brace note: psflow's template resolver treats `{...}` as interpolation;
+    %% `{{}}` escapes to the literal `{}` empty-arguments JSON the CLI wants.
+
+    %% @graph name: composio-cli-probe
+    %% @graph description: Execute a Composio tool via the composio CLI through the shell handler
+
+    %% TODO: swap the slug for any read-only tool whose toolkit you've linked.
+    %% @EXECUTE handler: shell
+    %% @EXECUTE config.command: composio
+    %% @EXECUTE config.args: ["execute", "GOOGLESHEETS_SEARCH_SPREADSHEETS", "-d", "{{}}"]
+    %% @EXECUTE outputs.stdout: "String"
+    %% @EXECUTE outputs.exit_code: "I64"

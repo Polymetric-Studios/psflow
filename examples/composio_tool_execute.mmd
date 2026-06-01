@@ -23,21 +23,21 @@ graph TD
     %% @graph auth.composio.secrets.token: COMPOSIO_API_KEY
 
     %% --- INPUT: build the JSON body as a single interpolation token ---
-    %% TODO(2) user_id: the Composio user_id that owns the connected account.
-    %% TODO(3) version: pin a concrete YYYYMMDD_NN per the design doc; "latest" is first-run only.
+    %% version: pin a concrete YYYYMMDD_NN per the design doc once known; "latest" is first-run only.
     %% @INPUT handler: rhai
     %% @INPUT outputs.request_body: "String"
     %% @INPUT config.script: >>>
-    %%   let user_id = "default";
+    %%   let user_id = "cn8092@gmail.com";
     %%   let version = "latest";
     %%   let body = "{\"user_id\":\"" + user_id + "\",\"arguments\":{},\"version\":\"" + version + "\"}";
     %%   #{ request_body: body }
     %% <<<
 
     %% --- EXECUTE: POST /api/v3.1/tools/execute/{TOOL_SLUG} ---
-    %% TODO(1) tool_slug in the url: a read-only tool whose toolkit you've linked.
+    %% Google Sheets read-only probe: SEARCH_SPREADSHEETS takes no required args,
+    %% so it proves the connected account works with an empty arguments object.
     %% @EXECUTE handler: http
-    %% @EXECUTE config.url: "https://backend.composio.dev/api/v3.1/tools/execute/GITHUB_GET_THE_AUTHENTICATED_USER"
+    %% @EXECUTE config.url: "https://backend.composio.dev/api/v3.1/tools/execute/GOOGLESHEETS_SEARCH_SPREADSHEETS"
     %% @EXECUTE config.method: POST
     %% @EXECUTE config.auth: composio
     %% @EXECUTE config.headers: {"Content-Type": "application/json"}
