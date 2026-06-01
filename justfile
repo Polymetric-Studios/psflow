@@ -18,10 +18,21 @@ graph name *ARGS:
 install:
     cargo install --path . --bin psflow-run --features runtime --locked
 
+# Composio API key, read from the macOS keychain (falls back to the env var).
+# Store it once:  security add-generic-password -U -a "$USER" -s composio-api-key -w 'sk_...'
+_composio_key := '${COMPOSIO_API_KEY:-$(security find-generic-password -a "$USER" -s composio-api-key -w 2>/dev/null)}'
+
+# Create a Composio trigger via the SDK (prints the ti_… id). Needs the key in
+# the keychain (above) and `npm i @composio/core`.
+# Example: just trigger-create --user-id default --slug GOOGLESHEETS_CELL_RANGE_VALUES_CHANGED --sheet <id> --range "Sheet1!A1:C20"
+trigger-create *ARGS:
+    COMPOSIO_API_KEY="{{_composio_key}}" node scripts/trigger_create.mjs {{ARGS}}
+
 # Listen to Composio triggers (SDK websocket) and run a handler graph per event.
-# Needs: `npm i @composio/core`, `export COMPOSIO_API_KEY=...`, and a trigger id
-# (create the trigger in the dashboard). Example: just triggers on-event ti_xxx
+# Needs the key in the keychain (above), `npm i @composio/core`, and a trigger id.
+# Example: just triggers sheet-summary ti_xxx
 triggers handler trigger_id:
+    COMPOSIO_API_KEY="{{_composio_key}}" \
     PATH="$HOME/.composio:$PATH" \
     PSFLOW_LISTEN_CMD="node scripts/triggers_listen.mjs --trigger-id {{trigger_id}}" \
       cargo run --quiet --bin psflow-run --features runtime -- {{handler}} --listen
