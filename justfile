@@ -9,6 +9,11 @@ build:
 run *ARGS:
     cargo run -- {{ARGS}}
 
+# Run a named graph through the personal runner (composio on PATH).
+# Example: just graph sheets-search --input query=INV
+graph name *ARGS:
+    PATH="$HOME/.composio:$PATH" cargo run --quiet --bin psflow-run --features runtime -- {{name}} {{ARGS}}
+
 # Run all tests
 test:
     cargo test

@@ -161,7 +161,33 @@ Resolved 20260601 against the live API reference (rendered OpenAPI endpoint page
 - [ ] **Batch concurrency cap** — still **undocumented**. The batch meta-tool states no array-size or parallelism limit. Verify empirically before relying on wide fan-out (§10.1).
 - [ ] **Version default** — source conflict: REST endpoint schema says `version` defaults to `latest`; the versioning guide implies a base version when unspecified. Moot for our design (we pin explicitly), but confirm if any path ever omits `version`.
 
-## 13. Out of scope (recorded, not tasks)
+## 13. Personal infrastructure (single-user)
+
+Foundational pieces around the handler that turn one-off graphs into a standing personal automation system. Implemented in `src/bin/psflow_run.rs` (the `psflow-run` binary).
+
+### 13.1 The runner — implemented and verified
+
+`psflow-run <graph> [--input k=v]...` provides what the stock binary lacks:
+
+- [x] **Named graphs** — resolves `<name>` to `<graphs-dir>/<name>.mmd` (`PSFLOW_GRAPHS_DIR`, default `./graphs`). Convenience recipe: `just graph <name> --input k=v`.
+- [x] **Runtime inputs** — `--input k=v` (value parses as JSON, else string) reaches handler templates as `{ctx.key}`. Mechanism: a `RuntimeInputResolver` (custom `TemplateResolver`) merges inputs into each handler's blackboard, because `collect_inputs` only threads upstream node outputs and the stateless `composio`/`shell` handlers render against a fresh blackboard. Verified by A/B: `query=INV` → 5 matches, `query=ZZZ…` → 0.
+- [x] **LLM adapter wired** — registers `llm_call` with the keyless `ClaudeCliAdapter`, so Composio-tool → LLM graphs run here (the stock binary omits `llm_call`). Verified live.
+- [x] **Run history** — each run writes `<runs-dir>/<ts>-<graph>.json` with status, per-node states, the execution trace, and every Composio `log_id` (for one-lookup forensics). `runs/` is gitignored.
+- [x] **Notify-on-failure** — on any failed node, runs an `on-failure.mmd` hook if present (passing `error`/`graph`/`failed_nodes` as inputs) and posts a desktop notification (`osascript`). Verified.
+
+Auth stays keyless: Composio via `composio login`, LLM via the `claude` CLI.
+
+### 13.2 Scheduling — recipe
+
+The `ergon-scheduler` fires cron shell jobs that survive reboot (launchd). Schedule a named graph with a `schedule_create` shell job whose command sets PATH (for `composio`) and uses absolute paths for the binary + `--graphs-dir`/`--runs-dir`. Cadence and target graph are chosen per job; no standing job is created by default.
+
+### 13.3 Open follow-ups
+
+- [ ] **Numeric inputs via templates** — `{ctx.n}` renders to a string; tools wanting an integer arg may reject it. Pass numeric tool args as graph literals for now, or add typed-input coercion to the resolver.
+- [ ] **`{ctx.key}` in `llm_call` prompts** — `llm_call` holds its own template path and does not see runtime inputs; LLM nodes read upstream via `{inputs.*}`. Wire the resolver into `llm_call` if direct `{ctx.*}` in prompts is needed.
+- [ ] **Binary install** — runner is invoked from `target/debug`; install to a stable path for scheduled jobs.
+
+## 14. Out of scope (recorded, not tasks)
 
 - Hosting psflow workflows as registered Composio tools — no server-side registration API; would require a hosted SDK shim.
 - Composio auth-config (`ac_…`) provisioning inside psflow — one-time dashboard/SDK artifact.

@@ -15,6 +15,11 @@ name = "composio"
 path = "src/bin/composio.rs"
 required-features = ["runtime"]
 
+[[bin]]
+name = "psflow-run"
+path = "src/bin/psflow_run.rs"
+required-features = ["runtime"]
+
 [package]
 name = "psflow"
 version = "0.1.0"

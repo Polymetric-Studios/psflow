@@ -1,0 +1,6 @@
+graph TD
+    LOG[Log Failure]
+    %% @graph name: on-failure
+    %% @LOG handler: shell
+    %% @LOG config.command: sh
+    %% @LOG config.args: ["-c", "echo hook-ran >> runs/failure-hook-ran.txt"]

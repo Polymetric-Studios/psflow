@@ -1,0 +1,12 @@
+graph TD
+    SEARCH[Search Sheets]
+
+    %% Named graph for `psflow-run`. Takes a runtime input `query`, threaded into
+    %% the Composio tool arguments via {ctx.query}. Run:
+    %%   psflow-run sheets-search --input query=INV
+    %% @graph name: sheets-search
+    %% @graph description: Search Google Sheets by name prefix via a runtime query input
+
+    %% @SEARCH handler: composio
+    %% @SEARCH config.tool: GOOGLESHEETS_SEARCH_SPREADSHEETS
+    %% @SEARCH config.arguments: {"query": "{ctx.query}", "search_type": "name", "max_results": 5}
