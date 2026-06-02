@@ -218,6 +218,16 @@ The `ergon-scheduler` fires cron shell jobs that survive reboot (launchd). Sched
 - [x] **`{ctx.key}` in `llm_call` prompts** — the runner constructs `llm_call` via `LlmCallHandler::with_context` with a blackboard seeded from the runtime inputs, so prompts read `{ctx.key}`. Verified (`--input word=PONG` echoed by the LLM).
 - [x] **Binary install** — `just install` runs `cargo install --path . --bin psflow-run`; installed to `~/.cargo/bin/psflow-run`. Scheduled jobs should pass absolute `--graphs-dir`/`--runs-dir` and set PATH for `composio`.
 
+## 13.4 Provider isolation (Composio is a removable leaf)
+
+Refactored so the curated psflow infrastructure (runner, runtime inputs, cross-run state, scheduling, caching, notify, the event bridge, discovery/validation) is **provider-neutral**, and Composio is a cleanly removable integration:
+
+- The core lib's default registry (`with_defaults_*`) no longer registers `composio`. The handler lives at `src/handlers/composio.rs` but is registered only by the runner, in `register_integrations()` — a clearly-marked block.
+- The runner is provider-agnostic: cache is `PSFLOW_TOOL_CACHE_*` (any tool handler), the run record uses `tool_log_ids`, and the event bridge requires `PSFLOW_LISTEN_CMD` with **no built-in default** (no provider baked in).
+- Composio now appears only in: `src/handlers/composio.rs`, the one `register_integrations` block, the `composio_*`/trigger scripts + recipes, and the 3 `GOOGLESHEETS` graphs.
+
+**To drop Composio:** delete `src/handlers/composio.rs`, the `register_integrations` Composio block (+ `mod.rs` export), the `scripts/*.mjs` + trigger recipes, and the provider-specific graphs. Nothing structural in the engine or runner changes. Swapping in another provider (e.g. a direct-Google `sheets` handler) is purely additive: new handler module + a line in `register_integrations` + repointed graphs.
+
 ## 14. Out of scope (recorded, not tasks)
 
 - Hosting psflow workflows as registered Composio tools — no server-side registration API; would require a hosted SDK shim.

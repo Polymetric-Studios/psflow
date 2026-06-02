@@ -6,14 +6,16 @@
 //! - **Named graphs**: `psflow-run daily-digest` resolves `<graphs-dir>/daily-digest.mmd`.
 //! - **Runtime inputs**: `--input k=v` seeds a parent blackboard; graphs read `{ctx.k}`.
 //! - **LLM adapter wired**: registers `llm_call` with the keyless `ClaudeCliAdapter`,
-//!   so Composio-tool -> LLM workflows run here (the stock binary omits `llm_call`).
-//! - **Run history**: writes an execution trace + summary (incl. Composio `log_id`s)
+//!   so tool -> LLM workflows run here (the stock binary omits `llm_call`).
+//! - **Run history**: writes an execution trace + summary (incl. any `log_id`s)
 //!   to `<runs-dir>` per run.
 //! - **Notify-on-failure**: on any failed node, runs an `on-failure` graph if present
 //!   (passing the error as inputs), and posts a desktop notification.
 //!
-//! Auth for Composio tools is whatever `composio login` established; auth for the
-//! LLM is the `claude` CLI. No api keys live here.
+//! The engine is provider-neutral; optional third-party integrations (e.g.
+//! Composio) are registered separately in `register_integrations` so they can be
+//! dropped without touching the core. LLM auth is the `claude` CLI; no api keys
+//! live here.
 
 use clap::Parser;
 use psflow::adapter::ClaudeCliAdapter;
@@ -43,7 +45,7 @@ const STATE_SAVE_PREFIX: &str = "save_";
 const DEFAULT_CACHE_DIR: &str = "cache/tools";
 
 /// Template resolver that exposes runtime `--input` values to handler templates
-/// as `{ctx.key}` (and bare `{key}`). Stateless handlers (composio, shell, …)
+/// as `{ctx.key}` (and bare `{key}`). Stateless handlers (e.g. `shell`)
 /// render against a fresh blackboard, so seeding the executor's blackboard is
 /// not enough — this resolver merges the runtime inputs into whatever
 /// blackboard the handler passes, then delegates to the default engine.
@@ -99,11 +101,11 @@ struct Cli {
     #[arg(long)]
     no_notify: bool,
 
-    /// Replay recorded Composio tool responses offline; records on cache miss.
+    /// Replay recorded tool responses offline; records on cache miss.
     #[arg(long)]
     replay: bool,
 
-    /// Cache Composio tool responses with a TTL (default 86400s).
+    /// Cache tool responses with a TTL (default 86400s).
     #[arg(long)]
     cache: bool,
 
@@ -115,22 +117,11 @@ struct Cli {
     #[arg(long)]
     cache_dir: Option<PathBuf>,
 
-    /// Listen mode: stream Composio trigger events (`composio dev listen`) and
-    /// run the named graph once per event, with the event JSON as `{ctx.event}`.
+    /// Listen mode: run the command in PSFLOW_LISTEN_CMD (any provider's event
+    /// stream) and run the named graph once per emitted JSON line, with the
+    /// event JSON as `{ctx.event}`.
     #[arg(long)]
     listen: bool,
-
-    /// Listen filter: trigger slug(s), comma-separated (passed to dev listen).
-    #[arg(long)]
-    trigger_slug: Option<String>,
-
-    /// Listen filter: toolkit slug(s), comma-separated (passed to dev listen).
-    #[arg(long)]
-    toolkits: Option<String>,
-
-    /// Listen: stop after N events (passed to dev listen). Useful for testing.
-    #[arg(long)]
-    max_events: Option<u32>,
 }
 
 fn main() -> ExitCode {
@@ -167,7 +158,7 @@ fn main() -> ExitCode {
         }
     };
 
-    // The composio handler reads these env vars to enable its response cache.
+    // Tool handlers that support caching read these env vars (provider-neutral).
     if cli.replay || cli.cache {
         let cache_dir = cli
             .cache_dir
@@ -187,11 +178,6 @@ fn main() -> ExitCode {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
 
     if cli.listen {
-        let filters = ListenFilters {
-            trigger_slug: cli.trigger_slug.clone(),
-            toolkits: cli.toolkits.clone(),
-            max_events: cli.max_events,
-        };
         return match rt.block_on(listen_loop(
             &graph_ref,
             &graphs_dir,
@@ -199,7 +185,6 @@ fn main() -> ExitCode {
             &state_dir,
             cli_inputs,
             cli.no_notify,
-            &filters,
         )) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -226,30 +211,13 @@ fn main() -> ExitCode {
     }
 }
 
-struct ListenFilters {
-    trigger_slug: Option<String>,
-    toolkits: Option<String>,
-    max_events: Option<u32>,
-}
-
-/// Build the shell command for the trigger event stream. Overridable via
-/// `PSFLOW_LISTEN_CMD` (used for testing); otherwise `composio dev listen --json`
-/// plus any filters. The event JSON is emitted one object per line on stdout.
-fn listen_command(filters: &ListenFilters) -> String {
-    if let Ok(cmd) = std::env::var("PSFLOW_LISTEN_CMD") {
-        return cmd;
-    }
-    let mut cmd = String::from("composio dev listen --json");
-    if let Some(s) = &filters.trigger_slug {
-        cmd.push_str(&format!(" --trigger-slug {s}"));
-    }
-    if let Some(t) = &filters.toolkits {
-        cmd.push_str(&format!(" --toolkits {t}"));
-    }
-    if let Some(n) = filters.max_events {
-        cmd.push_str(&format!(" --max-events {n}"));
-    }
-    cmd
+/// The command whose stdout produces one JSON event object per line. Provider
+/// -agnostic: set it via `PSFLOW_LISTEN_CMD` (e.g. a Composio SDK subscriber, or
+/// any other source). No built-in default, so the bridge has no provider baked in.
+fn listen_command() -> Result<String, String> {
+    std::env::var("PSFLOW_LISTEN_CMD").map_err(|_| {
+        "listen mode requires PSFLOW_LISTEN_CMD (the event-stream command)".to_string()
+    })
 }
 
 /// Merge a trigger event (raw JSON line) into a copy of the base inputs as
@@ -265,8 +233,7 @@ fn event_to_inputs(line: &str, base: &BTreeMap<String, Value>) -> Option<BTreeMa
     Some(inputs)
 }
 
-/// Stream Composio trigger events and run `handler_graph` once per event.
-#[allow(clippy::too_many_arguments)]
+/// Stream events from `PSFLOW_LISTEN_CMD` and run `handler_graph` once per event.
 async fn listen_loop(
     handler_graph: &str,
     graphs_dir: &Path,
@@ -274,9 +241,8 @@ async fn listen_loop(
     state_dir: &Path,
     base_inputs: BTreeMap<String, Value>,
     no_notify: bool,
-    filters: &ListenFilters,
 ) -> Result<(), String> {
-    let cmd = listen_command(filters);
+    let cmd = listen_command()?;
     eprintln!("[listen] starting: {cmd}");
     let mut child = tokio::process::Command::new("sh")
         .arg("-c")
@@ -526,9 +492,9 @@ async fn run(
     }
 }
 
-/// Build the handler registry: stateless defaults (incl. `composio`) wired to a
-/// resolver that exposes runtime inputs as `{ctx.key}`, plus `llm_call` on the
-/// supplied adapter.
+/// Build the handler registry: the provider-neutral psflow defaults wired to a
+/// resolver that exposes runtime inputs as `{ctx.key}`, plus `llm_call` — then
+/// any optional integrations (see `register_integrations`).
 fn build_handlers(
     adapter: Arc<ClaudeCliAdapter>,
     inputs: BTreeMap<String, Value>,
@@ -546,11 +512,11 @@ fn build_handlers(
         }
     }
 
-    let resolver = Arc::new(RuntimeInputResolver {
+    let resolver: Arc<dyn TemplateResolver> = Arc::new(RuntimeInputResolver {
         inputs,
         inner: PromptTemplateResolver,
     });
-    let mut reg = NodeRegistry::with_defaults_and_resolver(engine.clone(), resolver);
+    let mut reg = NodeRegistry::with_defaults_and_resolver(engine.clone(), resolver.clone());
     reg.register(
         "llm_call",
         Arc::new(LlmCallHandler::with_context(adapter, ctx.clone())),
@@ -559,7 +525,22 @@ fn build_handlers(
     let rhai = RhaiHandler::new(engine);
     rhai.set_context(ctx);
     reg.register("rhai", Arc::new(rhai));
+
+    register_integrations(&mut reg, &resolver);
     reg.into_handler_registry()
+}
+
+/// Optional third-party integrations, kept out of the provider-neutral core so
+/// they can be dropped cleanly. To remove an integration: delete its block here,
+/// its handler module under `src/handlers/`, and any provider-specific graphs.
+fn register_integrations(reg: &mut NodeRegistry, resolver: &Arc<dyn TemplateResolver>) {
+    // --- Composio (remove this block + src/handlers/composio.rs to drop it) ---
+    reg.register(
+        "composio",
+        Arc::new(psflow::handlers::composio::ComposioHandler::new(
+            resolver.clone(),
+        )),
+    );
 }
 
 fn resolve_graph_path(graph_ref: &str, graphs_dir: &Path) -> Result<PathBuf, String> {
@@ -614,7 +595,8 @@ fn report_states(result: &ExecutionResult) -> Vec<String> {
         .collect()
 }
 
-/// Composio handler outputs carry a `log_id`; collect non-empty ones for forensics.
+/// Tool handlers may emit a `log_id` output (e.g. for provider-side forensics);
+/// collect any non-empty ones, keyed by node.
 fn collect_log_ids(result: &ExecutionResult) -> BTreeMap<String, String> {
     let mut ids = BTreeMap::new();
     for (node_id, outputs) in &result.node_outputs {
@@ -650,7 +632,7 @@ fn write_run_record(
         "failed_nodes": failed,
         "states": result.node_states.iter()
             .map(|(id, s)| (id.clone(), s.to_string())).collect::<BTreeMap<_, _>>(),
-        "composio_log_ids": collect_log_ids(result),
+        "tool_log_ids": collect_log_ids(result),
         "trace": result.trace(),
     });
     let path = runs_dir.join(format!("{ts}-{graph_name}.json"));

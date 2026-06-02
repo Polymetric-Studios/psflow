@@ -69,7 +69,6 @@ impl NodeRegistry {
         reg.register("write_file", Arc::new(WriteFileHandler));
         reg.register("glob", Arc::new(GlobHandler));
         reg.register("shell", Arc::new(ShellHandler::new(resolver.clone())));
-        reg.register("composio", Arc::new(ComposioHandler::new(resolver.clone())));
         reg.register("json_transform", Arc::new(JsonTransformHandler));
 
         // Scripting
