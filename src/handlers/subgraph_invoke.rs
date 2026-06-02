@@ -55,10 +55,10 @@ impl FromIterator<(String, Graph)> for GraphLibrary {
 
 /// RAII guard that tracks active invocation depth.
 /// Increments on creation, decrements on drop (including panics).
-struct DepthGuard(Arc<AtomicUsize>);
+pub(crate) struct DepthGuard(Arc<AtomicUsize>);
 
 impl DepthGuard {
-    fn enter(counter: &Arc<AtomicUsize>, max: usize) -> Result<Self, NodeError> {
+    pub(crate) fn enter(counter: &Arc<AtomicUsize>, max: usize) -> Result<Self, NodeError> {
         // CAS loop: atomically check-and-increment to avoid TOCTOU race
         // where concurrent callers could both pass the depth check.
         loop {
@@ -187,6 +187,10 @@ impl SubgraphInvocationHandler {
 pub struct HandlerRegistrySlot(Arc<OnceLock<HandlerRegistry>>);
 
 impl HandlerRegistrySlot {
+    pub(crate) fn from_slot(slot: Arc<OnceLock<HandlerRegistry>>) -> Self {
+        Self(slot)
+    }
+
     pub fn set(self, registry: HandlerRegistry) {
         self.0.set(registry).ok();
     }
@@ -313,7 +317,7 @@ impl NodeHandler for SubgraphInvocationHandler {
 /// Source nodes are pre-seeded with input data and marked as Completed
 /// so the executor skips them and downstream nodes receive the data
 /// through normal port mapping.
-async fn execute_child(
+pub(crate) async fn execute_child(
     graph: &Graph,
     handlers: &HandlerRegistry,
     executor: &TopologicalExecutor,
