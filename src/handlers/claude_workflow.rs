@@ -11,7 +11,10 @@
 //! on a [`tokio::task::spawn_blocking`] thread; the node's cancellation token is
 //! mapped onto the session's cancel flag.
 
-use crate::adapter::{ApprovalPolicy, ClaudeTerminalSession, ResultSource, SessionOptions, TerminalError};
+use crate::adapter::{
+    ApprovalChoice, ApprovalPolicy, ClaudeTerminalSession, ResultSource, SessionOptions,
+    TerminalError,
+};
 use crate::error::NodeError;
 use crate::execute::blackboard::Blackboard;
 use crate::execute::{CancellationToken, HandlerSchema, NodeHandler, Outputs, SchemaField};
@@ -64,6 +67,9 @@ struct RunConfig {
     output_key: String,
     opts: SessionOptions,
     policy: ApprovalPolicy,
+    /// When true, route dialogs to a notifier (and defer the decision to the
+    /// human via the session's remote-control URL).
+    notify: bool,
 }
 
 impl NodeHandler for ClaudeWorkflowHandler {
@@ -111,9 +117,15 @@ impl NodeHandler for ClaudeWorkflowHandler {
                 .and_then(|v| v.as_str())
                 .unwrap_or(DEFAULT_PERMISSION_MODE);
 
-            let policy = match config.get("approval").and_then(|v| v.as_str()) {
-                Some("deny") => ApprovalPolicy::DenyAll,
-                _ => ApprovalPolicy::AllowAll,
+            // allow (auto-yes) | deny (auto-no) | notify (route to a human via the
+            // session's remote-control URL and wait for them to answer).
+            let (policy, notify) = match config.get("approval").and_then(|v| v.as_str()) {
+                Some("deny") => (ApprovalPolicy::DenyAll, false),
+                Some("notify") => (
+                    ApprovalPolicy::custom(|_| ApprovalChoice::Defer),
+                    true,
+                ),
+                _ => (ApprovalPolicy::AllowAll, false),
             };
 
             let mut opts = SessionOptions::default()
@@ -139,15 +151,28 @@ impl NodeHandler for ClaudeWorkflowHandler {
                 output_key,
                 opts,
                 policy,
+                notify,
             };
 
             // --- Drive the session on a blocking thread, mapping cancellation ---
             let cancel_flag = Arc::new(AtomicBool::new(false));
             let cf = cancel_flag.clone();
+            let notify_node_id = node_id.clone();
             let mut handle = tokio::task::spawn_blocking(move || -> Result<_, TerminalError> {
                 let mut session = ClaudeTerminalSession::spawn_ready(run.opts)?;
                 session.set_cancel_flag(cf);
                 session.set_approval_policy(run.policy);
+                if run.notify {
+                    let nid = notify_node_id.clone();
+                    session.set_approval_notifier(Arc::new(move |prompt, url| {
+                        tracing::warn!(
+                            "[claude_workflow] node '{nid}' needs approval: {} | options={:?} | answer at: {}",
+                            prompt.question,
+                            prompt.options,
+                            url.unwrap_or("(no remote-control URL on screen)")
+                        );
+                    }));
+                }
                 let turn = session.run_turn(&run.prompt)?;
                 Ok((turn, session.session_id().to_string()))
             });
@@ -199,7 +224,7 @@ impl NodeHandler for ClaudeWorkflowHandler {
             )
             .with_config(
                 SchemaField::new("approval", "string")
-                    .describe("allow | deny — how dialogs are answered")
+                    .describe("allow | deny | notify (route to a human via remote-control, then wait)")
                     .default(serde_json::json!("allow")),
             )
             .with_config(SchemaField::new("timeout_ms", "integer").describe("Per-turn timeout"))

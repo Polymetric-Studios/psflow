@@ -10,8 +10,8 @@ pub use anthropic_api::AnthropicApiAdapter;
 pub use claude_cli::ClaudeCliAdapter;
 #[cfg(feature = "terminal")]
 pub use claude_terminal::{
-    ApprovalChoice, ApprovalPolicy, ApprovalPrompt, ClaudeTerminalSession, Key, ResultSource,
-    SessionOptions, TerminalError, TurnResult,
+    ApprovalChoice, ApprovalNotifier, ApprovalPolicy, ApprovalPrompt, ClaudeTerminalSession, Key,
+    ResultSource, SessionOptions, TerminalError, TurnResult,
 };
 pub use conversation::{
     ConversationConfig, ConversationHistory, ConversationMessage, MessageRole,

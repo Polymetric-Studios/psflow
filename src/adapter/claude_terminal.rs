@@ -201,6 +201,9 @@ pub struct TurnResult {
     pub screen: String,
 }
 
+/// Hook fired when a dialog needs attention: `(prompt, remote_control_url)`.
+pub type ApprovalNotifier = Arc<dyn Fn(&ApprovalPrompt, Option<&str>) + Send + Sync>;
+
 /// A permission/approval dialog parsed off the screen — Claude Code is waiting
 /// for a choice before it can continue the turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,6 +225,10 @@ pub enum ApprovalChoice {
     Deny,
     /// Select a specific option by its 1-based number (e.g. `2` for "allow all").
     Select(usize),
+    /// Don't answer — leave the dialog for an external actor (e.g. a human via
+    /// the session's remote-control URL, or an MCP round-trip) to resolve. The
+    /// drive loop keeps waiting until the dialog clears or the turn times out.
+    Defer,
 }
 
 /// Decides how a dialog is answered. The `Custom` variant covers both an
@@ -307,6 +314,17 @@ impl VtState {
     fn approval(&self) -> bool {
         detect_approval(&self.screen_text()).is_some()
     }
+}
+
+/// The remote-control URL Claude Code advertises on screen, if present
+/// (`https://claude.ai/code/session_<id>`). A human can open it to answer a
+/// dialog in this exact session.
+fn remote_control_url(screen: &str) -> Option<String> {
+    const PREFIX: &str = "https://claude.ai/code/session_";
+    screen
+        .split(|c: char| c.is_whitespace())
+        .find(|w| w.starts_with(PREFIX))
+        .map(|w| w.trim_end_matches(|c: char| !c.is_alphanumeric()).to_string())
 }
 
 /// Parse `"1. Yes"` (digits, a dot, then a label) into the label, or `None`.
@@ -403,6 +421,11 @@ pub struct ClaudeTerminalSession {
     session_id: String,
     /// How approval dialogs are answered during a driven turn.
     approval_policy: ApprovalPolicy,
+    /// Optional hook fired once when a dialog first appears, carrying the prompt
+    /// and the session's remote-control URL (if any). Used to *route* a dialog
+    /// to a human/another surface (remote-control, MCP, Slack) — independent of
+    /// the policy that decides the keystroke.
+    approval_notifier: Option<ApprovalNotifier>,
     /// Set by an external caller to abort the current wait (e.g. a psflow
     /// cancellation token); the drive/wait loops observe it and return
     /// `Cancelled`.
@@ -504,6 +527,7 @@ impl ClaudeTerminalSession {
             reader: Some(reader),
             session_id,
             approval_policy: ApprovalPolicy::default(),
+            approval_notifier: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
             opts,
         })
@@ -623,6 +647,8 @@ impl ClaudeTerminalSession {
     /// The screen is consulted only to detect/answer dialogs.
     fn drive_to_completion(&mut self, baseline_end_turns: usize) -> Result<(), TerminalError> {
         let submit_at = Instant::now();
+        // The dialog we've already routed to the notifier, so we fire it once.
+        let mut notified: Option<ApprovalPrompt> = None;
         loop {
             std::thread::sleep(Duration::from_millis(POLL_MS));
             if self.cancel_flag.load(Ordering::Relaxed) {
@@ -638,14 +664,28 @@ impl ClaudeTerminalSession {
             if submit_at.elapsed().as_millis() >= self.opts.turn_timeout_ms {
                 return Err(TerminalError::Timeout(self.opts.turn_timeout_ms, "turn to complete"));
             }
-            // Answer a settled approval dialog (don't key into a mid-render frame).
+            // Handle a settled approval dialog (don't key into a mid-render frame).
             if idle >= self.opts.settle_ms {
                 if let Some(prompt) = detect_approval(&screen) {
-                    let choice = self.approval_policy.decide(&prompt);
-                    self.answer_approval(choice)?;
-                    self.wait_dialog_cleared()?;
+                    // Route it once (remote-control / MCP / etc.) before deciding.
+                    if notified.as_ref() != Some(&prompt) {
+                        if let Some(notify) = &self.approval_notifier {
+                            notify(&prompt, remote_control_url(&screen).as_deref());
+                        }
+                        notified = Some(prompt.clone());
+                    }
+                    match self.approval_policy.decide(&prompt) {
+                        // Leave it for an external actor; keep waiting for it to clear.
+                        ApprovalChoice::Defer => {}
+                        choice => {
+                            self.answer_approval(choice)?;
+                            self.wait_dialog_cleared()?;
+                            notified = None;
+                        }
+                    }
                     continue;
                 }
+                notified = None;
             }
             // Deterministic completion: a new finished turn in the transcript.
             if submit_at.elapsed().as_millis() >= MIN_TURN_MS
@@ -737,12 +777,26 @@ impl ClaudeTerminalSession {
         self.approval_policy = policy;
     }
 
+    /// Set a hook fired once per dialog (prompt + remote-control URL) to route it
+    /// to a human or another surface. Pair with `ApprovalPolicy` returning
+    /// `Defer` to wait for that external actor to answer.
+    pub fn set_approval_notifier(&mut self, notifier: ApprovalNotifier) {
+        self.approval_notifier = Some(notifier);
+    }
+
+    /// The session's remote-control URL if Claude Code is advertising one on
+    /// screen (a human can open it to drive/answer this exact session).
+    pub fn remote_control_url(&self) -> Option<String> {
+        remote_control_url(&self.screen_text())
+    }
+
     /// Answer the on-screen approval dialog per `choice`.
     pub fn answer_approval(&mut self, choice: ApprovalChoice) -> Result<(), TerminalError> {
         match choice {
             ApprovalChoice::Deny => self.send_key(Key::Escape),
             ApprovalChoice::Allow => self.select_option(1),
             ApprovalChoice::Select(n) => self.select_option(n),
+            ApprovalChoice::Defer => Ok(()), // external actor resolves it
         }
     }
 
@@ -1076,6 +1130,25 @@ mod tests {
         });
         let prompt = detect_approval(DIALOG_FIXTURE).unwrap();
         assert_eq!(policy.decide(&prompt), ApprovalChoice::Allow);
+    }
+
+    #[test]
+    fn remote_control_url_extracted_from_fixture() {
+        assert_eq!(
+            remote_control_url(DIALOG_FIXTURE).as_deref(),
+            Some("https://claude.ai/code/session_011nupjtwjRdbKGF1XQBLnAw")
+        );
+    }
+
+    #[test]
+    fn remote_control_url_none_when_absent() {
+        assert!(remote_control_url("❯ \n  [ psflow | main ]").is_none());
+    }
+
+    #[test]
+    fn approval_choice_defer_is_noop_label() {
+        // Defer must be a distinct variant the drive loop treats as "wait".
+        assert_ne!(ApprovalChoice::Defer, ApprovalChoice::Allow);
     }
 
     #[test]
