@@ -458,6 +458,8 @@ Both modes also emit `validation_ok` / `validation_error` when `validation` is c
 
 ### `poll_until`
 
+> Part of the composition handler family (`subgraph_invoke` / `map` / `loop` / `poll_until`). For the full set, the shared subgraph model, and quality-pattern recipes, see [composition-handlers-reference.md](./composition-handlers-reference.md).
+
 Invokes a named subgraph on a fixed-delay loop until a Rhai predicate returns true or a max-attempts cap is hit. See also `examples/poll_until_composed.mmd` for the compose-first equivalent pattern.
 
 | Key | Type | Default | Purpose |
@@ -498,7 +500,9 @@ These handlers accept `config.*` and `exec.*` annotations like any other node bu
 | `shell` | Run an external command | `src/handlers/shell.rs` |
 | `rhai` | Inline or file-backed Rhai script | `src/handlers/rhai_handler.rs` |
 | `llm_call` | LLM inference via AI adapter | `src/handlers/llm_call.rs` |
-| `subgraph_invoke` | Invoke a named subgraph as a step | `src/handlers/subgraph_invoke.rs` |
+| `subgraph_invoke` | Invoke a named subgraph as a step (see [composition-handlers-reference.md](./composition-handlers-reference.md)) | `src/handlers/subgraph_invoke.rs` |
+| `map` | Fan out a subgraph over a runtime list, then reduce (see [composition-handlers-reference.md](./composition-handlers-reference.md)) | `src/handlers/map.rs` |
+| `loop` | Accumulating loop over a subgraph (see [composition-handlers-reference.md](./composition-handlers-reference.md)) | `src/handlers/loop_handler.rs` |
 | `delay` | Sleep for a fixed duration | `src/handlers/utility.rs` |
 | `read_file` / `write_file` / `glob` | File I/O with path templating | `src/handlers/file_io.rs` |
 | `accumulator` | Append outputs to a running collection on the blackboard | `src/handlers/accumulator.rs` |

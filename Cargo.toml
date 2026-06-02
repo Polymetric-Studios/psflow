@@ -29,8 +29,13 @@ description = "Domain-agnostic process flow control and execution framework"
 [features]
 default = ["runtime"]
 runtime = ["dep:clap", "dep:futures", "dep:glob", "dep:http", "dep:jmespath", "dep:reqwest", "dep:rhai", "dep:tokio", "dep:tokio-util", "dep:tokio-tungstenite", "dep:tracing", "dep:tracing-subscriber"]
+# Drive the real interactive `claude` TUI headless over a pseudo-terminal.
+terminal = ["dep:portable-pty", "dep:vt100", "dep:uuid"]
 
 [dependencies]
+portable-pty = { version = "0.9", optional = true }
+vt100 = { version = "0.16", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
 clap = { version = "4.6.0", features = ["derive"], optional = true }
 futures = { version = "0.3.32", optional = true }
 glob = { version = "0.3", optional = true }
@@ -59,3 +64,19 @@ pretty_assertions = "1"
 proptest = "1"
 tempfile = "3"
 wiremock = "0.6"
+
+[[example]]
+name = "pty_spike"
+required-features = ["terminal"]
+
+[[example]]
+name = "pty_capture"
+required-features = ["terminal"]
+
+[[example]]
+name = "pty_approve"
+required-features = ["terminal"]
+
+[[example]]
+name = "pty_transcript"
+required-features = ["terminal"]

@@ -550,6 +550,15 @@ fn build_handlers(
     let (poll, poll_slot) = PollUntilHandler::new(library, script_engine);
     reg.register("poll_until", Arc::new(poll.with_context(ctx)));
 
+    // `claude_workflow`: drive a real interactive claude TUI as a node (PTY).
+    #[cfg(feature = "terminal")]
+    reg.register(
+        "claude_workflow",
+        Arc::new(psflow::handlers::claude_workflow::ClaudeWorkflowHandler::new(
+            resolver.clone(),
+        )),
+    );
+
     let handlers = reg.into_handler_registry();
     sub_slot.set(handlers.clone());
     map_slot.set(handlers.clone());

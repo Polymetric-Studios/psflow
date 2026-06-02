@@ -14,6 +14,11 @@ run *ARGS:
 graph name *ARGS:
     PATH="$HOME/.composio:$PATH" cargo run --quiet --bin psflow-run --features runtime -- {{name}} {{ARGS}}
 
+# Run a named graph with the claude_workflow handler enabled (PTY-driven real claude TUI).
+# Example: just graph-headless claude-demo
+graph-headless name *ARGS:
+    PATH="$HOME/.composio:$PATH" cargo run --quiet --bin psflow-run --features runtime,terminal -- {{name}} {{ARGS}}
+
 # Install psflow-run to ~/.cargo/bin (stable path for scheduled jobs).
 install:
     cargo install --path . --bin psflow-run --features runtime --locked

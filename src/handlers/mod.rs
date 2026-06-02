@@ -1,4 +1,6 @@
 pub mod accumulator;
+#[cfg(feature = "terminal")]
+pub mod claude_workflow;
 pub(crate) mod common;
 pub mod composio;
 pub mod control;
@@ -18,6 +20,8 @@ pub mod utility;
 pub mod websocket;
 
 pub use accumulator::AccumulatorHandler;
+#[cfg(feature = "terminal")]
+pub use claude_workflow::ClaudeWorkflowHandler;
 pub use composio::ComposioHandler;
 pub use control::{BreakHandler, SelectHandler};
 pub use error::{CatchHandler, ErrorTransformHandler, FallbackHandler, RetryHandler};

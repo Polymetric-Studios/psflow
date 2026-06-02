@@ -1,11 +1,18 @@
 pub mod anthropic_api;
 pub mod claude_cli;
+#[cfg(feature = "terminal")]
+pub mod claude_terminal;
 pub mod conversation;
 pub mod mock;
 pub mod registry;
 
 pub use anthropic_api::AnthropicApiAdapter;
 pub use claude_cli::ClaudeCliAdapter;
+#[cfg(feature = "terminal")]
+pub use claude_terminal::{
+    ApprovalChoice, ApprovalPolicy, ApprovalPrompt, ClaudeTerminalSession, Key, ResultSource,
+    SessionOptions, TerminalError, TurnResult,
+};
 pub use conversation::{
     ConversationConfig, ConversationHistory, ConversationMessage, MessageRole,
     CONVERSATION_HISTORY_KEY,
