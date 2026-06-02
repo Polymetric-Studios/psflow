@@ -1,0 +1,7 @@
+graph TD
+    SRC[In] --> FIND[Find]
+    %% @graph name: find_more
+    %% @graph description: return two new ints based on accumulated state length
+    %% @SRC handler: passthrough
+    %% @FIND handler: rhai
+    %% @FIND config.script: "let s = inputs.state; let n = s.len(); #{ items: [n, n + 1] }"

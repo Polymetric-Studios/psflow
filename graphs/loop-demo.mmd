@@ -1,0 +1,9 @@
+graph TD
+    LOOP[Accumulate]
+    %% @graph name: loop-demo
+    %% @graph description: loop find_more until the collection reaches 6
+    %% @LOOP handler: loop
+    %% @LOOP config.graph: find_more
+    %% @LOOP config.collect: items
+    %% @LOOP config.until: "len(state) >= 6"
+    %% @LOOP config.max_iterations: 10

@@ -20,7 +20,9 @@
 use clap::Parser;
 use psflow::adapter::ClaudeCliAdapter;
 use psflow::execute::{ContextInheritance, ExecutionContext};
-use psflow::handlers::{GraphLibrary, MapHandler, SubgraphInvocationHandler};
+use psflow::handlers::{
+    GraphLibrary, LoopHandler, MapHandler, PollUntilHandler, SubgraphInvocationHandler,
+};
 use psflow::scripting::engine::ScriptEngine;
 use psflow::{
     load_mermaid, Blackboard, BlackboardScope, ExecutionResult, LlmCallHandler, NodeRegistry,
@@ -531,20 +533,28 @@ fn build_handlers(
     register_integrations(&mut reg, &resolver);
 
     // Composition: every `.mmd` in graphs_dir is a callable subgraph, so graphs
-    // can invoke each other (`subgraph_invoke`) and fan out over a runtime list
-    // (`map`). Both need the final registry (set after into_handler_registry).
+    // can invoke each other (`subgraph_invoke`), fan out over a runtime list
+    // (`map`), and loop over one (`loop`, `poll_until`). These need the final
+    // registry (set after into_handler_registry) so subgraphs can recurse.
     let library = Arc::new(load_graph_library(graphs_dir));
+    let script_engine = Arc::new(ScriptEngine::with_defaults());
     let (subgraph, sub_slot) = SubgraphInvocationHandler::new(library.clone());
     reg.register(
         "subgraph_invoke",
         Arc::new(subgraph.with_context(ctx.clone())),
     );
-    let (map_handler, map_slot) = MapHandler::new(library);
-    reg.register("map", Arc::new(map_handler.with_context(ctx)));
+    let (map_handler, map_slot) = MapHandler::new(library.clone());
+    reg.register("map", Arc::new(map_handler.with_context(ctx.clone())));
+    let (loop_handler, loop_slot) = LoopHandler::new(library.clone(), script_engine.clone());
+    reg.register("loop", Arc::new(loop_handler.with_context(ctx.clone())));
+    let (poll, poll_slot) = PollUntilHandler::new(library, script_engine);
+    reg.register("poll_until", Arc::new(poll.with_context(ctx)));
 
     let handlers = reg.into_handler_registry();
     sub_slot.set(handlers.clone());
     map_slot.set(handlers.clone());
+    loop_slot.set(handlers.clone());
+    poll_slot.set(handlers.clone());
     handlers
 }
 
