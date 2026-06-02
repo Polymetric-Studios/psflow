@@ -22,7 +22,9 @@ use crate::graph::node::Node;
 use crate::graph::types::Value;
 use crate::template::TemplateResolver;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
+use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -117,14 +119,39 @@ impl NodeHandler for ClaudeWorkflowHandler {
                 .and_then(|v| v.as_str())
                 .unwrap_or(DEFAULT_PERMISSION_MODE);
 
+            // Cancel flag shared with the blocking session (and the `ask` policy).
+            let cancel_flag = Arc::new(AtomicBool::new(false));
+
             // allow (auto-yes) | deny (auto-no) | notify (route to a human via the
-            // session's remote-control URL and wait for them to answer).
-            let (policy, notify) = match config.get("approval").and_then(|v| v.as_str()) {
+            // session's remote-control URL) | ask (route into this process via a
+            // file channel — a request file appears and we block on a response file,
+            // so the surrounding session/operator can answer in-place).
+            let approval = config.get("approval").and_then(|v| v.as_str());
+            let wait_ms = config
+                .get("timeout_ms")
+                .and_then(|v| v.as_u64())
+                .map(|t| t as u128)
+                .unwrap_or(300_000);
+            let (policy, notify) = match approval {
                 Some("deny") => (ApprovalPolicy::DenyAll, false),
-                Some("notify") => (
-                    ApprovalPolicy::custom(|_| ApprovalChoice::Defer),
-                    true,
-                ),
+                Some("notify") => (ApprovalPolicy::custom(|_| ApprovalChoice::Defer), true),
+                Some("ask") => {
+                    let dir = std::env::temp_dir().join("psflow-approvals");
+                    let _ = std::fs::create_dir_all(&dir);
+                    let req = dir.join(format!("{node_id}.request.json"));
+                    let resp = dir.join(format!("{node_id}.response"));
+                    let _ = std::fs::remove_file(&req);
+                    let _ = std::fs::remove_file(&resp);
+                    tracing::warn!(
+                        "[claude_workflow] node '{node_id}' approval channel ready — a request will appear at {}; write your choice (allow|deny|<n>) to {}",
+                        req.display(),
+                        resp.display()
+                    );
+                    (
+                        file_channel_policy(req, resp, wait_ms, cancel_flag.clone()),
+                        false,
+                    )
+                }
                 _ => (ApprovalPolicy::AllowAll, false),
             };
 
@@ -155,7 +182,6 @@ impl NodeHandler for ClaudeWorkflowHandler {
             };
 
             // --- Drive the session on a blocking thread, mapping cancellation ---
-            let cancel_flag = Arc::new(AtomicBool::new(false));
             let cf = cancel_flag.clone();
             let notify_node_id = node_id.clone();
             let mut handle = tokio::task::spawn_blocking(move || -> Result<_, TerminalError> {
@@ -224,7 +250,7 @@ impl NodeHandler for ClaudeWorkflowHandler {
             )
             .with_config(
                 SchemaField::new("approval", "string")
-                    .describe("allow | deny | notify (route to a human via remote-control, then wait)")
+                    .describe("allow | deny | notify (remote-control) | ask (file channel: write choice to a response file)")
                     .default(serde_json::json!("allow")),
             )
             .with_config(SchemaField::new("timeout_ms", "integer").describe("Per-turn timeout"))
@@ -234,6 +260,63 @@ impl NodeHandler for ClaudeWorkflowHandler {
             .with_output(SchemaField::new("source", "string"))
             .with_output(SchemaField::new("session_id", "string"))
     }
+}
+
+/// Parse a written approval response into a choice. `allow`/`yes`/`y`/`1` →
+/// Allow, `deny`/`no`/`n` → Deny, a bare number → that option, else Deny.
+fn parse_choice(s: &str) -> ApprovalChoice {
+    match s.trim().to_lowercase().as_str() {
+        "allow" | "yes" | "y" | "1" => ApprovalChoice::Allow,
+        "deny" | "no" | "n" => ApprovalChoice::Deny,
+        other => other
+            .parse::<usize>()
+            .map(ApprovalChoice::Select)
+            .unwrap_or(ApprovalChoice::Deny),
+    }
+}
+
+/// An `ApprovalPolicy` that routes each dialog through a pair of files: it writes
+/// the prompt to `req` and blocks polling `resp` for a written choice (so the
+/// surrounding process/operator answers in-place). Returns `Deny` on cancel or
+/// after `deadline_ms` with no response.
+fn file_channel_policy(
+    req: PathBuf,
+    resp: PathBuf,
+    deadline_ms: u128,
+    cancel: Arc<AtomicBool>,
+) -> ApprovalPolicy {
+    ApprovalPolicy::custom(move |prompt| {
+        let payload = serde_json::json!({
+            "question": prompt.question,
+            "options": prompt.options,
+            "respond_to": resp.to_string_lossy(),
+        });
+        let _ = std::fs::write(
+            &req,
+            serde_json::to_vec_pretty(&payload).unwrap_or_default(),
+        );
+        let _ = std::fs::remove_file(&resp);
+
+        let start = Instant::now();
+        loop {
+            std::thread::sleep(Duration::from_millis(300));
+            if cancel.load(Ordering::Relaxed) {
+                let _ = std::fs::remove_file(&req);
+                return ApprovalChoice::Deny;
+            }
+            if let Ok(s) = std::fs::read_to_string(&resp) {
+                if !s.trim().is_empty() {
+                    let _ = std::fs::remove_file(&resp);
+                    let _ = std::fs::remove_file(&req);
+                    return parse_choice(&s);
+                }
+            }
+            if start.elapsed().as_millis() >= deadline_ms {
+                let _ = std::fs::remove_file(&req);
+                return ApprovalChoice::Deny;
+            }
+        }
+    })
 }
 
 fn map_terminal_error(node_id: &str, e: TerminalError) -> NodeError {
@@ -281,6 +364,17 @@ mod tests {
         cancel.cancel();
         let result = handler().execute(&node, Outputs::new(), cancel).await;
         assert!(matches!(result, Err(NodeError::Cancelled { .. })));
+    }
+
+    #[test]
+    fn parse_choice_maps_responses() {
+        assert_eq!(parse_choice("allow"), ApprovalChoice::Allow);
+        assert_eq!(parse_choice(" Yes\n"), ApprovalChoice::Allow);
+        assert_eq!(parse_choice("1"), ApprovalChoice::Allow);
+        assert_eq!(parse_choice("deny"), ApprovalChoice::Deny);
+        assert_eq!(parse_choice("no"), ApprovalChoice::Deny);
+        assert_eq!(parse_choice("2"), ApprovalChoice::Select(2));
+        assert_eq!(parse_choice("garbage"), ApprovalChoice::Deny);
     }
 
     #[test]

@@ -1,0 +1,10 @@
+graph TD
+    CW[Ask Claude]
+    %% @graph name: claude-ask
+    %% @graph description: claude_workflow node that routes approval dialogs via a file channel
+    %% @CW handler: claude_workflow
+    %% @CW config.prompt: "Use the Write tool to create the file /tmp/psflow_ask_probe.txt with the contents: ok. Do it now."
+    %% @CW config.permission_mode: default
+    %% @CW config.approval: ask
+    %% @CW config.timeout_ms: 240000
+    %% @CW config.output: answer
