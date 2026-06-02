@@ -1,0 +1,10 @@
+graph TD
+    GEN[Generate] --> FAN[Map Square]
+    %% @graph name: map-demo
+    %% @graph description: fan out square_item over a generated list
+    %% @GEN handler: rhai
+    %% @GEN config.script: "#{ nums: [1, 2, 3, 4] }"
+    %% @FAN handler: map
+    %% @FAN config.over: nums
+    %% @FAN config.graph: square_item
+    %% @FAN config.as: item

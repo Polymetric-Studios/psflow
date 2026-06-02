@@ -1,0 +1,7 @@
+graph TD
+    SRC[In] --> SQ[Square]
+    %% @graph name: square_item
+    %% @graph description: square one {item}
+    %% @SRC handler: passthrough
+    %% @SQ handler: rhai
+    %% @SQ config.script: "let n = inputs.item; #{ squared: n * n }"

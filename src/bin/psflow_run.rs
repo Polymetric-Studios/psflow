@@ -20,6 +20,7 @@
 use clap::Parser;
 use psflow::adapter::ClaudeCliAdapter;
 use psflow::execute::{ContextInheritance, ExecutionContext};
+use psflow::handlers::{GraphLibrary, MapHandler, SubgraphInvocationHandler};
 use psflow::scripting::engine::ScriptEngine;
 use psflow::{
     load_mermaid, Blackboard, BlackboardScope, ExecutionResult, LlmCallHandler, NodeRegistry,
@@ -450,7 +451,7 @@ async fn run(
     }
 
     let adapter = Arc::new(ClaudeCliAdapter::new());
-    let handlers = build_handlers(adapter.clone(), inputs.clone());
+    let handlers = build_handlers(adapter.clone(), inputs.clone(), graphs_dir);
     let executor = TopologicalExecutor::new().with_adapter(adapter);
 
     eprintln!(
@@ -498,12 +499,13 @@ async fn run(
 fn build_handlers(
     adapter: Arc<ClaudeCliAdapter>,
     inputs: BTreeMap<String, Value>,
+    graphs_dir: &Path,
 ) -> psflow::execute::HandlerRegistry {
     let engine = Arc::new(ScriptEngine::with_defaults());
 
     // A context whose blackboard carries the runtime inputs, so context-aware
-    // handlers (`llm_call` prompts, `rhai` scripts) can read them as `{ctx.key}`
-    // / `ctx_get(ctx, "key")`.
+    // handlers (`llm_call` prompts, `rhai` scripts, subgraphs) can read them as
+    // `{ctx.key}` / `ctx_get(ctx, "key")`.
     let ctx = Arc::new(ExecutionContext::new());
     {
         let mut bb = ctx.blackboard();
@@ -523,11 +525,55 @@ fn build_handlers(
     );
     // Override the default stateless `rhai` with one that sees the inputs as `ctx`.
     let rhai = RhaiHandler::new(engine);
-    rhai.set_context(ctx);
+    rhai.set_context(ctx.clone());
     reg.register("rhai", Arc::new(rhai));
 
     register_integrations(&mut reg, &resolver);
-    reg.into_handler_registry()
+
+    // Composition: every `.mmd` in graphs_dir is a callable subgraph, so graphs
+    // can invoke each other (`subgraph_invoke`) and fan out over a runtime list
+    // (`map`). Both need the final registry (set after into_handler_registry).
+    let library = Arc::new(load_graph_library(graphs_dir));
+    let (subgraph, sub_slot) = SubgraphInvocationHandler::new(library.clone());
+    reg.register(
+        "subgraph_invoke",
+        Arc::new(subgraph.with_context(ctx.clone())),
+    );
+    let (map_handler, map_slot) = MapHandler::new(library);
+    reg.register("map", Arc::new(map_handler.with_context(ctx)));
+
+    let handlers = reg.into_handler_registry();
+    sub_slot.set(handlers.clone());
+    map_slot.set(handlers.clone());
+    handlers
+}
+
+/// Load every `<graphs-dir>/*.mmd` as a named subgraph (name = file stem) so
+/// `subgraph_invoke`/`map` can reference them. Unparseable files are skipped.
+fn load_graph_library(graphs_dir: &Path) -> GraphLibrary {
+    let mut lib = GraphLibrary::new();
+    let Ok(entries) = std::fs::read_dir(graphs_dir) else {
+        return lib;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("mmd") {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|s| s.to_str()).map(String::from) else {
+            continue;
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        match load_mermaid(&content) {
+            Ok(g) => {
+                lib.register(name, g);
+            }
+            Err(_) => eprintln!("warning: skipped subgraph '{name}' (parse error)"),
+        }
+    }
+    lib
 }
 
 /// Optional third-party integrations, kept out of the provider-neutral core so
@@ -666,7 +712,8 @@ async fn notify_failure(
         }
         if let Ok(content) = std::fs::read_to_string(&hook) {
             if let Ok(g) = load_mermaid(&content) {
-                let handlers = build_handlers(Arc::new(ClaudeCliAdapter::new()), hook_inputs);
+                let handlers =
+                    build_handlers(Arc::new(ClaudeCliAdapter::new()), hook_inputs, graphs_dir);
                 // Best-effort; do not re-notify if the hook itself fails.
                 let _ = TopologicalExecutor::new()
                     .execute_with_parent(&g, &handlers, &bb, ContextInheritance::ReadOnly)
