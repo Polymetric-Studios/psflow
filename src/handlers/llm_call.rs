@@ -39,6 +39,11 @@ pub const CACHE_BOUNDARY_SENTINEL: &str = "<<<cache_boundary>>>";
 /// - `temperature`: Sampling temperature.
 /// - `max_tokens`: Maximum tokens in response.
 /// - `output_format`: `"text"` (default) or `"json"`.
+/// - `template_render`: `true` (default) renders the prompt as a `{var}` template; `false`
+///   uses the prompt verbatim (no compile/interpolation). Set `false` for prompts that
+///   contain literal braces — e.g. an extraction prompt that shows the JSON shape to emit —
+///   so they don't need `{{`/`}}` escaping and a stray `{...}` is never mistaken for a
+///   missing variable.
 /// - `mode`: `"transform"` (default) or `"oracle"`.
 /// - `context_max_tokens`: Token budget for conversation history.
 /// - `context_depth`: Max ancestor LLM exchanges to include.
@@ -108,26 +113,38 @@ impl NodeHandler for LlmCallHandler {
                     recoverable: false,
                 })?;
 
-            // Compile and render the prompt template
-            let template = PromptTemplate::compile(prompt_str).map_err(|e| NodeError::Failed {
-                source_message: None,
-                message: format!("node '{node_id}': template error: {e}"),
-                recoverable: false,
-            })?;
+            // `template_render: false` ships the prompt verbatim (no `{var}` interpolation),
+            // so a JSON-shaped extraction prompt with literal braces needs no escaping.
+            let template_render = config
+                .get("template_render")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
 
-            // Use the execution context's blackboard if available, otherwise empty
-            let empty_bb = Blackboard::new();
-            let rendered = if let Some(ref ctx) = exec_ctx {
-                let bb = ctx.blackboard();
-                template.render(&inputs, &bb)
+            let rendered = if !template_render {
+                prompt_str.to_string()
             } else {
-                template.render(&inputs, &empty_bb)
-            }
-            .map_err(|e| NodeError::Failed {
-                source_message: None,
-                message: format!("node '{node_id}': template render error: {e}"),
-                recoverable: false,
-            })?;
+                // Compile and render the prompt template
+                let template =
+                    PromptTemplate::compile(prompt_str).map_err(|e| NodeError::Failed {
+                        source_message: None,
+                        message: format!("node '{node_id}': template error: {e}"),
+                        recoverable: false,
+                    })?;
+
+                // Use the execution context's blackboard if available, otherwise empty
+                let empty_bb = Blackboard::new();
+                if let Some(ref ctx) = exec_ctx {
+                    let bb = ctx.blackboard();
+                    template.render(&inputs, &bb)
+                } else {
+                    template.render(&inputs, &empty_bb)
+                }
+                .map_err(|e| NodeError::Failed {
+                    source_message: None,
+                    message: format!("node '{node_id}': template render error: {e}"),
+                    recoverable: false,
+                })?
+            };
 
             // Assemble conversation history from blackboard (if available)
             let conversation_messages = if let Some(ref ctx) = exec_ctx {
@@ -346,6 +363,34 @@ mod tests {
             Some(&Value::String("A brief summary.".into()))
         );
         assert!(result.contains_key("_latency_ms"));
+    }
+
+    #[tokio::test]
+    async fn template_render_false_ships_prompt_verbatim_with_literal_braces() {
+        // A JSON-shaped prompt with literal braces would normally trip the `{var}` template
+        // parser (a stray `{...}` reads as a missing variable → render error). With
+        // `template_render:false`, the prompt is used verbatim and reaches the adapter intact.
+        let json_prompt =
+            r#"Emit { "nodes":[{"id":"x"}], "relations":{"a":{"symmetric":true}} } only."#;
+        let adapter = Arc::new(
+            MockAdapter::new()
+                .with_response("Emit", "ok")
+                .with_default("MISMATCH"),
+        );
+        let handler = LlmCallHandler::new(adapter);
+
+        let mut node = Node::new("LLM_RAW", "Extract");
+        node.config = serde_json::json!({
+            "prompt": json_prompt,
+            "template_render": false
+        });
+
+        // No inputs to satisfy any `{var}` — proves the braces were NOT treated as variables.
+        let result = handler
+            .execute(&node, Outputs::new(), CancellationToken::new())
+            .await
+            .expect("verbatim prompt must not error on literal braces");
+        assert_eq!(result.get("response"), Some(&Value::String("ok".into())));
     }
 
     #[tokio::test]
