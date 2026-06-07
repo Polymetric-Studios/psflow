@@ -324,7 +324,10 @@ fn remote_control_url(screen: &str) -> Option<String> {
     screen
         .split(|c: char| c.is_whitespace())
         .find(|w| w.starts_with(PREFIX))
-        .map(|w| w.trim_end_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .map(|w| {
+            w.trim_end_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
 }
 
 /// Parse `"1. Yes"` (digits, a dot, then a label) into the label, or `None`.
@@ -403,7 +406,9 @@ fn is_busy(screen: &str) -> bool {
         let t = line.trim();
         t.ends_with('…')
             && t.chars().count() <= SPINNER_LINE_MAX
-            && t.chars().next().is_some_and(|c| SPINNER_GLYPHS.contains(&c))
+            && t.chars()
+                .next()
+                .is_some_and(|c| SPINNER_GLYPHS.contains(&c))
     })
 }
 
@@ -662,7 +667,10 @@ impl ClaudeTerminalSession {
                 return Err(TerminalError::Closed);
             }
             if submit_at.elapsed().as_millis() >= self.opts.turn_timeout_ms {
-                return Err(TerminalError::Timeout(self.opts.turn_timeout_ms, "turn to complete"));
+                return Err(TerminalError::Timeout(
+                    self.opts.turn_timeout_ms,
+                    "turn to complete",
+                ));
             }
             // Handle a settled approval dialog (don't key into a mid-render frame).
             if idle >= self.opts.settle_ms {
@@ -1083,7 +1091,10 @@ mod tests {
     #[test]
     fn detect_approval_parses_real_dialog() {
         let prompt = detect_approval(DIALOG_FIXTURE).expect("dialog detected");
-        assert_eq!(prompt.question, "Do you want to create psflow_dialog_probe.txt?");
+        assert_eq!(
+            prompt.question,
+            "Do you want to create psflow_dialog_probe.txt?"
+        );
         assert_eq!(prompt.options.len(), 3);
         assert_eq!(prompt.options[0], "Yes");
         assert_eq!(prompt.options[2], "No");
@@ -1106,8 +1117,14 @@ mod tests {
     #[test]
     fn approval_policy_allow_all_and_deny_all() {
         let prompt = detect_approval(DIALOG_FIXTURE).unwrap();
-        assert_eq!(ApprovalPolicy::AllowAll.decide(&prompt), ApprovalChoice::Allow);
-        assert_eq!(ApprovalPolicy::DenyAll.decide(&prompt), ApprovalChoice::Deny);
+        assert_eq!(
+            ApprovalPolicy::AllowAll.decide(&prompt),
+            ApprovalChoice::Allow
+        );
+        assert_eq!(
+            ApprovalPolicy::DenyAll.decide(&prompt),
+            ApprovalChoice::Deny
+        );
     }
 
     #[test]
@@ -1162,7 +1179,10 @@ mod tests {
     #[test]
     fn parse_numbered_option_extracts_label() {
         assert_eq!(parse_numbered_option("1. Yes").as_deref(), Some("Yes"));
-        assert_eq!(parse_numbered_option("  3. No way").as_deref(), Some("No way"));
+        assert_eq!(
+            parse_numbered_option("  3. No way").as_deref(),
+            Some("No way")
+        );
         assert_eq!(parse_numbered_option("not numbered"), None);
         assert_eq!(parse_numbered_option("1."), None);
     }
@@ -1195,6 +1215,9 @@ mod tests {
             "\n",
         );
         std::fs::write(&path, jsonl).unwrap();
-        assert_eq!(last_assistant_text(&path).as_deref(), Some("line one\nline two"));
+        assert_eq!(
+            last_assistant_text(&path).as_deref(),
+            Some("line one\nline two")
+        );
     }
 }

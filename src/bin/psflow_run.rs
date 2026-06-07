@@ -554,9 +554,7 @@ fn build_handlers(
     #[cfg(feature = "terminal")]
     reg.register(
         "claude_workflow",
-        Arc::new(psflow::handlers::claude_workflow::ClaudeWorkflowHandler::new(
-            resolver.clone(),
-        )),
+        Arc::new(psflow::handlers::claude_workflow::ClaudeWorkflowHandler::new(resolver.clone())),
     );
 
     let handlers = reg.into_handler_registry();

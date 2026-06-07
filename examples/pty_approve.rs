@@ -30,7 +30,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let created = target.exists();
     let contents = std::fs::read_to_string(&target).unwrap_or_default();
     println!("{SCOPE} result={:?} source={:?}", turn.result, turn.source);
-    println!("{SCOPE} file_created={created} contents={:?}", contents.trim());
+    println!(
+        "{SCOPE} file_created={created} contents={:?}",
+        contents.trim()
+    );
     println!(
         "{SCOPE} VERDICT: {}",
         if created {

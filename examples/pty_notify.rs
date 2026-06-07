@@ -34,7 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{SCOPE} ROUTED dialog: question={:?} options={:?}",
             prompt.question, prompt.options
         );
-        println!("{SCOPE} -> answer at: {}", url.unwrap_or("(none on screen)"));
+        println!(
+            "{SCOPE} -> answer at: {}",
+            url.unwrap_or("(none on screen)")
+        );
     }));
 
     println!("{SCOPE} running write-tool prompt (forces a dialog)… waiting up to {wait_secs}s for a human");
@@ -42,8 +45,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match session.run_turn(body) {
         Ok(turn) => {
             let created = std::path::Path::new("/tmp/psflow_notify_probe.txt").exists();
-            println!("{SCOPE} COMPLETED — dialog was answered remotely. result={:?}", turn.result);
-            println!("{SCOPE} file_created={created} (true => the human's 'Yes' really took effect)");
+            println!(
+                "{SCOPE} COMPLETED — dialog was answered remotely. result={:?}",
+                turn.result
+            );
+            println!(
+                "{SCOPE} file_created={created} (true => the human's 'Yes' really took effect)"
+            );
         }
         Err(e) => println!("{SCOPE} not answered in time: {e}"),
     }

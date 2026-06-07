@@ -65,9 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // first stable non-busy after work started
             screen_idle_at = Some(elapsed);
         }
-        println!(
-            "{SCOPE} t={elapsed}ms assistant_reasons={reasons:?} screen_busy={screen_busy}"
-        );
+        println!("{SCOPE} t={elapsed}ms assistant_reasons={reasons:?} screen_busy={screen_busy}");
 
         if transcript_done {
             break;

@@ -24,9 +24,9 @@ use crate::template::TemplateResolver;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 const DEFAULT_OUTPUT_KEY: &str = "result";
 /// Non-prompting default so a headless run is autonomous; the `AllowAll` policy
@@ -326,7 +326,9 @@ fn map_terminal_error(node_id: &str, e: TerminalError) -> NodeError {
         },
         TerminalError::Timeout(ms, what) => NodeError::Failed {
             source_message: None,
-            message: format!("node '{node_id}': claude session timed out after {ms}ms waiting for {what}"),
+            message: format!(
+                "node '{node_id}': claude session timed out after {ms}ms waiting for {what}"
+            ),
             recoverable: true,
         },
         other => NodeError::Failed {
@@ -353,7 +355,10 @@ mod tests {
             .execute(&node, Outputs::new(), CancellationToken::new())
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing config.prompt"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing config.prompt"));
     }
 
     #[tokio::test]
@@ -385,7 +390,10 @@ mod tests {
         ));
         assert!(matches!(
             map_terminal_error("n", TerminalError::Timeout(100, "x")),
-            NodeError::Failed { recoverable: true, .. }
+            NodeError::Failed {
+                recoverable: true,
+                ..
+            }
         ));
     }
 }
