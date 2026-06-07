@@ -131,6 +131,13 @@ pub struct SessionOptions {
     /// Explicit session UUID passed as `--session-id`. When `None`, a fresh v4
     /// UUID is generated at spawn so the transcript path is always known.
     pub session_id: Option<String>,
+    /// Resume an existing conversation: emit `--resume <session_id>` instead of
+    /// `--session-id <session_id>` (Claude continues the same transcript).
+    /// Requires `session_id` to be set to the id being resumed.
+    pub resume: bool,
+    /// Extra environment variables to set on the child, applied after the
+    /// inherited process env (so these win). Useful for e.g. depth markers.
+    pub env: Vec<(String, String)>,
     pub rows: u16,
     pub cols: u16,
     pub settle_ms: u128,
@@ -146,6 +153,8 @@ impl Default for SessionOptions {
             cwd: None,
             model: None,
             session_id: None,
+            resume: false,
+            env: Vec::new(),
             rows: DEFAULT_ROWS,
             cols: DEFAULT_COLS,
             settle_ms: DEFAULT_SETTLE_MS,
@@ -177,6 +186,16 @@ impl SessionOptions {
     }
     pub fn with_session_id(mut self, id: impl Into<String>) -> Self {
         self.session_id = Some(id.into());
+        self
+    }
+    /// Resume the conversation named by `session_id` (emit `--resume`).
+    pub fn with_resume(mut self, resume: bool) -> Self {
+        self.resume = resume;
+        self
+    }
+    /// Set an environment variable on the spawned child.
+    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.push((key.into(), value.into()));
         self
     }
 }
@@ -463,7 +482,17 @@ impl ClaudeTerminalSession {
             cmd.env(k, v);
         }
         cmd.env("TERM", "xterm-256color");
-        cmd.arg("--session-id");
+        // Caller-supplied env wins over the inherited process env.
+        for (k, v) in &opts.env {
+            cmd.env(k, v);
+        }
+        // Resume continues the same transcript (`--resume`); otherwise pin a new
+        // session id (`--session-id`). The two flags are mutually exclusive.
+        if opts.resume {
+            cmd.arg("--resume");
+        } else {
+            cmd.arg("--session-id");
+        }
         cmd.arg(&session_id);
         if let Some(model) = &opts.model {
             cmd.arg("--model");
@@ -985,6 +1014,20 @@ mod tests {
         assert_eq!(o.command, "/usr/local/bin/claude");
         assert_eq!(o.model.as_deref(), Some("claude-opus-4-8"));
         assert_eq!(o.args, vec!["--permission-mode", "acceptEdits"]);
+    }
+
+    #[test]
+    fn session_options_resume_and_env() {
+        let o = SessionOptions::new()
+            .with_session_id("abc")
+            .with_resume(true)
+            .with_env("ERGON_CLAUDE_DEPTH", "1");
+        assert!(o.resume);
+        assert_eq!(o.session_id.as_deref(), Some("abc"));
+        assert_eq!(o.env, vec![("ERGON_CLAUDE_DEPTH".into(), "1".into())]);
+        // Defaults stay off.
+        assert!(!SessionOptions::default().resume);
+        assert!(SessionOptions::default().env.is_empty());
     }
 
     #[test]
