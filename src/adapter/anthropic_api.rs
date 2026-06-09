@@ -303,10 +303,18 @@ fn translate_request(
         stop_sequences: &req.stop_sequences,
     };
 
-    let body = serde_json::to_value(&wire).map_err(|e| NodeError::AdapterError {
+    let mut body = serde_json::to_value(&wire).map_err(|e| NodeError::AdapterError {
         adapter: ADAPTER_NAME.into(),
         message: format!("failed to serialize request: {e}"),
     })?;
+
+    // Structured outputs (GA on Haiku 4.5 / Sonnet 4.6 / Opus 4.8 — no beta header):
+    // when a JSON Schema is supplied, constrain generation to it via `output_config.format`.
+    if let Some(schema) = &req.output_schema {
+        body["output_config"] = serde_json::json!({
+            "format": { "type": "json_schema", "schema": schema }
+        });
+    }
 
     Ok(TranslatedRequest {
         body,
@@ -721,6 +729,30 @@ mod tests {
         let req = AiRequest::new("x").with_max_tokens(32);
         let t = translate_request(&req, Some("claude-default")).unwrap();
         assert_eq!(t.body["model"], "claude-default");
+    }
+
+    #[test]
+    fn translate_output_schema_emits_output_config_format() {
+        let mut req = AiRequest::new("x").with_max_tokens(32);
+        req.model = Some("claude-haiku-4-5".into());
+        req.output_schema = Some(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": { "role": { "enum": ["claim", "question"] } }
+        }));
+        let t = translate_request(&req, None).unwrap();
+        let format = &t.body["output_config"]["format"];
+        assert_eq!(format["type"], "json_schema");
+        // The supplied schema is carried through verbatim.
+        assert_eq!(format["schema"]["properties"]["role"]["enum"][0], "claim");
+        assert_eq!(format["schema"]["additionalProperties"], false);
+    }
+
+    #[test]
+    fn translate_without_output_schema_omits_output_config() {
+        let req = sample_request();
+        let t = translate_request(&req, None).unwrap();
+        assert!(t.body.get("output_config").is_none());
     }
 
     #[test]

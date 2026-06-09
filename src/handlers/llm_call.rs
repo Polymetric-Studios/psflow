@@ -266,10 +266,15 @@ impl NodeHandler for LlmCallHandler {
             // stages in one graph don't both collide on the default `"response"` port (e.g. an
             // extract-nodes stage and a link stage feeding a merge). Defaults preserve the
             // transform/oracle convention.
-            let output_key = config
-                .get("output_key")
-                .and_then(|v| v.as_str())
-                .unwrap_or(if mode == "oracle" { "decision" } else { "response" });
+            let output_key =
+                config
+                    .get("output_key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(if mode == "oracle" {
+                        "decision"
+                    } else {
+                        "response"
+                    });
 
             // Capture response text for conversation history before moving fields
             let response_text_for_history = response
