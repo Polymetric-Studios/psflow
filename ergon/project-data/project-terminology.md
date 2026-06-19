@@ -14,6 +14,7 @@
 | annotated-Mermaid | The single-file definition format: a standard Mermaid `.mmd` file whose node configuration is embedded as structured `%%` comments. Holds topology, typing, node implementation, and execution semantics in one file. |
 | annotation | A configuration line in an `.mmd` file. Node form: `%% @<NodeID> <key.path>: <value>`. Graph form: `%% @graph <key>: <value>`. Mermaid renderers ignore these comments. |
 | anthropic-API-adapter | AI-adapter backed by the Anthropic API. |
+| openai-compatible-adapter | One AI-adapter (`OpenAiCompatAdapter`) for any provider speaking the OpenAI `/v1/chat/completions` wire format with a bearer token (OpenRouter, OpenAI, Groq, Together, local servers). A provider is just a `(base_url, api_key, extra_headers)` triple; the `openrouter` preset points it at `https://openrouter.ai/api`. Stateless — conversational continuity rides on `conversation-history`; arbitrary-model access comes from the per-node `config.model`. |
 | auth-strategy | A graph-local, named credential-injection scheme declared via `@graph auth.<name>`. Built-in types: `static_header`, `bearer`, `cookie_jar`, `hmac`. |
 | blackboard | Scoped shared state available to nodes and scripts during execution. |
 | built-in-handler | A handler shipped with psflow: `passthrough`, `transform`, `delay`, `log`, `merge`, `split`, `gate`, `error_transform`, `http`, `ws`, `poll_until`, `read_file`/`write_file`/`glob`, `rhai`, `llm_call`, `accumulator`, `human_input`, `subgraph_invoke`, `map`, `loop`, `shell`. |

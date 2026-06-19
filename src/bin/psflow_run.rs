@@ -18,7 +18,9 @@
 //! live here.
 
 use clap::Parser;
-use psflow::adapter::ClaudeCliAdapter;
+use psflow::adapter::{
+    AdapterRegistry, AnthropicApiAdapter, ClaudeCliAdapter, OpenAiCompatAdapter,
+};
 use psflow::execute::{ContextInheritance, ExecutionContext};
 use psflow::handlers::{
     GraphLibrary, LoopHandler, MapHandler, PollUntilHandler, SubgraphInvocationHandler,
@@ -452,9 +454,14 @@ async fn run(
         parent_bb.set(k.clone(), v.clone(), BlackboardScope::Global);
     }
 
-    let adapter = Arc::new(ClaudeCliAdapter::new());
-    let handlers = build_handlers(adapter.clone(), inputs.clone(), graphs_dir);
-    let executor = TopologicalExecutor::new().with_adapter(adapter);
+    let registry = build_adapter_registry();
+    // Oracle evaluations (guard_llm/criterion_llm/while_llm) use the registry
+    // default; per-node `config.adapter` selection happens inside `llm_call`.
+    let oracle_adapter = registry
+        .default_adapter()
+        .expect("registry always has a default adapter");
+    let handlers = build_handlers(registry, inputs.clone(), graphs_dir);
+    let executor = TopologicalExecutor::new().with_adapter(oracle_adapter);
 
     eprintln!(
         "running '{graph_name}' ({} nodes) with {} input(s)",
@@ -498,8 +505,29 @@ async fn run(
 /// Build the handler registry: the provider-neutral psflow defaults wired to a
 /// resolver that exposes runtime inputs as `{ctx.key}`, plus `llm_call` — then
 /// any optional integrations (see `register_integrations`).
+/// Build the adapter registry. `ClaudeCliAdapter` is the keyless default
+/// (preserving prior behavior). The HTTP adapters self-register only when their
+/// API key env var is present, so a graph can select them via
+/// `%% @NODE config.adapter: "anthropic_api" | "openrouter"`.
+fn build_adapter_registry() -> Arc<AdapterRegistry> {
+    let mut reg = AdapterRegistry::new();
+    reg.register_default(Arc::new(ClaudeCliAdapter::new()));
+
+    match AnthropicApiAdapter::from_env() {
+        Ok(a) => reg.register(Arc::new(a)),
+        Err(_) => { /* ANTHROPIC_API_KEY unset — adapter simply unavailable */ }
+    }
+    match OpenAiCompatAdapter::openrouter_from_env() {
+        Ok(a) => reg.register(Arc::new(a)),
+        Err(_) => { /* OPENROUTER_API_KEY unset — adapter simply unavailable */ }
+    }
+
+    eprintln!("adapters: {}", reg.names().join(", "));
+    Arc::new(reg)
+}
+
 fn build_handlers(
-    adapter: Arc<ClaudeCliAdapter>,
+    registry: Arc<AdapterRegistry>,
     inputs: BTreeMap<String, Value>,
     graphs_dir: &Path,
 ) -> psflow::execute::HandlerRegistry {
@@ -523,7 +551,7 @@ fn build_handlers(
     let mut reg = NodeRegistry::with_defaults_and_resolver(engine.clone(), resolver.clone());
     reg.register(
         "llm_call",
-        Arc::new(LlmCallHandler::with_context(adapter, ctx.clone())),
+        Arc::new(LlmCallHandler::with_registry(registry, ctx.clone())),
     );
     // Override the default stateless `rhai` with one that sees the inputs as `ctx`.
     let rhai = RhaiHandler::new(engine);
@@ -729,8 +757,7 @@ async fn notify_failure(
         }
         if let Ok(content) = std::fs::read_to_string(&hook) {
             if let Ok(g) = load_mermaid(&content) {
-                let handlers =
-                    build_handlers(Arc::new(ClaudeCliAdapter::new()), hook_inputs, graphs_dir);
+                let handlers = build_handlers(build_adapter_registry(), hook_inputs, graphs_dir);
                 // Best-effort; do not re-notify if the hook itself fails.
                 let _ = TopologicalExecutor::new()
                     .execute_with_parent(&g, &handlers, &bb, ContextInheritance::ReadOnly)

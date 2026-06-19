@@ -48,16 +48,21 @@
 
 | File | Description |
 |------|-------------|
-| `mod.rs` | `AiAdapter` trait with `call` and `capabilities` methods. `AdapterCapabilities` with `satisfies`/`missing` helpers. `AiRequest` builder, `AiResponse`, and `TokenUsage` types. |
+| `mod.rs` | `AiAdapter` trait (`complete`/`judge`/`capabilities`/`name`). `AdapterCapabilities` with `satisfies`/`missing` helpers. `AiRequest`/`AiResponse`/`TokenUsage` and the prompt-cache types (`PromptBlock`, `CacheControl`). |
 | `mock.rs` | `MockAdapter`: pattern-matched responses keyed by prompt substring, configurable default response, and capabilities override. Used in tests. |
 | `registry.rs` | `AdapterRegistry`: register named adapters, set/get default, resolve by name or default, validate capability requirements. |
+| `conversation.rs` | `ConversationHistory`/`ConversationMessage`/`MessageRole`: ancestor-scoped conversation state on the blackboard, fed to stateless adapters. |
+| `claude_cli.rs` | `ClaudeCliAdapter`: drives the `claude` CLI; session continuity via `--resume <session_id>`. |
+| `anthropic_api.rs` | `AnthropicApiAdapter`: direct Anthropic `/v1/messages` HTTP adapter with prompt-cache (`cache_control`) and `output_config.format` structured outputs. |
+| `openai_compat.rs` | `OpenAiCompatAdapter`: generic adapter for any OpenAI `/v1/chat/completions` provider with bearer auth (OpenRouter/OpenAI/Groq/Together/local). `openrouter_from_env()` preset; arbitrary-model via per-node `config.model`. |
+| `claude_terminal.rs` | (feature `terminal`) PTY-driven real `claude` TUI session — `ClaudeTerminalSession`, approval policy/notifier seams, resume mode. |
 
 ## src/handlers/
 
 | File | Description |
 |------|-------------|
 | `mod.rs` | Re-exports all built-in `NodeHandler` implementations. |
-| `llm_call.rs` | `LlmCallHandler`: `NodeHandler` that resolves an adapter, renders a `PromptTemplate` from node config, calls the adapter, and writes output. Supports `transform`/`oracle` execution modes and `json` output format. |
+| `llm_call.rs` | `LlmCallHandler`: `NodeHandler` that resolves an adapter from an `AdapterRegistry` by `config.adapter` (else default), renders a `PromptTemplate` from node config, calls the adapter, and writes output. Supports `transform`/`oracle` modes, `json` output, prompt-cache config, and `output_key`. |
 | `rhai_handler.rs` | `RhaiHandler`: `NodeHandler` executing inline/external Rhai scripts with inputs, config, and ctx (blackboard) access. |
 
 ## src/scripting/

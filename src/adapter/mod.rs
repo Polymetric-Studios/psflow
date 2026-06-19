@@ -4,9 +4,11 @@ pub mod claude_cli;
 pub mod claude_terminal;
 pub mod conversation;
 pub mod mock;
+pub mod openai_compat;
 pub mod registry;
 
 pub use anthropic_api::AnthropicApiAdapter;
+pub use openai_compat::OpenAiCompatAdapter;
 pub use claude_cli::ClaudeCliAdapter;
 #[cfg(feature = "terminal")]
 pub use claude_terminal::{

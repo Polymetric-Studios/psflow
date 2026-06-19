@@ -1,4 +1,4 @@
-use crate::adapter::{AiAdapter, AiRequest, CacheControl};
+use crate::adapter::{AdapterRegistry, AiAdapter, AiRequest, CacheControl};
 use crate::error::NodeError;
 use crate::execute::blackboard::Blackboard;
 use crate::execute::{CancellationToken, ExecutionContext, NodeHandler, Outputs};
@@ -48,7 +48,10 @@ pub const CACHE_BOUNDARY_SENTINEL: &str = "<<<cache_boundary>>>";
 /// - `context_max_tokens`: Token budget for conversation history.
 /// - `context_depth`: Max ancestor LLM exchanges to include.
 pub struct LlmCallHandler {
-    adapter: Arc<dyn AiAdapter>,
+    /// Adapter registry. `config.adapter` selects by name; absent → the
+    /// registry default. The single-adapter constructors wrap one adapter as
+    /// the default so standalone/test use needs no registry plumbing.
+    registry: Arc<AdapterRegistry>,
     /// Shared execution context for blackboard access.
     /// Set when running within an executor; None for standalone/test use.
     exec_ctx: Option<Arc<ExecutionContext>>,
@@ -57,10 +60,16 @@ pub struct LlmCallHandler {
     graph: Arc<RwLock<Option<Arc<Graph>>>>,
 }
 
+fn single_adapter_registry(adapter: Arc<dyn AiAdapter>) -> Arc<AdapterRegistry> {
+    let mut reg = AdapterRegistry::new();
+    reg.register_default(adapter);
+    Arc::new(reg)
+}
+
 impl LlmCallHandler {
     pub fn new(adapter: Arc<dyn AiAdapter>) -> Self {
         Self {
-            adapter,
+            registry: single_adapter_registry(adapter),
             exec_ctx: None,
             graph: Arc::new(RwLock::new(None)),
         }
@@ -69,7 +78,17 @@ impl LlmCallHandler {
     /// Create a handler with access to the execution context's blackboard.
     pub fn with_context(adapter: Arc<dyn AiAdapter>, ctx: Arc<ExecutionContext>) -> Self {
         Self {
-            adapter,
+            registry: single_adapter_registry(adapter),
+            exec_ctx: Some(ctx),
+            graph: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Create a handler backed by a multi-adapter registry. `config.adapter`
+    /// on each node selects the adapter by name; absent → registry default.
+    pub fn with_registry(registry: Arc<AdapterRegistry>, ctx: Arc<ExecutionContext>) -> Self {
+        Self {
+            registry,
             exec_ctx: Some(ctx),
             graph: Arc::new(RwLock::new(None)),
         }
@@ -90,7 +109,7 @@ impl NodeHandler for LlmCallHandler {
         inputs: Outputs,
         cancel: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = Result<Outputs, NodeError>> + Send>> {
-        let adapter = self.adapter.clone();
+        let registry = self.registry.clone();
         let config = node.config.clone();
         let node_id = node.id.0.clone();
         let exec_ctx = self.exec_ctx.clone();
@@ -102,6 +121,9 @@ impl NodeHandler for LlmCallHandler {
                     reason: "cancelled before LLM call".into(),
                 });
             }
+
+            // Select the adapter: `config.adapter` by name, else registry default.
+            let adapter = registry.resolve(config.get("adapter").and_then(|v| v.as_str()))?;
 
             // Extract prompt template from config
             let prompt_str = config

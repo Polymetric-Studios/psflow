@@ -38,9 +38,9 @@ pub use mermaid::{export_mermaid, load_mermaid, MermaidError, MermaidErrors, Spa
 // Runtime-only re-exports
 #[cfg(feature = "runtime")]
 pub use adapter::{
-    AdapterCapabilities, AdapterRegistry, AiAdapter, AiRequest, AiResponse, ClaudeCliAdapter,
-    ConversationConfig, ConversationHistory, ConversationMessage, MessageRole, MockAdapter,
-    TokenUsage, CONVERSATION_HISTORY_KEY,
+    AdapterCapabilities, AdapterRegistry, AiAdapter, AiRequest, AiResponse, AnthropicApiAdapter,
+    ClaudeCliAdapter, ConversationConfig, ConversationHistory, ConversationMessage, MessageRole,
+    MockAdapter, OpenAiCompatAdapter, TokenUsage, CONVERSATION_HISTORY_KEY,
 };
 #[cfg(feature = "runtime")]
 pub use execute::blackboard::{Blackboard, BlackboardScope};
