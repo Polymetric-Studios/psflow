@@ -1,0 +1,20 @@
+{
+  "blockSize": 16,
+  "codeViews": {
+    "exclude": [],
+    "include": [
+      "."
+    ]
+  },
+  "dateCreated": "2026-06-20T23:18:53.131727+00:00",
+  "description": "Domain-agnostic graph execution engine using annotated Mermaid (.mmd) files as the single-file workflow definition format. Topology, typing, node implementation, and execution semantics all live in one file. Swappable executor strategies for pipelines, behavior trees, dataflow, and reactive networks. Targets native embedding (C FFI/Unity), WASM, and PyO3.",
+  "linearProjectId": "none",
+  "localHostPort": 0,
+  "localPortBase": 0,
+  "name": "psflow",
+  "projectId": "",
+  "techStack": "rust, mermaid, tokio, wasm, pyo3, c-ffi, rhai, petgraph",
+  "version": "0.1.0",
+  "versionControl": "git",
+  "versionDate": "2026-03-28T13:13:00Z"
+}

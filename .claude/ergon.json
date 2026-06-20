@@ -1,4 +1,6 @@
 {
-  "createdAt" : "2026-03-28T12:03:37.199Z",
-  "version" : "1.0"
+  "version": "1.0",
+  "ergon_version": 2,
+  "claude_md_version": 7,
+  "created_at": "2026-03-28T12:03:37.199Z"
 }
