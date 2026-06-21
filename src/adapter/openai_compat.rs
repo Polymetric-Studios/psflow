@@ -236,7 +236,11 @@ fn blocks_to_text(blocks: &[crate::adapter::PromptBlock]) -> String {
         .join("")
 }
 
-fn translate_request(req: &AiRequest, default_model: Option<&str>, name: &str) -> Result<ChatRequest, NodeError> {
+fn translate_request(
+    req: &AiRequest,
+    default_model: Option<&str>,
+    name: &str,
+) -> Result<ChatRequest, NodeError> {
     let model = req
         .model
         .as_deref()
@@ -316,7 +320,10 @@ impl AiAdapter for OpenAiCompatAdapter {
 
             let body = translate_request(&req, self.default_model.as_deref(), &self.name)?;
 
-            let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+            let url = format!(
+                "{}/v1/chat/completions",
+                self.base_url.trim_end_matches('/')
+            );
             let mut builder = self
                 .client
                 .post(&url)
@@ -711,7 +718,12 @@ mod tests {
         let mut h = headers();
         h.insert("retry-after", "5".parse().unwrap());
         let body = br#"{"error":{"message":"slow down"}}"#;
-        let err = http_error(reqwest::StatusCode::TOO_MANY_REQUESTS, &h, body, "openrouter");
+        let err = http_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            &h,
+            body,
+            "openrouter",
+        );
         match err {
             NodeError::Failed {
                 recoverable,
@@ -733,13 +745,24 @@ mod tests {
             b"{}",
             "openrouter",
         );
-        assert!(matches!(err, NodeError::Failed { recoverable: true, .. }));
+        assert!(matches!(
+            err,
+            NodeError::Failed {
+                recoverable: true,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn http_400_surfaces_server_message() {
         let body = br#"{"error":{"type":"invalid_request_error","message":"bad shape"}}"#;
-        let err = http_error(reqwest::StatusCode::BAD_REQUEST, &headers(), body, "openrouter");
+        let err = http_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            &headers(),
+            body,
+            "openrouter",
+        );
         assert!(err.to_string().contains("bad shape"));
         assert!(matches!(err, NodeError::AdapterError { .. }));
     }

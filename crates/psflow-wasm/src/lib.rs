@@ -104,7 +104,10 @@ fn parse_mmd_internal(source: &str) -> ParseResult {
             annotations: annotations_by_node.remove(&node.id).unwrap_or_default(),
         })
         .collect();
-    nodes.sort_by_key(|n| n.definition.from);
+    // Sort by byte offset, breaking ties on node id so co-line nodes (which
+    // share the full-line definition span, hence the same `from`) get a total,
+    // deterministic order across runs rather than HashMap-iteration order.
+    nodes.sort_by_key(|n| (n.definition.from, n.id.clone()));
 
     let edges = parsed
         .edges
@@ -403,12 +406,17 @@ graph TD
 
     #[test]
     fn definition_spans_have_ascending_from_offsets() {
-        // Nodes A..E appear in source order on lines 2..5;
-        // verify the sorted order matches source order.
+        // A and B share line 2 (`A[..] --> B[..]`), so they tie on
+        // definition.from; the sort breaks the tie by node id, making the order
+        // total and deterministic across runs. Full expected order: A, B (line
+        // 2, id-ordered), then C, D, E on lines 3..5.
         let result = parse_mmd_internal(DEMO_MMD);
         let ids: Vec<&str> = result.nodes.iter().map(|n| n.id.as_str()).collect();
-        // After sorting by definition.from the first node defined should be A.
-        assert_eq!(ids[0], "A", "first node by byte offset should be A");
+        assert_eq!(
+            ids,
+            vec!["A", "B", "C", "D", "E"],
+            "nodes must sort by (definition.from, id) — total + deterministic"
+        );
     }
 
     #[test]

@@ -27,6 +27,6 @@
     { "id": "registry-handlers", "components": ["registry", "handlers"], "status": "wired", "module": "src/registry.rs" },
     { "id": "run-engine", "components": ["psflow-run", "execute"], "status": "wired", "module": "src/bin/psflow_run.rs" },
     { "id": "run-integrations", "components": ["integrations", "psflow-run"], "status": "wired", "module": "src/handlers/composio.rs" },
-    { "id": "wasm-core", "components": ["wasm", "graph"], "status": "wired", "module": "crates/psflow-wasm" }
+    { "id": "wasm-core", "components": ["wasm", "mermaid"], "status": "wired", "module": "crates/psflow-wasm" }
   ]
 }

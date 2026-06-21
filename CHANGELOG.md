@@ -24,3 +24,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Entries tagged `[capabi
 
 ### Changed
 - [capability] Isolated Composio as a removable integration and made the core provider-neutral — the engine vs psflow-run app split. (DR-004)
+
+### Fixed
+- Debugger wasm node ordering is now deterministic — co-line node definitions get a `(definition.from, id)` sort tie-break (was HashMap-iteration-order flaky).

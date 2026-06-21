@@ -1,6 +1,6 @@
 # Journal
 
-Last-Reviewed: 2026-06-20
+Last-Reviewed: 2026-06-21
 
 The **single source of truth for this project's history** — the tagged, chronological journal of every notable change, at the right altitude (what the project can do / does differently / no longer does; plan transitions; knowledge changes), not implementation detail (commit history is that). `CHANGELOG.md` at the repo root is **generated** from this file by the `generate_changelog` action (the DR-011 generated-view discipline applied to history) — edit this file, never `CHANGELOG.md`.
 
@@ -30,6 +30,9 @@ Everything above the first divider is `[Unreleased]`; entries between divider N 
 
 ## Entries
 
+- 2026-06-21 · Fixed · Debugger wasm node ordering is now deterministic — co-line node definitions get a `(definition.from, id)` sort tie-break (was HashMap-iteration-order flaky).
+- 2026-06-21 · Fixed · [internal] Closed an up-density spine break the Argus seam-fit audit surfaced: `auth` no longer imports a `handlers` const — the WS-transport auth-compatibility cross-check moved into `WebSocketHandler::validate_node` (handler→auth), where it now actually runs in the live load-time validation pass.
+- 2026-06-21 · Docs · [internal] Argus seam-fit audit: retargeted the `wasm-core` seam to `wasm ↔ mermaid` (the real import surface), refreshed the coherence-map Fit & divergence surface, and corrected two stale module doc-descriptions (`llm_call` cache-boundary sentinel; `composio` registration contract).
 - 2026-06-20 · Docs · [internal] Adopted the Argus coherence eye: authored the seam manifest (11 components, the up-density spine, 10 wired seams) + domain brief in `reference/`; `project_coherence_scan` clean.
 - 2026-06-20 · Docs · [internal] Migrated to the Ergon v2 master-plan layout: seeded charter/plan/decisions (DR-001…DR-007)/architecture/primer/terminology/journal from legacy `project-data/` + the live source, reseeded CLAUDE.md/AGENTS.md as managed, extracted the Debugging note to `reference/`, and created the root baton.
 - 2026-06-19 · Added · [capability] OpenRouter (and any OpenAI-wire provider — OpenAI/Groq/Together/local) via the generic `openai_compat` adapter; arbitrary-model access through per-node `config.model`. (DR-005)

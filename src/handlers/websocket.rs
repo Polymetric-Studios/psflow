@@ -1466,7 +1466,7 @@ impl NodeHandler for WebSocketHandler {
         &self,
         node: &Node,
         _graph: &Graph,
-        _ctx: &ExecutionContext,
+        ctx: &ExecutionContext,
     ) -> Result<(), Vec<ValidationIssue>> {
         let mut issues = Vec::new();
 
@@ -1483,6 +1483,31 @@ impl NodeHandler for WebSocketHandler {
                 return Err(issues);
             }
         };
+
+        // WS-transport auth compatibility. Relocated here from the auth
+        // registry so the auth layer carries no handler dependency: the WS
+        // handler is the unit that knows it speaks the WebSocket transport, so
+        // it owns the cross-check against the (lighter) auth layer. Only
+        // meaningful once an auth registry is installed on `ctx` (the executor
+        // installs it before this pass via `auto_install_auth_registry`); a
+        // bare ctx skips it and the runtime path in `execute` still guards.
+        if let Some(name) = cfg.auth_name.as_deref() {
+            if let Some(registry) = ctx.auth_registry() {
+                if let Some((_, strategy)) = registry.get(name) {
+                    if !strategy.supports_ws() {
+                        issues.push(ValidationIssue::new(
+                            String::new(),
+                            String::new(),
+                            ValidationIssueKind::Incompatibility,
+                            format!(
+                                "auth strategy '{name}' (type {}) does not support the WebSocket handshake surface",
+                                strategy.type_name()
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
 
         // Pre-compile the termination predicate so Rhai syntax errors fire
         // before any network hop. Uses the same cache the runtime path

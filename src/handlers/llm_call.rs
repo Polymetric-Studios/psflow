@@ -213,7 +213,7 @@ impl NodeHandler for LlmCallHandler {
             };
 
             // Build the AI request. If `config.cache_prefix: true` is set and
-            // the rendered prompt contains the `{{cache_boundary}}` sentinel,
+            // the rendered prompt contains the `<<<cache_boundary>>>` sentinel,
             // split the prompt into a cached prefix + uncached suffix and
             // populate `prompt_blocks`. Otherwise fall back to flat prompt.
             let cache_prefix = config

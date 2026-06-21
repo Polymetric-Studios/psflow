@@ -8,7 +8,6 @@ pub mod openai_compat;
 pub mod registry;
 
 pub use anthropic_api::AnthropicApiAdapter;
-pub use openai_compat::OpenAiCompatAdapter;
 pub use claude_cli::ClaudeCliAdapter;
 #[cfg(feature = "terminal")]
 pub use claude_terminal::{
@@ -20,6 +19,7 @@ pub use conversation::{
     CONVERSATION_HISTORY_KEY,
 };
 pub use mock::MockAdapter;
+pub use openai_compat::OpenAiCompatAdapter;
 pub use registry::AdapterRegistry;
 
 use crate::error::NodeError;

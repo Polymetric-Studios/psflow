@@ -4,9 +4,10 @@
 //! gives a tool slug and an `arguments` object, and the handler returns the
 //! parsed response envelope as structured outputs instead of raw text. Auth is
 //! whatever `composio login` established on the machine — no api key or
-//! `user_id` lives in the graph. Because it only spawns a subprocess (no
-//! `ExecutionContext`), it registers among the stateless defaults and runs on
-//! the stock `psflow` binary.
+//! `user_id` lives in the graph. It only spawns a subprocess (no
+//! `ExecutionContext`). It is an integration handler: registered solely by
+//! psflow-run via `register_integrations`, never by the engine's
+//! `with_defaults`, so it is unavailable on the stock `psflow` binary.
 
 use crate::error::NodeError;
 use crate::execute::blackboard::Blackboard;

@@ -423,8 +423,14 @@ async fn emit_sink_file_writes_frames_one_per_line() {
 #[tokio::test]
 async fn hmac_strategy_is_rejected_for_ws_at_graph_load() {
     // Register an HMAC strategy, declare it in the graph, and attach it to a
-    // WS node. `validate_graph` must refuse.
+    // WS node. The graph-load validation pass must refuse. The WS-transport
+    // cross-check lives in the WS handler's `validate_node` (the auth layer
+    // carries no handler dependency); the executor installs the auth registry
+    // before the pass runs, which this test mirrors.
+    use psflow::execute::validation::validate_graph;
     use psflow::graph::Graph;
+    use psflow::NodeRegistry;
+
     let mut graph = Graph::new();
     graph.metadata_mut().auth.insert(
         "sig".into(),
@@ -440,8 +446,12 @@ async fn hmac_strategy_is_rejected_for_ws_at_graph_load() {
     });
     graph.add_node(node).unwrap();
 
-    let reg = AuthStrategyRegistry::with_builtins();
-    let err = reg.validate_graph(&graph).unwrap_err();
+    let ctx = ExecutionContext::new();
+    psflow::execute::auto_install_auth_registry(&graph, &ctx).expect("auth registry installs");
+    let engine = psflow::scripting::engine::default_script_engine();
+    let handlers = NodeRegistry::with_defaults(engine).into_handler_registry();
+
+    let err = validate_graph(&graph, &handlers, &ctx).unwrap_err();
     let msg = err.to_string();
     assert!(
         msg.contains("does not support") && msg.contains("WebSocket"),

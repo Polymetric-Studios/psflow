@@ -2,7 +2,6 @@ use super::decl::AuthStrategyDecl;
 use super::error::AuthError;
 use super::strategies;
 use super::strategy::AuthStrategy;
-use crate::handlers::websocket::WS_HANDLER_NAME;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -126,10 +125,11 @@ impl AuthStrategyRegistry {
     ///   registered type and satisfy `required_roles`.
     /// - Every node whose `config.auth` is set must reference a declared
     ///   strategy name.
-    /// - Any node whose handler is [`WS_HANDLER_NAME`] and
-    ///   whose `config.auth` is set must reference a strategy whose type
-    ///   supports the WS handshake surface. Detected at load time so that
-    ///   graph authors do not wait for a runtime handshake error.
+    ///
+    /// Transport-specific compatibility (e.g. whether a strategy supports the
+    /// WebSocket handshake surface) is *not* checked here: that is the owning
+    /// handler's concern and lives in its `validate_node`, so the auth layer
+    /// carries no dependency on any concrete handler (up-density only).
     ///
     /// Kept separate from the generic per-handler
     /// [`crate::execute::validation::validate_graph`] pass: auth shape is a
@@ -144,29 +144,10 @@ impl AuthStrategyRegistry {
             let Some(auth_name) = node.config.get("auth").and_then(|v| v.as_str()) else {
                 continue;
             };
-            let Some(decl) = decls.get(auth_name) else {
+            if !decls.contains_key(auth_name) {
                 return Err(AuthError::UndeclaredStrategy {
                     name: auth_name.to_string(),
                 });
-            };
-            // WS-compatibility check: only run on nodes that actually use the
-            // WS handler. Other handlers resolve auth against their own
-            // transport — no need to cross-check here.
-            if node.handler.as_deref() == Some(WS_HANDLER_NAME) {
-                // Build a transient instance to query `supports_ws()` without
-                // holding instance state at load time.
-                if let Some(factory) = self.factories.get(&decl.type_) {
-                    let instance = factory(decl)?;
-                    if !instance.supports_ws() {
-                        return Err(AuthError::Config {
-                            name: auth_name.to_string(),
-                            message: format!(
-                                "auth strategy type '{}' does not support the WebSocket handshake surface",
-                                decl.type_
-                            ),
-                        });
-                    }
-                }
             }
         }
         Ok(())
