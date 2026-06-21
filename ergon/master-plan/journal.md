@@ -30,6 +30,7 @@ Everything above the first divider is `[Unreleased]`; entries between divider N 
 
 ## Entries
 
+- 2026-06-20 · Docs · [internal] Adopted the Argus coherence eye: authored the seam manifest (11 components, the up-density spine, 10 wired seams) + domain brief in `reference/`; `project_coherence_scan` clean.
 - 2026-06-20 · Docs · [internal] Migrated to the Ergon v2 master-plan layout: seeded charter/plan/decisions (DR-001…DR-007)/architecture/primer/terminology/journal from legacy `project-data/` + the live source, reseeded CLAUDE.md/AGENTS.md as managed, extracted the Debugging note to `reference/`, and created the root baton.
 - 2026-06-19 · Added · [capability] OpenRouter (and any OpenAI-wire provider — OpenAI/Groq/Together/local) via the generic `openai_compat` adapter; arbitrary-model access through per-node `config.model`. (DR-005)
 - 2026-06-09 · Added · `anthropic_api` adapter emits `output_config.format` for structured (JSON-schema) outputs.

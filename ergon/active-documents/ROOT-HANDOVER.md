@@ -8,7 +8,7 @@ The root baton for `ergon/active-documents/` — the cross-session "start here" 
 
 ## §3 Status
 
-Active session 2026-06-20: completed the **v1→v2 Ergon master-plan migration** (project_doctor reconform + full content fold). The master-plan tier (charter / plan / decisions DR-001…DR-007 / architecture / primer / terminology / journal) is populated and current; CLAUDE.md + AGENTS.md are managed (v7); code views + CHANGELOG regenerated; legacy `project-data/` archived. **No code changed.** Resume point: triage the five carried-over threads below into `master-plan/plan.md` Now/Next/Later.
+Session 2026-06-20 (closed): completed the **v1→v2 Ergon master-plan migration** (`0d66ae64`) and **adopted the Argus coherence eye** (`c238e7dd`). The master-plan tier (charter / plan / decisions DR-001…007 / architecture / primer / terminology / journal) is populated and current; CLAUDE.md + AGENTS.md are managed (v7); code views + CHANGELOG generated; the Argus seam manifest is authored (10 wired seams, scans clean); legacy `project-data/` archived. **No code changed.** Resume point: triage the five carried-over threads below into `master-plan/plan.md` Now/Next/Later.
 
 ## §4 Active threads
 
@@ -27,9 +27,17 @@ The five docs below predate the v2 migration and were carried over as flat files
 - The five carried-over threads' live status is unverified — which are done (→ archive), active (→ thread + plan), or abandoned (→ plan "Won't")? Migration-seed; owner to confirm.
 - Should the multi-doc efforts above become proper `{ts}-{Subject}/` threads (each with its own `{ts}-Master.md` lead) per the v2 thread convention? They are currently flat files.
 
+## §8 Drift / hand-off
+
+- Scans clean at close: `project_master_plan_scan` 0 findings; `project_coherence_scan` 0 findings (adopted).
+- Code-hygiene (not addressed this session): 11 Rust files lack a `//!` module docblock (DR-013) — `lint_docblocks` lists them.
+- Argus seam **test paths are unmapped** (Tested ✗ = undeclared, not uncovered) — add to `reference/coherence-manifest.json` if wanted.
+- `main` is ahead of `origin/main` by this session's commits (see §11) — plus the session-end capture; push state per session-end.
+
 ## §11 History
 
-- 2026-06-20 — Root baton created during the v1→v2 master-plan migration. (No root lead existed under the pre-v2 layout; this is the first.)
+- 2026-06-20 — Root baton created during the v1→v2 master-plan migration (the first root lead under v2).
+- 2026-06-20 — Landed: v2 master-plan migration (`0d66ae64`) + Argus coherence eye (`c238e7dd`).
 
 ## §13 Related
 
