@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ergon.dev/schemas/coherence-manifest.schema.json",
+  "title": "Argus coherence manifest",
+  "description": "The hand-authored seam manifest for a project's coherence eye (DR-029). Code is the structural SSOT; this is a human projection of it, kept honest by project_coherence_scan. Authoritative shape: ergon_coherence::manifest. Unknown keys are rejected (deny_unknown_fields) — a typo'd key is a parse error the scan surfaces, never a silent drop.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["components", "seams"],
+  "properties": {
+    "components": {
+      "description": "The named top-level peers between which seams run (altitude-0).",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "spine": {
+      "description": "The one load-bearing cross-component invariant whose violation is the highest-severity misfit. Omit when the project has no single spine.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "description"],
+      "properties": {
+        "kind": {
+          "description": "What form the spine takes.",
+          "type": "string",
+          "enum": ["identity-key", "direction-rule", "protocol"]
+        },
+        "description": {
+          "description": "One line naming the invariant, e.g. 'consumer→platform, never reverse'.",
+          "type": "string"
+        }
+      }
+    },
+    "sourceNode": {
+      "description": "The single upstream every seam derives from (e.g. a spec). camelCase. Omit for the common case of no single source node.",
+      "type": "string"
+    },
+    "seams": {
+      "description": "The seam inventory, rendered in declaration order (diff-quiet).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "components", "status"],
+        "properties": {
+          "id": {
+            "description": "Stable id — the map and the scan key on this.",
+            "type": "string"
+          },
+          "components": {
+            "description": "The components this seam runs between.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "status": {
+            "description": "Declared presence — a human assertion, re-judged, never a guarantee.",
+            "type": "string",
+            "enum": ["wired", "partial", "absent"]
+          },
+          "module": {
+            "description": "Repo-relative path the seam lives at; the scan's manifest↔code delta keys on it. Omit for a designed-but-unbuilt (status: absent) seam — the scan then skips its presence check rather than forcing an invented path.",
+            "type": "string"
+          },
+          "test": {
+            "description": "Repo-relative path of the seam's test, if any.",
+            "type": "string"
+          },
+          "submap": {
+            "description": "A child-scope manifest this seam expands into (recursion — reserved; v1 tooling stays altitude-0).",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

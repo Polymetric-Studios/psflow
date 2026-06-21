@@ -1,0 +1,32 @@
+{
+  "$schema": "./coherence-manifest.schema.json",
+  "components": [
+    "graph",
+    "mermaid",
+    "execute",
+    "adapter",
+    "auth",
+    "handlers",
+    "scripting",
+    "registry",
+    "psflow-run",
+    "integrations",
+    "wasm"
+  ],
+  "spine": {
+    "kind": "direction-rule",
+    "description": "up-density only — psflow-run and integrations depend on the engine, never the reverse; graph/mermaid never pull the runtime"
+  },
+  "seams": [
+    { "id": "mermaid-graph", "components": ["mermaid", "graph"], "status": "wired", "module": "src/mermaid/loader.rs" },
+    { "id": "execute-graph", "components": ["execute", "graph"], "status": "wired", "module": "src/execute/topological.rs" },
+    { "id": "handlers-execute", "components": ["handlers", "execute"], "status": "wired", "module": "src/handlers/mod.rs" },
+    { "id": "handlers-adapter", "components": ["handlers", "adapter"], "status": "wired", "module": "src/handlers/llm_call.rs" },
+    { "id": "handlers-scripting", "components": ["handlers", "scripting"], "status": "wired", "module": "src/handlers/rhai_handler.rs" },
+    { "id": "handlers-auth", "components": ["handlers", "auth"], "status": "wired", "module": "src/auth/apply_ctx.rs" },
+    { "id": "registry-handlers", "components": ["registry", "handlers"], "status": "wired", "module": "src/registry.rs" },
+    { "id": "run-engine", "components": ["psflow-run", "execute"], "status": "wired", "module": "src/bin/psflow_run.rs" },
+    { "id": "run-integrations", "components": ["integrations", "psflow-run"], "status": "wired", "module": "src/handlers/composio.rs" },
+    { "id": "wasm-core", "components": ["wasm", "graph"], "status": "wired", "module": "crates/psflow-wasm" }
+  ]
+}
