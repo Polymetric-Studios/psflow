@@ -3,12 +3,17 @@
 The static import graph — an import-reality cross-check, NOT the architecture.
 Low-signal on its own (utility-edge dominated, blind to dynamic indirection);
 read the curated architecture narrative for layers, boundaries, and intent.
-Resolution is per-language and coarse: Rust nodes are crates; other languages
-group by top-level directory and resolve imports to a head segment. The graph is
-**Rust-primary, best-effort elsewhere** — non-Rust internal (relative) imports
-are not yet resolved to edges (flagged per run when present), so the non-Rust
-graph may understate internal structure; full per-ecosystem module resolution is
-a refinement. Do not hand-edit: regenerate.
+Resolution is per-language. Nodes: Rust files group by crate; other languages
+group by top-level directory at crate granularity, or stay per-file at file
+granularity. External package imports resolve to a head segment. Internal
+imports resolve to their target file against the collected source set — Rust
+(`crate`/`self`/`super` are intra-unit, no edge), TS/JS (`./`/`../` with
+extension + `index` probing), and Python (leading-dot). A relative specifier
+that resolves to nothing in scope (a `tsconfig` path alias, an excluded or
+missing target) is flagged, not guessed; full per-ecosystem package grouping is
+a refinement. Internal structure shows clearest at file granularity — crate
+granularity collapses intra-package edges to self-edges. Do not hand-edit:
+regenerate.
 
 granularity: crate
 
@@ -116,4 +121,4 @@ edges:
 
 flags:
   - language-prelude / stdlib imports omitted as noise
-  - non-Rust relative/internal imports are not resolved to edges — this graph is Rust-primary; non-Rust internal structure is best-effort and may be understated
+  - some non-Rust relative imports could not be resolved to a source file (a tsconfig path alias, or an excluded / out-of-scope target) — flagged, not guessed

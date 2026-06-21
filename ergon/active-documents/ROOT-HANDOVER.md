@@ -1,6 +1,6 @@
 # ROOT-HANDOVER
 
-As-of: 2026-06-20
+As-of: 2026-06-21
 
 ## §1 Purpose
 
@@ -8,7 +8,7 @@ The root baton for `ergon/active-documents/` — the cross-session "start here" 
 
 ## §3 Status
 
-Session 2026-06-20 (closed): completed the **v1→v2 Ergon master-plan migration** (`0d66ae64`) and **adopted the Argus coherence eye** (`c238e7dd`). The master-plan tier (charter / plan / decisions DR-001…007 / architecture / primer / terminology / journal) is populated and current; CLAUDE.md + AGENTS.md are managed (v7); code views + CHANGELOG generated; the Argus seam manifest is authored (10 wired seams, scans clean); legacy `project-data/` archived. **No code changed.** Resume point: triage the five carried-over threads below into `master-plan/plan.md` Now/Next/Later.
+Session 2026-06-21 (closed): ran the **Argus seam-fit audit** (10 parallel `argus` seam judgments + whole-eye synthesis) and applied every fix it surfaced (`554e34e8`). Headline: closed a real **up-density spine break** — `src/auth/registry.rs` imported `crate::handlers::websocket::WS_HANDLER_NAME`; the WS-transport auth-compatibility check now lives in `WebSocketHandler::validate_node` (handler→auth, up-density), where it also actually runs in the live load-time pass. Plus: a deterministic wasm node-sort `(definition.from, id)` tie-break, the `wasm-core` seam retargeted `wasm ↔ mermaid` (real import surface), and two stale module doc-descriptions corrected. Tests: 854 lib + all integration suites green; wasm 15/15 deterministic across processes. `project_coherence_scan` clean; coherence-map Fit surface refreshed; journal + CHANGELOG updated. Audit artifacts: `ergon/ephemeral/audits/20260620-224349-argus-audit-coherence-eye/` (gitignored). **Resume point:** (carried over) triage the five threads below into `master-plan/plan.md` Now/Next/Later; `main` is ahead of `origin/main` — push pending.
 
 ## §4 Active threads
 
@@ -29,15 +29,17 @@ The five docs below predate the v2 migration and were carried over as flat files
 
 ## §8 Drift / hand-off
 
-- Scans clean at close: `project_master_plan_scan` 0 findings; `project_coherence_scan` 0 findings (adopted).
-- Code-hygiene (not addressed this session): 11 Rust files lack a `//!` module docblock (DR-013) — `lint_docblocks` lists them.
+- Scans clean at close: `project_master_plan_scan` 0 findings (code-manifest / architecture-map regenerated this session); `project_coherence_scan` 0 findings (adopted).
+- **Ergon workflow-runner bug — reported to the Ergon project, tracked there (not a psflow-repo bug).** Supervised `workflow_run` of `argus-audit` auto-completed `0/5` with no agent execution and a false `completed` status; the deterministic `dry_run` rendered the full plan fine. Likely cause (unconfirmed against source): the step-classifier mis-reads the two `argus` agent steps — `seam-fit-judge` is nested inside a `parallel-loop` subgraph — as deterministic, so it runs the deterministic prefix and marks complete without handing off. Workaround used: drove the same per-seam fan-out + whole-eye synthesis via the Claude Code Workflow tool with `agentType: 'argus'`.
+- `main` is ahead of `origin/main` (this session's `554e34e8` + the session-end capture) — push state per session-end.
+- Code-hygiene (carried over, not this session's scope): 11 Rust files lack a `//!` module docblock (DR-013) — `code-manifest.md` flags them; `lint_docblocks` lists them.
 - Argus seam **test paths are unmapped** (Tested ✗ = undeclared, not uncovered) — add to `reference/coherence-manifest.json` if wanted.
-- `main` is ahead of `origin/main` by this session's commits (see §11) — plus the session-end capture; push state per session-end.
 
 ## §11 History
 
 - 2026-06-20 — Root baton created during the v1→v2 master-plan migration (the first root lead under v2).
 - 2026-06-20 — Landed: v2 master-plan migration (`0d66ae64`) + Argus coherence eye (`c238e7dd`).
+- 2026-06-21 — Landed: Argus seam-fit audit + all five fixes (`554e34e8`) — spine break closed, wasm sort deterministic, `wasm-core` seam retargeted `wasm ↔ mermaid`, two doc drifts fixed; journal + CHANGELOG + coherence-map refreshed. Session-end: regenerated code-manifest / architecture-map; surfaced the Ergon workflow-runner bug (§8, reported to Ergon).
 
 ## §13 Related
 
