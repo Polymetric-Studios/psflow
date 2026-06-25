@@ -12,7 +12,7 @@ pub use claude_cli::ClaudeCliAdapter;
 #[cfg(feature = "terminal")]
 pub use claude_terminal::{
     ApprovalChoice, ApprovalNotifier, ApprovalPolicy, ApprovalPrompt, ClaudeTerminalSession, Key,
-    ResultSource, SessionOptions, TerminalError, TurnResult,
+    ResultSource, ScreenHandle, SessionOptions, TerminalError, TurnResult,
 };
 pub use conversation::{
     ConversationConfig, ConversationHistory, ConversationMessage, MessageRole,

@@ -38,7 +38,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-const DEFAULT_ROWS: u16 = 40;
+// A tall grid so panel-style output (e.g. `/usage`, `/status`) fits in one
+// rendered screen for on-demand scraping (the vt100 grid holds the visible
+// rows; a short grid scrolls the panel's top off). Height is free to raise —
+// it's just an in-memory text grid and nothing in the driver keys on it. Width
+// stays at a standard 120 because the TUI wraps answers to it.
+const DEFAULT_ROWS: u16 = 100;
 const DEFAULT_COLS: u16 = 120;
 /// Screen must be quiet this long before a state is considered stable.
 const DEFAULT_SETTLE_MS: u128 = 1500;
@@ -477,11 +482,19 @@ impl ClaudeTerminalSession {
             .clone()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-        let mut cmd = CommandBuilder::new(&opts.command);
+        // Resolve to an absolute path so the spawn does not depend on the
+        // parent's PATH — a launchd/cron-started process inherits only the
+        // minimal `/usr/bin:/bin:/usr/sbin:/sbin`, which omits user prefixes
+        // like `~/.local/bin` where `claude` lives.
+        let program = resolve_program(&opts.command);
+        let mut cmd = CommandBuilder::new(&program);
         for (k, v) in std::env::vars() {
             cmd.env(k, v);
         }
         cmd.env("TERM", "xterm-256color");
+        // Enrich PATH the same way, so the spawned CLI (and anything it spawns)
+        // resolves tools as the operator's login shell would.
+        cmd.env("PATH", enriched_path());
         // Caller-supplied env wins over the inherited process env.
         for (k, v) in &opts.env {
             cmd.env(k, v);
@@ -763,6 +776,18 @@ impl ClaudeTerminalSession {
         self.state.lock().unwrap().screen_text()
     }
 
+    /// A cheap, cloneable handle to this session's live rendered screen. Unlike
+    /// `screen_text` (which borrows the session), the handle can be stored and
+    /// read from another thread while a turn is in flight — the PTY reader thread
+    /// keeps the vt100 buffer current independently of `run_turn`. This is what
+    /// lets a caller scrape a panel-style slash command (`/usage`, `/status`)
+    /// that renders a panel but never completes a turn.
+    pub fn screen_handle(&self) -> ScreenHandle {
+        ScreenHandle {
+            state: self.state.clone(),
+        }
+    }
+
     /// True when the session is currently showing the input box (cursor on the
     /// `❯` row). Exposed for instrumentation and custom drive loops.
     pub fn input_ready(&self) -> bool {
@@ -982,9 +1007,113 @@ fn scrape_answer(screen: &str) -> String {
     }
 }
 
+/// Executable directories a login shell typically has on `PATH` but a
+/// launchd/cron-spawned process does not — such a process inherits only the
+/// minimal `/usr/bin:/bin:/usr/sbin:/sbin`, so a tool under a user prefix
+/// (e.g. `~/.local/bin/claude`, a Bun shim in `~/.bun/bin`, a Homebrew binary)
+/// is invisible. Used both to resolve a bare program name and to enrich the
+/// spawned child's `PATH`.
+fn fallback_bin_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join(".bun/bin"));
+    }
+    dirs.push(PathBuf::from("/opt/homebrew/bin"));
+    dirs.push(PathBuf::from("/usr/local/bin"));
+    dirs
+}
+
+/// Resolve a program name to an absolute path. A name already containing a path
+/// separator is an explicit path and is returned unchanged. A bare name is
+/// searched on `$PATH` first, then [`fallback_bin_dirs`]; the first existing
+/// file wins. If nothing matches, the original name is returned so a genuinely
+/// missing binary still fails with the same diagnostic as before.
+fn resolve_program(command: &str) -> String {
+    if command.contains('/') {
+        return command.to_string();
+    }
+    let path_dirs = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for dir in path_dirs.into_iter().chain(fallback_bin_dirs()) {
+        let candidate = dir.join(command);
+        if candidate.is_file() {
+            return candidate.to_string_lossy().into_owned();
+        }
+    }
+    command.to_string()
+}
+
+/// The child's `PATH`: [`fallback_bin_dirs`] prepended to the inherited `PATH`
+/// (deduped, order-preserving), so a spawned CLI resolves tools the way the
+/// operator's login shell would even under a launchd-minimal environment. A
+/// caller-supplied `PATH` in `SessionOptions::env` still wins (applied after).
+fn enriched_path() -> std::ffi::OsString {
+    let mut dirs = fallback_bin_dirs();
+    if let Some(p) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&p));
+    }
+    let mut seen = std::collections::HashSet::new();
+    dirs.retain(|d| seen.insert(d.clone()));
+    std::env::join_paths(dirs).unwrap_or_else(|_| std::env::var_os("PATH").unwrap_or_default())
+}
+
+/// A cheap, cloneable handle to a live session's rendered screen (see
+/// [`ClaudeTerminalSession::screen_handle`]). Shares the session's vt100 buffer,
+/// which the PTY reader thread keeps current, so it can be read from another
+/// thread at any time — even mid-turn or for a slash command that never
+/// completes a turn.
+#[derive(Clone)]
+pub struct ScreenHandle {
+    state: Arc<Mutex<VtState>>,
+}
+
+impl ScreenHandle {
+    /// Render the session's current terminal grid to plain text.
+    pub fn text(&self) -> String {
+        self.state.lock().unwrap().screen_text()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_program_keeps_explicit_path() {
+        // A path with a separator is taken as-is, never searched.
+        assert_eq!(resolve_program("/usr/bin/env"), "/usr/bin/env");
+        assert_eq!(resolve_program("./local-tool"), "./local-tool");
+    }
+
+    #[test]
+    fn resolve_program_unknown_returns_input() {
+        // Nothing matches → unchanged, so the spawn fails with the same error.
+        let missing = "definitely-not-a-real-binary-xyz123";
+        assert_eq!(resolve_program(missing), missing);
+    }
+
+    #[test]
+    fn resolve_program_finds_bare_name_as_absolute() {
+        // `sh` exists in a standard bin dir on PATH; it must resolve to an
+        // absolute path to an existing file (the bug was a bare name failing
+        // to resolve under a minimal PATH).
+        let resolved = resolve_program("sh");
+        assert!(resolved.starts_with('/'), "expected absolute path, got {resolved}");
+        assert!(std::path::Path::new(&resolved).is_file());
+    }
+
+    #[test]
+    fn enriched_path_includes_fallback_dir() {
+        let path = enriched_path();
+        let dirs: Vec<_> = std::env::split_paths(&path).collect();
+        assert!(
+            dirs.contains(&PathBuf::from("/usr/local/bin")),
+            "enriched PATH must include the fallback bin dirs"
+        );
+    }
 
     #[test]
     fn key_bytes_are_terminal_sequences() {
